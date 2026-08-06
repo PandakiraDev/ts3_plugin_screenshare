@@ -231,3 +231,17 @@ test('rodzaj strumienia dociera do drugiego klienta', async () => {
   await settle()
   expect(box.streamStarted[0]).toMatchObject({ kind: 'camera' })
 })
+
+test('dwa równoczesne startStream różnych rodzajów — obie obietnice się rozwiązują', async () => {
+  // Regresja: pojedyncze pole `pendingStart` (bez podziału po `kind`) było
+  // nadpisywane drugim wywołaniem, zanim serwer zdążył odpowiedzieć na
+  // pierwsze. Potwierdzenie dla ekranu rozwiązywało wtedy obietnicę kamery,
+  // a obietnica ekranu wisiała już bez szans na rozwiązanie.
+  const client = await connect()
+  await client.join(ROOM, null)
+
+  const ekran = client.startStream('screen')
+  const kamera = client.startStream('camera')
+
+  await expect(Promise.all([ekran, kamera])).resolves.toEqual([undefined, undefined])
+})

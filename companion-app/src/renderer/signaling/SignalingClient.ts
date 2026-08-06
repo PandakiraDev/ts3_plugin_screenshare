@@ -41,12 +41,15 @@ export class SignalingClient {
 
   /**
    * Żądania czekające na odpowiedź serwera. Serwer nie numeruje wiadomości,
-   * więc rozstrzygamy je po typie: naraz może wisieć tylko jedno żądanie
-   * danego rodzaju, bo UI nie pozwala kliknąć dwa razy.
+   * więc join rozstrzygamy po typie — naraz wisi tylko jedno takie żądanie,
+   * bo UI pozwala dołączyć tylko raz. Start/stop strumienia rozstrzygamy
+   * dodatkowo po `kind`: ekran i kamera to niezależne zgłoszenia tej samej
+   * osoby i mogą czekać na odpowiedź jednocześnie — pojedyncze pole nadpisałoby
+   * wcześniejsze żądanie i jego obietnica nigdy by się nie rozstrzygnęła.
    */
   private pendingJoin: Pending | null = null
-  private pendingStart: Pending | null = null
-  private pendingStop: Pending | null = null
+  private readonly pendingStart = new Map<StreamKind, Pending>()
+  private readonly pendingStop = new Map<StreamKind, Pending>()
 
   private _peerId: string | null = null
 
@@ -105,14 +108,14 @@ export class SignalingClient {
   /** Zgłasza chęć nadawania danego rodzaju strumienia (ekran albo kamera). */
   startStream(kind: StreamKind): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.pendingStart = { resolve: resolve as never, reject }
+      this.pendingStart.set(kind, { resolve: resolve as never, reject })
       this.send({ type: 'start-stream', kind })
     })
   }
 
   stopStream(kind: StreamKind): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.pendingStop = { resolve: resolve as never, reject }
+      this.pendingStop.set(kind, { resolve: resolve as never, reject })
       this.send({ type: 'stop-stream', kind })
     })
   }
@@ -130,12 +133,39 @@ export class SignalingClient {
   }
 
   private failPending(err: Error): void {
-    for (const pending of [this.pendingJoin, this.pendingStart, this.pendingStop]) {
-      pending?.reject(err)
-    }
+    this.pendingJoin?.reject(err)
+    for (const pending of this.pendingStart.values()) pending.reject(err)
+    for (const pending of this.pendingStop.values()) pending.reject(err)
     this.pendingJoin = null
-    this.pendingStart = null
-    this.pendingStop = null
+    this.pendingStart.clear()
+    this.pendingStop.clear()
+  }
+
+  /**
+   * Wiadomość `error` nie niesie `kind` — to odrzucenie ramki, nie
+   * konkretnego strumienia — więc gdy naraz czeka kilka zgłoszeń (np. start
+   * ekranu i kamery), nie da się rozpoznać, którego dotyczy. Serwer i tak
+   * odpowiada w kolejności wysyłki, więc bierzemy najstarsze wciąż czekające
+   * żądanie. Zdejmujemy TYLKO to jedno — reszta może jeszcze dostać własne,
+   * prawidłowe potwierdzenie.
+   */
+  private takeOldestPending(): Pending | null {
+    if (this.pendingJoin) {
+      const pending = this.pendingJoin
+      this.pendingJoin = null
+      return pending
+    }
+    const startEntry = this.pendingStart.entries().next()
+    if (!startEntry.done) {
+      this.pendingStart.delete(startEntry.value[0])
+      return startEntry.value[1]
+    }
+    const stopEntry = this.pendingStop.entries().next()
+    if (!stopEntry.done) {
+      this.pendingStop.delete(stopEntry.value[0])
+      return stopEntry.value[1]
+    }
+    return null
   }
 
   private handle(raw: string): void {
@@ -173,12 +203,18 @@ export class SignalingClient {
         const peerId = message['peerId'] as string
         const kind = message['kind'] as StreamKind
         // Ta sama wiadomość jest potwierdzeniem dla zgłaszającego i zdarzeniem
-        // dla reszty pokoju. Rozwiazujemy zadanie, ale zdarzenie emitujemy TAK
-        // CZY OWAK: bez tego wlasne id nigdy nie trafia na liste nadajacych
-        // i nadajacy nie widzi ikony przy sobie samym.
-        if (peerId === this._peerId && this.pendingStart) {
-          this.pendingStart.resolve(undefined as never)
-          this.pendingStart = null
+        // dla reszty pokoju. Rozwiazujemy zadanie DOKLADNIE tego rodzaju co w
+        // wiadomości — ekran i kamera moga czekac na odpowiedz jednoczesnie,
+        // wiec bez dopasowania po kind potwierdzenie ekranu rozwiazywaloby
+        // obietnice kamery (i odwrotnie). Zdarzenie emitujemy TAK CZY OWAK:
+        // bez tego wlasne id nigdy nie trafia na liste nadajacych i nadajacy
+        // nie widzi ikony przy sobie samym.
+        if (peerId === this._peerId) {
+          const pending = this.pendingStart.get(kind)
+          if (pending) {
+            pending.resolve(undefined as never)
+            this.pendingStart.delete(kind)
+          }
         }
         this.emit('stream-started', { peerId, kind })
         return
@@ -186,9 +222,12 @@ export class SignalingClient {
       case 'stream-stopped': {
         const peerId = message['peerId'] as string
         const kind = message['kind'] as StreamKind
-        if (peerId === this._peerId && this.pendingStop) {
-          this.pendingStop.resolve(undefined as never)
-          this.pendingStop = null
+        if (peerId === this._peerId) {
+          const pending = this.pendingStop.get(kind)
+          if (pending) {
+            pending.resolve(undefined as never)
+            this.pendingStop.delete(kind)
+          }
         }
         this.emit('stream-stopped', { peerId, kind })
         return
@@ -198,14 +237,12 @@ export class SignalingClient {
         return
       case 'error': {
         const text = String(message['message'] ?? 'Nieznany błąd serwera')
-        // Błąd tuż po żądaniu to jego odrzucenie (np. "ktoś już udostępnia"),
-        // a nie ogólny błąd — inaczej UI nie wiedziałoby, że żądanie nie wyszło.
-        const pending = this.pendingJoin ?? this.pendingStart ?? this.pendingStop
+        // Błąd tuż po żądaniu to jego odrzucenie (np. "nie udostępniasz
+        // kamery"), a nie ogólny błąd — inaczej UI nie wiedziałoby, że
+        // żądanie nie wyszło.
+        const pending = this.takeOldestPending()
         if (pending) {
           pending.reject(new Error(text))
-          this.pendingJoin = null
-          this.pendingStart = null
-          this.pendingStop = null
           return
         }
         this.emit('error', text)
