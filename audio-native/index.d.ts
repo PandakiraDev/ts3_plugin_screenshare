@@ -9,6 +9,17 @@ export interface PcmFormat {
 export declare const FORMAT: PcmFormat
 
 /**
+ * Uchwyt okna (liczba z id `desktopCapturer`: `window:<HWND>:0`) na PID
+ * właściciela.
+ *
+ * Zwraca `0`, gdy okna nie ma. Wywołujący **musi** to sprawdzić:
+ * przechwytywanie z nieistniejącego PID-u nie daje błędu, tylko ciszę.
+ *
+ * @throws jeśli uchwyt nie jest liczbą
+ */
+export declare function pidForWindow(handle: number): number
+
+/**
  * Przechwytywanie dzwieku z jednego procesu i jego potomkow
  * (Windows 10 2004+, Process Loopback API).
  */

@@ -48,4 +48,8 @@ class AudioCapture {
   }
 }
 
-module.exports = { AudioCapture, FORMAT: native.FORMAT }
+module.exports = {
+  AudioCapture,
+  FORMAT: native.FORMAT,
+  pidForWindow: native.pidForWindow
+}

@@ -323,7 +323,35 @@ Napi::Object AudioCapture::Init(Napi::Env env, Napi::Object exports) {
     return exports;
 }
 
+/**
+ * Uchwyt okna -> PID wlasciciela.
+ *
+ * `desktopCapturer` w Electronie nadaje zrodlom id postaci "window:<HWND>:0",
+ * wiec ta liczba to gotowy uchwyt okna. Bez tego kroku nie da sie powiazac
+ * wybranego okna z procesem, ktorego dzwiek mamy przechwycic.
+ *
+ * Zwraca 0, gdy okno nie istnieje — wolajacy MUSI to sprawdzic, bo
+ * przechwytywanie z nieistniejacego PID-u nie daje bledu, tylko cisze.
+ */
+static Napi::Value PidForWindow(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "uchwyt okna musi byc liczba")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+
+    HWND okno = (HWND)(uintptr_t)info[0].As<Napi::Number>().Int64Value();
+    if (!IsWindow(okno)) return Napi::Number::New(env, 0);
+
+    DWORD pid = 0;
+    GetWindowThreadProcessId(okno, &pid);
+    return Napi::Number::New(env, pid);
+}
+
 static Napi::Object InitAll(Napi::Env env, Napi::Object exports) {
+    exports.Set("pidForWindow", Napi::Function::New(env, PidForWindow));
     return AudioCapture::Init(env, exports);
 }
 

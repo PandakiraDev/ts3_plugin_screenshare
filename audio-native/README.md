@@ -22,6 +22,15 @@ capture.stop()
 Pochodzi z C++, zeby renderer nie zgadywal czestotliwosci przy budowaniu
 `AudioBuffer`.
 
+PID bierze sie z wybranego okna:
+
+```js
+const { pidForWindow } = require('ts3-screenshare-audio')
+
+// desktopCapturer nadaje zrodlom id "window:<HWND>:0" — ta liczba to uchwyt.
+const pid = pidForWindow(12345)   // 0 = nie ma takiego okna
+```
+
 ## Budowanie i sprawdzanie
 
 ```bash
@@ -81,6 +90,16 @@ juz zakolejkowane w `ThreadSafeFunction` dojezdzaja **po** powrocie z `stop()`
 flage przed zatrzymaniem i resztki z kolejki trafiaja w pustke.
 
 Bez tego konsument dostawalby dzwiek po wylaczeniu udostepniania.
+
+### Nazwane eksporty z modulu CJS sa niepewne
+
+Main process laduje modul przez `await import()`. Node zgaduje wtedy nazwane
+eksporty CommonJS statycznym lekserem — i zrobil to **niekompletnie**:
+z trojki `AudioCapture` / `FORMAT` / `pidForWindow` rozpoznal dwa pierwsze,
+a trzeci zostawil wylacznie w `default`. Polowa modulu dzialala, a brak
+`pidForWindow` wyszedl dopiero w uruchomionej aplikacji.
+
+Dlatego `main/audio.ts` bierze `default`, a nie nazwane eksporty.
 
 ### N-API nie wymaga przebudowy pod Electrona
 

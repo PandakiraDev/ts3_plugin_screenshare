@@ -33,8 +33,8 @@ const api = {
     ipcRenderer.invoke(IPC_SET_CAPTURE_TARGET, target),
   getApiKey: (): Promise<string> => ipcRenderer.invoke(IPC_GET_API_KEY),
   setApiKey: (key: string): Promise<void> => ipcRenderer.invoke(IPC_SET_API_KEY, key),
-  startAppAudio: (pid: number): Promise<AppAudioFormat> =>
-    ipcRenderer.invoke(IPC_AUDIO_START, pid),
+  startAppAudio: (sourceId: string): Promise<AppAudioFormat> =>
+    ipcRenderer.invoke(IPC_AUDIO_START, sourceId),
   stopAppAudio: (): Promise<void> => ipcRenderer.invoke(IPC_AUDIO_STOP)
 }
 

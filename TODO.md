@@ -62,10 +62,34 @@ jądrowego. Discord robi to własnym modułem natywnym.
    z `MessageChannelMain`, port wędruje do renderera przez `window.postMessage`
    z preloada. Sprawdzone w wersji dev i **spakowanej**:
    `npm run e2e:audio` → 100 pakietów, 48 000 ramek na sekundę.
-3. Zamiana PCM na `MediaStreamTrack`: `AudioWorklet` →
-   `MediaStreamAudioDestinationNode` → ścieżka audio do WebRTC.
-4. Powiązanie wybranego okna z PID — `desktopCapturer` daje id źródła, nie PID,
-   więc potrzebne dodatkowe mapowanie przez WinAPI.
+3. ~~Zamiana PCM na `MediaStreamTrack`.~~ **ZROBIONE**, ale **inaczej niż tu
+   planowano**: nie `AudioWorklet`, tylko `MediaStreamTrackGenerator` +
+   `AudioData` (Insertable Streams). Sprawdzone sondą, że w Electronie 33.4.11
+   działa. Zysk: znaczniki czasu podajemy jawnie, więc synchronizacja z obrazem
+   jest nasza, a nie wynikiem tego, kiedy zdążyliśmy dosypać próbek. `AudioWorklet`
+   zostaje jako droga zapasowa (opisana w `renderer/env.d.ts`), gdyby API
+   zniknęło z przyszłego Chromium. `SharedArrayBuffer` i tak odpadał —
+   `crossOriginIsolated` jest `false`.
+4. ~~Powiązanie wybranego okna z PID.~~ **ZROBIONE** — `pidForWindow` w module
+   natywnym. Id źródła z `desktopCapturer` ma postać `window:<HWND>:0`, więc ta
+   liczba to gotowy uchwyt okna; PID bierze `GetWindowThreadProcessId`.
+
+**Stan: dźwięk z wybranej aplikacji działa.** Wybranie *okna* z zaznaczonym
+dźwiękiem daje ścieżkę audio z tylko tego procesu — TeamSpeak nie wchodzi już
+do miksu, więc rozmówca nie słyszy sam siebie. Sprawdzone w wersji dev
+i spakowanej (`npm run e2e:audio`): 264 pakiety PCM, 99 pakietów RTP po drugiej
+stronie połączenia.
+
+**Czego jeszcze nie sprawdziliśmy:**
+
+- **Odsłuchu uchem.** E2E dowodzi, że dane płyną, nie że brzmią poprawnie.
+  Trzeba raz przetestować we dwóch: czy słychać grę, czy nie ma echa z TS3
+  i czy dźwięk trzyma się obrazu przez dłuższy czas.
+- **Ścieżki przez interfejs.** Testy pokrywają moduły, a e2e wywołuje API
+  bezpośrednio. Samo klikanie w UI (wybór okna + zaznaczenie dźwięku) sprawdza
+  na razie tylko typecheck.
+- **Udostępnianie ekranu** zostaje na starym miksie systemowym — ekran nie
+  należy do żadnego procesu, więc echo z TS3 tam dalej będzie.
 
 **POTWIERDZONE, ze API dziala** — patrz `audio-native/` i pomiary w jego README.
 Proces grajacy: 476 032 niezerowych probek. Proces cichy w tym samym czasie: 0.

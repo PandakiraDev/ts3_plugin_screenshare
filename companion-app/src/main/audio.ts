@@ -1,6 +1,6 @@
 import { ipcMain, MessageChannelMain } from 'electron'
 import { IPC_AUDIO_PORT, IPC_AUDIO_START, IPC_AUDIO_STOP } from '@shared/ipc'
-import { toOwnBuffer, type AppAudioFormat } from '@shared/audio'
+import { toOwnBuffer, windowHandleFromSourceId, type AppAudioFormat } from '@shared/audio'
 
 /**
  * Dźwięk wybranej aplikacji — krok 2 z punktu 2 w TODO.
@@ -18,13 +18,25 @@ type NativeCapture = {
 type NativeModule = {
   AudioCapture: new (pid: number) => NativeCapture
   FORMAT: AppAudioFormat
+  pidForWindow: (handle: number) => number
 }
 
 let native: NativeModule | null = null
 
 async function loadNative(): Promise<NativeModule> {
   if (native) return native
-  native = (await import('ts3-screenshare-audio')) as unknown as NativeModule
+
+  /*
+   * Bierzemy `default`, a nie nazwane eksporty. Moduł jest CommonJS, więc przy
+   * `import()` Node zgaduje jego nazwane eksporty statycznym lekserem — i robi
+   * to niekompletnie: z trójki AudioCapture / FORMAT / pidForWindow rozpoznał
+   * dwa pierwsze, a trzeci zostawił tylko w `default`. Efekt był taki, że
+   * połowa modułu działała, a `pidForWindow` był `undefined` dopiero
+   * w działającej aplikacji.
+   */
+  const modul = await import('ts3-screenshare-audio')
+  const namespace = modul as unknown as { default?: NativeModule }
+  native = namespace.default ?? (modul as unknown as NativeModule)
   return native
 }
 
@@ -39,11 +51,23 @@ export function registerAppAudio(): void {
     port = null
   }
 
-  ipcMain.handle(IPC_AUDIO_START, async (event, pid: number): Promise<AppAudioFormat> => {
+  ipcMain.handle(IPC_AUDIO_START, async (event, sourceId: string): Promise<AppAudioFormat> => {
     // Drugi start bez stopu zostawiłby sierotę: wątek natywny bez odbiorcy.
     stop()
 
-    const { AudioCapture, FORMAT } = await loadNative()
+    const { AudioCapture, FORMAT, pidForWindow } = await loadNative()
+
+    // Renderer podaje id źródła, nie PID — mapowanie jest sprawą systemu.
+    const uchwyt = windowHandleFromSourceId(sourceId)
+    if (uchwyt === null) {
+      throw new Error('Dźwięk z jednej aplikacji działa dla okna, nie dla całego ekranu')
+    }
+    const pid = pidForWindow(uchwyt)
+    // Zero znaczy "nie ma takiego okna". Nie wolno tego przepuścić: loopback
+    // dla nieistniejącego PID-u nie zgłasza błędu, tylko podaje ciszę.
+    if (pid === 0) {
+      throw new Error('Nie znalazłem procesu tego okna — mogło się zamknąć')
+    }
     const kanal = new MessageChannelMain()
     port = kanal.port1
 

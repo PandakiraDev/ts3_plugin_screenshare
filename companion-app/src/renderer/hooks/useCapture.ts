@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CaptureSource, QualitySettings } from '@shared/types'
 import { RESOLUTION_DIMENSIONS } from '@shared/types'
+import { windowHandleFromSourceId } from '@shared/audio'
+import { createAppAudioTrack, waitForAudioPort } from '../audio/appAudioTrack'
 
 /**
  * Górny limit dla presetu 'source'. Electron/Chromium potrzebuje jawnego maxWidth/
@@ -51,11 +53,17 @@ export function useCapture(
   // niezależnie od tego, czy setState zdążył się przepropagować.
   const activeStream = useRef<MediaStream | null>(null)
 
+  // Dźwięk z jednej aplikacji żyje poza MediaStreamem — trzeba go zatrzymać
+  // osobno, inaczej wątek natywny zostaje po zmianie źródła.
+  const stopAppAudio = useRef<(() => void) | null>(null)
+
   const sourceId = source?.id ?? null
   const { resolution, fps, shareAudio } = quality
 
   useEffect(() => {
     const stopActive = (): void => {
+      stopAppAudio.current?.()
+      stopAppAudio.current = null
       activeStream.current?.getTracks().forEach((track) => track.stop())
       activeStream.current = null
     }
@@ -84,6 +92,44 @@ export function useCapture(
     const pobierz = async (): Promise<MediaStream> => {
       // Bitrate nie dotyczy capture — trafia dopiero do RTCRtpSender.
       const jakosc = { resolution, fps, shareAudio, bitrateKbps: 0 }
+
+      /*
+       * Okno udostępniamy z dźwiękiem TYLKO tej aplikacji. To cała różnica
+       * względem `audio: 'loopback'`, przez które do streamu szedł miks całego
+       * systemu — łącznie z TeamSpeakiem, więc rozmówca słyszał sam siebie.
+       *
+       * Ekran nie należy do żadnego procesu, więc dla niego zostaje stara
+       * droga: miks systemowy albo nic.
+       */
+      if (shareAudio && windowHandleFromSourceId(sourceId) !== null) {
+        await window.companion.setCaptureTarget({ sourceId, withAudio: false })
+        const mediaStream = await navigator.mediaDevices.getDisplayMedia(
+          buildConstraints({ ...jakosc, shareAudio: false })
+        )
+        try {
+          // Nasłuch przed startAppAudio — port przychodzi w trakcie tamtego
+          // wywołania.
+          const oczekiwanie = waitForAudioPort()
+          const format = await window.companion.startAppAudio(sourceId)
+          const audio = createAppAudioTrack(await oczekiwanie, format)
+          mediaStream.addTrack(audio.track)
+          stopAppAudio.current = () => {
+            audio.stop()
+            void window.companion.stopAppAudio()
+          }
+        } catch (err: unknown) {
+          // Sam obraz jest lepszy niż nic — tak samo jak przy dźwięku
+          // systemowym. Powód pokazujemy wprost.
+          void window.companion.stopAppAudio()
+          if (!cancelled) {
+            setAudioWarning(
+              'Nie udało się przechwycić dźwięku tej aplikacji: ' +
+                (err instanceof Error ? err.message : String(err))
+            )
+          }
+        }
+        return mediaStream
+      }
 
       // Main process musi wiedziec, ktore zrodlo wybrano, ZANIM zawolamy
       // getDisplayMedia — handler odpala sie synchronicznie z tym wywolaniem.

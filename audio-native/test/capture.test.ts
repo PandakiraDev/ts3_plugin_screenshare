@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { AudioCapture, FORMAT } from '../index.js'
+import { AudioCapture, FORMAT, pidForWindow } from '../index.js'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -15,6 +15,19 @@ test('odmawia PID-u, ktory nie jest liczba', () => {
 // same zera). Cicha awaria jest gorsza od glosnej, wiec sprawdzamy sami.
 test('odmawia PID-u nieistniejacego procesu', () => {
   expect(() => new AudioCapture(999999)).toThrow(/proces/i)
+})
+
+// --- mapowanie okna na proces ---------------------------------------------
+
+test('pidForWindow odmawia uchwytu, ktory nie jest liczba', () => {
+  expect(() => pidForWindow('okno' as never)).toThrow(/uchwyt/i)
+})
+
+// Zamkniete albo zmyslone okno musi dac 0, a nie przypadkowy PID — inaczej
+// przechwytywalibysmy dzwiek losowej aplikacji.
+test('nieistniejace okno daje 0', () => {
+  expect(pidForWindow(0)).toBe(0)
+  expect(pidForWindow(123456789)).toBe(0)
 })
 
 // Proces bez wlasnej sesji audio TEZ dostaje ramki — strumien loopback chodzi
