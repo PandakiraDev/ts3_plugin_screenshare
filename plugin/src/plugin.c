@@ -21,9 +21,21 @@
 #include "teamspeak/public_errors.h"
 #include "ts3_functions.h"
 
-/* Musi zgadzać się z wersją oczekiwaną przez klienta, inaczej plugin się nie
- * załaduje. Wartość wzięta z plugin.c w oficjalnym SDK. */
-#define PLUGIN_API_VERSION 26
+/*
+ * Klient akceptuje ZAKRES wersji API i odrzuca plugin spoza niego. SDK
+ * deklaruje 26, ale to wersja z najnowszego klienta — starsze przyjmują
+ * najwyżej 25 i wtedy plugin nie ładuje się w ogóle:
+ *
+ *   "Api version is not compatible: 26 (minimum: 23, aktualne: 25)"
+ *
+ * Dlatego celowo deklarujemy 25, a nie 26: mieści się w zakresie zarówno
+ * starszych klientów, jak i 3.6.2. Jest to bezpieczne, bo `TS3Functions`
+ * rozrasta się przez dopisywanie na końcu, a plugin używa wyłącznie funkcji
+ * obecnych od dawna (getPluginPath, getClientID, getServerVariableAsString,
+ * getClientVariableAsString, logMessage, printMessageToCurrentTab, freeMemory).
+ * Podnoszenie tej wartości bez potrzeby tylko odcina użytkowników.
+ */
+#define PLUGIN_API_VERSION 25
 
 /*
  * Bez tego MSVC buduje DLL, ale NIE eksportuje nic — klient nie znajduje
