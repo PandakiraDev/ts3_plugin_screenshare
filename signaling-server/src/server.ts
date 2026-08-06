@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { parseClientMessage, type ServerMessage } from './protocol.js'
 
@@ -26,7 +27,28 @@ function send(socket: WebSocket, message: ServerMessage): void {
 export async function startSignalingServer(
   options: SignalingServerOptions
 ): Promise<SignalingServer> {
-  const wss = new WebSocketServer({ port: options.port })
+  /*
+   * Serwer HTTP obok WebSocketa, na tym samym porcie. Potrzebny wyłącznie do
+   * health checku hostingu: sam WebSocketServer odpowiada na zwykłe GET
+   * kodem 426 (Upgrade Required), a Render/Railway czekają na 200 i po
+   * niedoczekaniu ubijają deploy. Przy okazji daje adres do pingowania,
+   * gdyby trzeba było powstrzymać usypianie darmowego planu.
+   */
+  const http = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+    res.end('ts3-screenshare signaling: ok')
+  })
+
+  const wss = new WebSocketServer({ server: http })
+
+  /*
+   * ws przekazuje dalej błędy serwera HTTP. Bez tego nasłuchu nieudany start
+   * (zajęty port) leci jako nieobsłużone zdarzenie i ubija cały proces —
+   * zanim zdąży zadziałać obsługa przy http.listen() niżej.
+   */
+  wss.on('error', () => {
+    /* obsługiwane na serwerze HTTP */
+  })
   /** peerId -> Peer. Pokój wyciągamy filtrując po roomId. */
   const peers = new Map<string, Peer>()
   /** roomId -> peerId nadającego. Brak wpisu = nikt nie nadaje. */
@@ -178,8 +200,9 @@ export async function startSignalingServer(
   // jako nieobsłużone zdarzenie: proces wywala stack trace, a `startSignalingServer`
   // nigdy się nie rozwiązuje.
   await new Promise<void>((resolve, reject) => {
-    wss.once('listening', () => resolve())
-    wss.once('error', (err: NodeJS.ErrnoException) => {
+    // Handlery PRZED listen(), żeby nie przegapić błędu zgłoszonego od razu.
+    http.once('listening', () => resolve())
+    http.once('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         reject(
           new Error(
@@ -191,9 +214,10 @@ export async function startSignalingServer(
       }
       reject(err)
     })
+    http.listen(options.port)
   })
 
-  const address = wss.address()
+  const address = http.address()
   if (address === null || typeof address === 'string') {
     throw new Error('Serwer nie zwrócił portu TCP')
   }
@@ -203,7 +227,7 @@ export async function startSignalingServer(
     close: () =>
       new Promise<void>((resolve, reject) => {
         for (const peer of peers.values()) peer.socket.terminate()
-        wss.close((err) => (err ? reject(err) : resolve()))
+        wss.close(() => http.close((err) => (err ? reject(err) : resolve())))
       })
   }
 }
