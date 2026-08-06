@@ -70,6 +70,19 @@ będzie w PATH. Skrypt sam to sprawdza i mówi, co zrobić.
 Potem skopiuj `build\ts3_screenshare.dll` do `%APPDATA%\TS3Client\plugins\`
 i w kliencie: Narzędzia → Opcje → Wtyczki → Przeładuj.
 
+## Diagnostyka u innych osob
+
+Gdy u kogoś wtyczka nie pojawia się na liście, wyślij mu **oba** pliki
+(`diagnostyka.bat` i `diagnostyka.ps1`) do jednego katalogu i poproś o dwuklik
+na `.bat`. Wynik wyląduje w `ts3-diagnostyka.txt` obok skryptu.
+
+Skrypt niczego nie zmienia. Sprawdza: czy klient jest uruchomiony, jego wersję
+i architekturę (32-bit odrzuci naszą wtyczkę bez komunikatu), oba możliwe
+katalogi pluginów (`%APPDATA%` oraz obok `.exe` — tryb portable) i wpisy w logu.
+
+Dlaczego `.bat`, a nie samo `.ps1`: dwuklik w `.ps1` domyślnie otwiera Notatnik,
+a nawet po uruchomieniu konsola znika natychmiast po zakończeniu.
+
 ## SDK
 
 `sdk/` to płytki klon [oficjalnego repo](https://github.com/teamspeak/ts3client-pluginsdk),

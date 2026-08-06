@@ -12,3 +12,4 @@ plugin/sdk/
 
 # Instalator i DLL kopiowany do build/ przy pakowaniu
 companion-app/build/*.dll
+plugin/ts3-diagnostyka.txt
