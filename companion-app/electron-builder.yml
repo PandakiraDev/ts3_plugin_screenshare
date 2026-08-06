@@ -1,0 +1,26 @@
+appId: dev.konrad.ts3screenshare
+productName: TS3 Screen Share
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+# Wynik to katalog przenośny (release/win-unpacked), nie instalator.
+# Plugin uruchamia konkretny plik przez CreateProcess, więc aplikacja ma po
+# prostu leżeć w plugins\ts3-screenshare\ — NSIS byłby tu obejściem.
+# Instalator (plugin + app w jednym) dojdzie jako osobny krok.
+win:
+  target:
+    - dir
+  # Wyłącza etap podpisywania i edycji zasobów .exe. electron-builder ściąga
+  # do niego paczkę winCodeSign z symlinkami macOS, których Windows nie
+  # rozpakuje bez trybu dewelopera — a podpisu i tak nie mamy.
+  signAndEditExecutable: false
+
+# Bez podpisu kodu: nie mamy certyfikatu, a electron-builder domyślnie
+# próbowałby podpisać i przerwał build.
+forceCodeSigning: false

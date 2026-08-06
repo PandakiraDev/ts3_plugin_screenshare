@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+release/
+build/
+.tmp/
+*.log
+.DS_Store
+
+# SDK TeamSpeaka klonujemy osobno (patrz plugin/README.md)
+plugin/sdk/

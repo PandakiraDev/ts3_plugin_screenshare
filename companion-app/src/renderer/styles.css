@@ -1,0 +1,695 @@
+:root {
+  --bg: #1e1f22;
+  --bg-raised: #2b2d31;
+  --bg-input: #1e1f22;
+  --border: #3f4147;
+  --text: #dbdee1;
+  --text-muted: #949ba4;
+  --accent: #5865f2;
+  --accent-hover: #4752c4;
+  --danger: #da373c;
+  --danger-hover: #a12829;
+  --radius: 8px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* ---------- layout ---------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  flex-shrink: 0;
+}
+
+.app__title {
+  font-size: 15px;
+}
+
+.app__stage-tag {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.app__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.app__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 20px;
+  gap: 20px;
+}
+
+/* ---------- source grid ---------- */
+
+.source-grid__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.source-grid__header h2 {
+  font-size: 16px;
+}
+
+.source-grid__section {
+  margin-bottom: 20px;
+}
+
+.source-grid__section-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.source-grid__count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+}
+
+.source-grid__items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  /* Każdy kafelek ma własną wysokość — rozciągnięty (zaznaczony) nie ciągnie
+     za sobą sąsiadów z tego samego wiersza. */
+  align-items: start;
+}
+
+.source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Bez tego element gridu nie kurczy się poniżej swojej treści i długie
+     tytuły okien rozpychają kafelek zamiast się skracać. */
+  min-width: 0;
+  /* Twarda gwarancja: cokolwiek by się stało z układem tekstu, nic nie
+     wyrenderuje się poza obrysem kafelka. */
+  overflow: hidden;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.source-card:hover {
+  background: #35373c;
+}
+
+.source-card--selected {
+  border-color: var(--accent);
+}
+
+.source-card__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 4px;
+  /* Czarne tło wypełnia kafelek tam, gdzie miniaturka go nie zakrywa
+     (pionowe monitory, wąskie okna) — jak letterbox w odtwarzaczu. */
+  background: #000;
+  overflow: hidden;
+}
+
+/* 'contain', żeby zawsze było widać CAŁE źródło. Pionowy ekran pokazuje się
+   w całości jako pionowy kadr, a resztę kafelka wypełnia czarne tło. */
+.source-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.source-card__thumb-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.source-card__label {
+  /* Grid z minmax(0, 1fr) skraca tekst pewniej niż flex — kolumna nie może
+     urosnąć ponad przydzieloną szerokość, niezależnie od treści. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.source-card__label--with-icon {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+/* Przy zawiniętym tytule ikona trzyma się pierwszej linijki, nie środka bloku. */
+.source-card--selected .source-card__label {
+  align-items: flex-start;
+}
+
+.source-card__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.source-card__name {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Zaznaczony kafelek pokazuje pełny tytuł — zawija się i rozciąga kartę. */
+.source-card--selected .source-card__name {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- preview ---------- */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
+  /* .app__main to kolumnowy flex — bez tego podgląd jest ściskany przez grid
+     źródeł do kilku pikseli wysokości (wąski pasek). Zamiast tego trzyma
+     swoją wysokość, a przewija się cały panel. */
+  flex-shrink: 0;
+}
+
+.preview--empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  border-style: dashed;
+  background: transparent;
+}
+
+.preview__placeholder {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.preview__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.preview__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #23a55a;
+  flex-shrink: 0;
+}
+
+.preview__name {
+  /* Ta sama pułapka co w kafelku: bez min-width element flexowy nie zejdzie
+     poniżej długości tytułu i rozpycha nagłówek. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.preview__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Stała scena 16:9 zamiast wysokości wyliczanej z wideo: dopóki nie przyjdą
+   metadane, element wideo nie ma wymiarów i podgląd potrafił się zapaść. */
+.preview__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 260px;
+  max-height: 60vh;
+  background: #000;
+}
+
+/* Wideo wypełnia scenę, ale zawsze w całości — pionowy ekran dostaje
+   czarne pasy po bokach, tak samo jak miniaturka w kafelku. */
+.preview__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.preview__spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text-muted);
+}
+
+.badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- settings ---------- */
+
+.settings {
+  width: 260px;
+  flex-shrink: 0;
+  padding: 20px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow-y: auto;
+}
+
+.settings__title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.settings__field {
+  margin-bottom: 20px;
+}
+
+.settings__field--disabled {
+  opacity: 0.55;
+}
+
+.settings__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settings__select,
+.settings__input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings__select:focus,
+.settings__input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.settings__hint,
+.settings__note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+
+.segmented__option {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented__option:hover {
+  color: var(--text);
+}
+
+.segmented__option--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ---------- shared bits ---------- */
+
+.btn {
+  padding: 7px 14px;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn--ghost {
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: #35373c;
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn--danger:hover {
+  background: var(--danger-hover);
+}
+
+.notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.notice--error {
+  background: rgba(218, 55, 60, 0.12);
+  border: 1px solid rgba(218, 55, 60, 0.4);
+  color: #f5b1b3;
+}
+
+/* ---------- pasek udostępniania (tryb stream) ---------- */
+
+.sharebar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: #232428;
+  flex-shrink: 0;
+}
+
+.sharebar__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sharebar__hint {
+  color: var(--text-muted);
+}
+
+.sharebar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #23a55a;
+  flex-shrink: 0;
+}
+
+.sharebar__error {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+/* ---------- widok widza ---------- */
+
+.viewer {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+}
+
+.viewer__stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius);
+  background: #000;
+  overflow: hidden;
+}
+
+.viewer__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.viewer__waiting {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+/* ---------- lobby ---------- */
+
+.app__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.viewer__badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--text);
+  font-size: 12px;
+}
+
+
+/* ---------- panel uczestników ---------- */
+
+.lobby {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lobby .viewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.peers {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow-y: auto;
+  transition: width 0.15s ease;
+}
+
+/* Zwinięty panel zostawia wąski pasek z licznikiem — lista nie znika bez śladu. */
+.peers--collapsed {
+  width: 52px;
+  padding: 12px 8px;
+  align-items: center;
+}
+
+.peers__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.peers__title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.peers__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.peers__toggle:hover {
+  color: var(--text);
+  background: #35373c;
+}
+
+.peers__count-badge {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.peers__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.peers__item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.peers__item--streaming {
+  background: rgba(88, 101, 242, 0.14);
+}
+
+.peers__icon {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.peers__item--streaming .peers__icon {
+  color: var(--accent);
+}
+
+.peers__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.peers__you {
+  color: var(--text-muted);
+}

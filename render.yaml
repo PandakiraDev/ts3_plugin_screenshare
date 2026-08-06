@@ -1,0 +1,14 @@
+# Blueprint dla Render. Wystarczy wskazać to repo — reszta konfiguruje się sama.
+services:
+  - type: web
+    name: ts3-screenshare-signaling
+    runtime: node
+    plan: free
+    # Serwer siedzi w podkatalogu, a nie w korzeniu repo.
+    rootDir: signaling-server
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

@@ -1,0 +1,6 @@
+sdk/
+build/
+*.dll
+*.obj
+*.lib
+*.exp
