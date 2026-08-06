@@ -46,13 +46,16 @@ export type ServerMessage =
       peerId: string
       displayName: string
       peers: PeerInfo[]
-      /** Wszyscy aktualnie nadający w pokoju. Pusta lista = nikt nie nadaje. */
-      streamers: string[]
+      /**
+       * Wszystkie aktualnie nadawane strumienie w pokoju — ekran i kamera tej
+       * samej osoby to dwa osobne wpisy. Pusta lista = nikt nie nadaje.
+       */
+      streams: StreamRef[]
     }
   | { type: 'peer-joined'; peerId: string; displayName: string }
   | { type: 'peer-left'; peerId: string }
-  | { type: 'stream-started'; peerId: string }
-  | { type: 'stream-stopped'; peerId: string }
+  | { type: 'stream-started'; peerId: string; kind: StreamKind }
+  | { type: 'stream-stopped'; peerId: string; kind: StreamKind }
   | { type: 'signal'; from: string; payload: unknown }
   | { type: 'error'; message: string }
 
@@ -68,10 +71,16 @@ export type ServerMessage =
  */
 const ROOM_ID_PATTERN = /^[0-9a-f]{64}$/
 
-const STREAM_KINDS: readonly string[] = ['screen', 'camera']
+// Typ StreamKind (nie string[]) — literówka w tej tablicy ma być błędem
+// kompilacji, a nie cichą zmianą tego, jakie rodzaje strumienia przechodzą.
+const STREAM_KINDS: readonly StreamKind[] = ['screen', 'camera']
 
 function isStreamKind(value: unknown): value is StreamKind {
-  return typeof value === 'string' && STREAM_KINDS.includes(value)
+  // Rzutowanie na readonly string[] tylko tutaj: sprawdzamy nieznany string
+  // wejściowy, więc .includes musi przyjąć string, nie StreamKind. Sama
+  // tablica STREAM_KINDS zostaje otypowana wąsko, żeby literówka w niej była
+  // błędem kompilacji.
+  return typeof value === 'string' && (STREAM_KINDS as readonly string[]).includes(value)
 }
 
 /**

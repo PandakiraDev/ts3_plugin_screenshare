@@ -124,5 +124,5 @@ test('poprawny rodzaj strumienia przechodzi', async () => {
 
   client.send({ type: 'start-stream', kind: 'camera' })
 
-  expect(await client.next()).toEqual({ type: 'stream-started', peerId })
+  expect(await client.next()).toEqual({ type: 'stream-started', peerId, kind: 'camera' })
 })

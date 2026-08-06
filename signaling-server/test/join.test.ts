@@ -37,7 +37,7 @@ test('pierwszy peer dostaje swoje id, pusty pokój i pustą listę nadających',
   if (message.type !== 'joined') throw new Error('zły typ')
   expect(message.peerId).toBeTypeOf('string')
   expect(message.peers).toEqual([])
-  expect(message.streamers).toEqual([])
+  expect(message.streams).toEqual([])
 })
 
 test('drugi peer widzi pierwszego', async () => {
@@ -64,7 +64,7 @@ test('dołączający w trakcie transmisji od razu wie, kto nadaje', async () => 
 
   const message = await pozny.next()
   if (message.type !== 'joined') throw new Error('zły typ')
-  expect(message.streamers).toEqual([streamerId])
+  expect(message.streams).toEqual([{ peerId: streamerId, kind: 'screen' }])
 })
 
 test('obecni dostają powiadomienie o nowym peerze', async () => {
