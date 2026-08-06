@@ -1,11 +1,18 @@
 import { deriveRoomId } from './room.js'
 
 /**
- * Docelowy adres serwera sygnalizacyjnego — jeden, utrzymywany centralnie.
+ * Adres serwera sygnalizacyjnego — jeden, utrzymywany centralnie (Render).
  * Użytkownik końcowy nic nie stawia i nic nie wpisuje; `--signaling` służy
  * wyłącznie do testów lokalnych.
+ *
+ * Musi być `wss://`, nie `ws://`: Render terminuje TLS i odrzuca połączenia
+ * nieszyfrowane.
+ *
+ * Uwaga na darmowy plan: usługa usypia po ~15 minutach bezczynności, więc
+ * pierwsze wejście po przerwie potrafi trwać ~50 s. Dlatego UI pokazuje
+ * "Łączenie z kanałem…" zamiast od razu błędu.
  */
-export const DEFAULT_SIGNALING_URL = 'ws://127.0.0.1:8080'
+export const DEFAULT_SIGNALING_URL = 'wss://ts3-screenshare-signaling.onrender.com'
 
 /**
  * `standalone` = uruchomienie bez pluginu: sam picker i lokalny podgląd.
