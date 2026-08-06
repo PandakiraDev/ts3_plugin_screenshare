@@ -8,6 +8,16 @@ directories:
 files:
   - out/**/*
   - package.json
+  # node-addon-api to same naglowki C++, potrzebne wylacznie przy kompilacji
+  # modulu natywnego. npm i tak wciaga go do kopii zaleznosci — w paczce jest
+  # bezuzyteczny.
+  - '!node_modules/ts3-screenshare-audio/node_modules/**'
+
+# Bibliotek natywnych nie da sie zaladowac z wnetrza archiwum asar — Windows
+# musi zobaczyc prawdziwy plik na dysku. Electron sam przekierowuje sciezke
+# do app.asar.unpacked.
+asarUnpack:
+  - '**/*.node'
 
 # Wynik to katalog przenośny (release/win-unpacked), nie instalator.
 # Plugin uruchamia konkretny plik przez CreateProcess, więc aplikacja ma po

@@ -10,6 +10,7 @@ import {
 } from '@shared/ipc'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
+import { registerAppAudio } from './audio'
 
 /**
  * Argumenty czytamy raz przy starcie. W trybie deweloperskim electron-vite
@@ -161,6 +162,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_SET_API_KEY, (_event, key: string) => {
     writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
+  registerAppAudio()
 
   /*
    * Jedyna droga do dźwięku systemowego na Windows. Stare constrainty

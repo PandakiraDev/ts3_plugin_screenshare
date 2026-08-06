@@ -87,11 +87,22 @@ Bez tego konsument dostawalby dzwiek po wylaczeniu udostepniania.
 Ten sam `.node` zbudowany dla Node 22 laduje sie w Electronie 33.4.11
 (Node 20.18.3) i dziala. Zadnego `electron-rebuild`.
 
+## Jak uzywa tego companion-app
+
+Zalezność `file:../audio-native` z `install-links=true` — czyli prawdziwa kopia
+w `node_modules`, nie symlink (electron-builder nie pakuje niczego spoza
+katalogu projektu). Szczegoly i pulapka ze starzejaca sie kopia: `../TODO.md`.
+
+Sprawdzian calej drogi do renderera, takze w wersji spakowanej:
+
+```bash
+cd ../companion-app && npm run e2e:audio
+```
+
 ## Co dalej
 
-Kroki 2-4 z `../TODO.md`: przekazanie PCM do renderera, zamiana na
-`MediaStreamTrack` (najwieksze ryzyko — opoznienie i synchronizacja z obrazem)
-oraz mapowanie wybranego okna na PID.
+Kroki 3-4 z `../TODO.md`: zamiana PCM na `MediaStreamTrack` (najwieksze ryzyko
+— opoznienie i synchronizacja z obrazem) oraz mapowanie wybranego okna na PID.
 
 `probe.cpp` zostaje jako dowod i najprostsze narzedzie diagnostyczne:
 

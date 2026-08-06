@@ -56,9 +56,12 @@ jądrowego. Discord robi to własnym modułem natywnym.
 **Co trzeba zbudować:**
 
 1. ~~Natywny dodatek Node (C++/N-API) z WASAPI process loopback — przyjmuje PID,
-   zwraca strumień PCM.~~ **ZROBIONE** — `audio-native/`, 8 testów + sprawdzian
+   zwraca strumień PCM.~~ **ZROBIONE** — `audio-native/`, 9 testów + sprawdzian
    w Electronie. Ten sam `.node` działa w Node i w Electronie bez przebudowy.
-2. Przekazanie PCM z main process do renderera.
+2. ~~Przekazanie PCM z main process do renderera.~~ **ZROBIONE** — `MessagePort`
+   z `MessageChannelMain`, port wędruje do renderera przez `window.postMessage`
+   z preloada. Sprawdzone w wersji dev i **spakowanej**:
+   `npm run e2e:audio` → 100 pakietów, 48 000 ramek na sekundę.
 3. Zamiana PCM na `MediaStreamTrack`: `AudioWorklet` →
    `MediaStreamAudioDestinationNode` → ścieżka audio do WebRTC.
 4. Powiązanie wybranego okna z PID — `desktopCapturer` daje id źródła, nie PID,
@@ -72,6 +75,14 @@ Czyli przechwytywanie jest realnie per-proces.
 loopback i podaje ciszę w nieskończoność. Złe mapowanie okna na PID objawi się
 więc niemym streamem, a nie wyjątkiem. Konstruktor `AudioCapture` sam sprawdza
 proces przez `OpenProcess`, ale mapowanie i tak trzeba zweryfikować osobno.
+
+**Pakowanie modułu natywnego** (ustalone przy kroku 2, żeby nie odkrywać tego
+przy wydaniu): `file:` daje symlink poza katalog projektu, a electron-builder
+odmawia pakowania czegokolwiek spoza niego. Stąd `install-links=true`
+w `companion-app/.npmrc` (prawdziwa kopia) i `asarUnpack` na `**/*.node`
+(bibliotek natywnych nie da się wczytać z wnętrza asara). Kopia nie odświeża
+się sama po przebudowaniu modułu i `npm install --force` tego nie naprawia —
+robi to `npm run sync:native`, wpięty w `package` i `installer`.
 
 **Szacunek:** to największy pojedynczy kawałek pracy w tym projekcie — natywna
 kompilacja, osobne buildy pod architektury, sporo miejsc na błędy trudne do
