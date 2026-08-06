@@ -89,5 +89,39 @@ if ($log) {
     Write-Output "    Brak logow w %APPDATA%\TS3Client\logs"
 }
 
+# --- 5. Gdzie NAPRAWDE wyladowaly pliki -----------------------------------
+# Instalator jest per-user. Uruchomiony "jako administrator" zapisuje do
+# profilu administratora, a nie zalogowanego uzytkownika - wtedy pliki
+# istnieja, tylko nie tam, gdzie szuka ich TeamSpeak.
+Write-Output ""
+Write-Output "[5] Szukam plikow we wszystkich profilach:"
+Write-Output "    zalogowany uzytkownik: $env:USERNAME"
+$znalezione = @()
+foreach ($profil in (Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue)) {
+    $p1 = Join-Path $profil.FullName "AppData\Roaming\TS3Client\plugins\ts3_screenshare.dll"
+    if (Test-Path $p1) { $znalezione += $p1 }
+    $p2 = Join-Path $profil.FullName "AppData\Local\Programs\TS3 Screen Share\TS3 Screen Share.exe"
+    if (Test-Path $p2) { $znalezione += $p2 }
+}
+if ($znalezione.Count -gt 0) {
+    foreach ($z in $znalezione) { Write-Output "    ZNALEZIONO: $z" }
+} else {
+    Write-Output "    Nic nie znaleziono w zadnym profilu."
+}
+
+# --- 6. Czy instalator sie dokonczyl --------------------------------------
+Write-Output ""
+Write-Output "[6] Wpis deinstalacji:"
+$found = $false
+foreach ($k in @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")) {
+    $wpisy = Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*TS3 Screen Share*" }
+    foreach ($w in $wpisy) {
+        $found = $true
+        Write-Output "    $($w.DisplayName)"
+        Write-Output "      lokalizacja: $($w.InstallLocation)"
+    }
+}
+if (-not $found) { Write-Output "    BRAK wpisu - instalator nie zostal ukonczony." }
+
 Write-Output ""
 Write-Output "=== koniec ==="
