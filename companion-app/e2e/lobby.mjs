@@ -174,6 +174,37 @@ try {
   console.log('L6 siatka u A :', await A.evaluate(SIATKA))
   console.log('L6 panel u C  :', await C.evaluate(panel))
 
+  // --- L6b: KAZDY kafelek musi miec obraz, nie tylko istniec.
+  // To jest scenariusz zgloszony przez uzytkownikow: przy wzajemnym nadawaniu
+  // kafelek drugiej osoby byl czarny, bo kandydaci ICE szli w zle polaczenie.
+  const KLATKI = `(async () => {
+    const out = [];
+    for (const el of document.querySelectorAll('.tile')) {
+      const v = el.querySelector('.tile__video');
+      const nazwa = el.querySelector('.tile__name').textContent.trim();
+      if (!v || !v.videoWidth) { out.push({ nazwa, obraz: 'BRAK' }); continue; }
+      const c = document.createElement('canvas'); c.width=120; c.height=68;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      const h = new Set();
+      for (let i=0;i<8;i++) {
+        ctx.drawImage(v,0,0,120,68);
+        const d = ctx.getImageData(0,0,120,68).data;
+        let x=0; for (let q=0;q<d.length;q+=11) x=(x*31+d[q])>>>0;
+        h.add(x);
+        await new Promise(r=>setTimeout(r,100));
+      }
+      // Czarny ekran = jedna, stala klatka o zerowej jasnosci
+      let suma=0; const d=ctx.getImageData(0,0,120,68).data;
+      for (let q=0;q<d.length;q+=4) suma+=d[q];
+      out.push({ nazwa, obraz: v.videoWidth+'x'+v.videoHeight,
+        unikalnych: h.size, czarny: suma === 0 });
+    }
+    return JSON.stringify(out);
+  })()`
+  console.log('L6b klatki u C:', await C.evaluate(KLATKI))
+  console.log('L6b klatki u A:', await A.evaluate(KLATKI))
+  console.log('L6b klatki u B:', await B.evaluate(KLATKI))
+
   // --- L7: jeden konczy, drugi ma nadawac dalej
   await A.evaluate(`[...document.querySelectorAll('button')].find(x=>/Zakończ udostępnianie/.test(x.textContent)).click()`)
   await sleep(5000)

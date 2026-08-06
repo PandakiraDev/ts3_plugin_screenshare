@@ -20,10 +20,17 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 }
 
+/**
+ * `owner` = peerId tego, kto nadaje obraz na danym połączeniu. Bez tego pola
+ * routing jest niejednoznaczny, gdy DWIE osoby nadają do siebie nawzajem:
+ * istnieją wtedy dwa połączenia z tym samym `from`, jedno w każdą stronę,
+ * a kandydat ICE trafiał zawsze do wychodzącego. Połączenie przychodzące
+ * nigdy się nie zestawiało i widz miał czarny ekran.
+ */
 type SignalPayload =
-  | { kind: 'offer'; sdp: string }
-  | { kind: 'answer'; sdp: string }
-  | { kind: 'ice'; candidate: RTCIceCandidateInit }
+  | { kind: 'offer'; sdp: string; owner: string }
+  | { kind: 'answer'; sdp: string; owner: string }
+  | { kind: 'ice'; candidate: RTCIceCandidateInit; owner: string }
 
 /**
  * Kandydaci ICE potrafią dotrzeć zanim ustawimy zdalny opis sesji —
@@ -87,6 +94,8 @@ export class LobbySession {
   private readonly incomingBuffers = new Map<string, CandidateBuffer>()
 
   private readonly streamerIds = new Set<string>()
+  /** Nasz peerId — po nim rozpoznajemy, czy sygnał dotyczy naszego nadawania. */
+  private myPeerId = ''
   private localStream: MediaStream | null = null
   private disposed = false
   private bitrateKbps = 8000
@@ -102,6 +111,7 @@ export class LobbySession {
   }
 
   begin(joined: JoinResult): void {
+    this.myPeerId = joined.peerId
     for (const peer of joined.peers) this.peers.set(peer.peerId, peer.displayName)
     for (const id of joined.streamers) this.streamerIds.add(id)
     this.emitStreamers()
@@ -247,7 +257,12 @@ export class LobbySession {
     }
     connection.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
-        this.signaling.signal(peerId, { kind: 'ice', candidate: event.candidate.toJSON() })
+        // Nasze wychodzące połączenie — właścicielem strumienia jesteśmy my.
+        this.signaling.signal(peerId, {
+          kind: 'ice',
+          candidate: event.candidate.toJSON(),
+          owner: this.myPeerId
+        })
       }
     })
     connection.addEventListener('connectionstatechange', () => {
@@ -266,7 +281,11 @@ export class LobbySession {
     const connection = this.createOutgoing(peerId)
     const offer = await connection.createOffer()
     await connection.setLocalDescription(offer)
-    this.signaling.signal(peerId, { kind: 'offer', sdp: offer.sdp ?? '' })
+    this.signaling.signal(peerId, {
+      kind: 'offer',
+      sdp: offer.sdp ?? '',
+      owner: this.myPeerId
+    })
   }
 
   private dropOutgoing(peerId: string): void {
@@ -291,9 +310,11 @@ export class LobbySession {
     })
     connection.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
+        // Połączenie przychodzące — właścicielem strumienia jest nadający.
         this.signaling.signal(streamerId, {
           kind: 'ice',
-          candidate: event.candidate.toJSON()
+          candidate: event.candidate.toJSON(),
+          owner: streamerId
         })
       }
     })
@@ -326,7 +347,11 @@ export class LobbySession {
       await this.incomingBuffers.get(from)?.flush()
       const answer = await connection.createAnswer()
       await connection.setLocalDescription(answer)
-      this.signaling.signal(from, { kind: 'answer', sdp: answer.sdp ?? '' })
+      this.signaling.signal(from, {
+        kind: 'answer',
+        sdp: answer.sdp ?? '',
+        owner: from
+      })
       return
     }
 
@@ -338,12 +363,16 @@ export class LobbySession {
       return
     }
 
-    // ICE trafia albo do połączenia z widzem, albo do tego z nadającym.
-    if (this.outgoing.has(from)) {
+    /*
+     * Rozstrzyga `owner`, nie kolejność sprawdzania. Gdy dwie osoby nadają
+     * do siebie nawzajem, `from` pasuje do OBU map naraz — wcześniejsza
+     * wersja zawsze wybierała wychodzące i gubiła kandydatów dla przychodzącego.
+     */
+    if (payload.owner === this.myPeerId) {
       await this.outgoingBuffers.get(from)?.add(payload.candidate)
       return
     }
-    if (this.incoming.has(from)) await this.incomingBuffers.get(from)?.add(payload.candidate)
+    await this.incomingBuffers.get(from)?.add(payload.candidate)
   }
 
   dispose(): void {
