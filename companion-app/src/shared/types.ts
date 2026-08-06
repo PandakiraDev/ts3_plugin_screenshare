@@ -1,5 +1,19 @@
 /** Typy współdzielone między main, preload i rendererem. */
 
+/**
+ * Własna kopia typu z `signaling-server` (nie import!). Renderer buduje się
+ * przez vite z rootem w `src/renderer` — import spoza tego drzewa wywaliłby
+ * build produkcyjny. Zgodność kształtu z serwerem pilnuje test integracyjny
+ * `signaling-client.test.ts`, który startuje prawdziwy serwer.
+ */
+export type StreamKind = 'screen' | 'camera'
+
+/** Jak wyżej: własna kopia, celowo bez importu z `signaling-server`. */
+export interface StreamRef {
+  peerId: string
+  kind: StreamKind
+}
+
 export type SourceType = 'screen' | 'window'
 
 /**

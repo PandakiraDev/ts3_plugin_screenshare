@@ -4,6 +4,8 @@
  * da się go testować w Node (globalny WebSocket), bez uruchamiania Electrona.
  */
 
+import type { StreamKind, StreamRef } from '../../shared/types'
+
 export interface PeerInfo {
   peerId: string
   displayName: string
@@ -13,15 +15,16 @@ export interface JoinResult {
   peerId: string
   displayName: string
   peers: PeerInfo[]
-  /** Wszyscy nadający w chwili wejścia. Pusta lista = nikt nie nadaje. */
-  streamers: string[]
+  /** Wszystkie aktualnie nadawane strumienie w chwili wejścia (ekran i kamera tej
+   *  samej osoby to dwa osobne wpisy). Pusta lista = nikt nie nadaje. */
+  streams: StreamRef[]
 }
 
 type EventMap = {
   'peer-joined': (peer: PeerInfo) => void
   'peer-left': (peerId: string) => void
-  'stream-started': (peerId: string) => void
-  'stream-stopped': (peerId: string) => void
+  'stream-started': (ref: StreamRef) => void
+  'stream-stopped': (ref: StreamRef) => void
   signal: (from: string, payload: unknown) => void
   error: (message: string) => void
   close: () => void
@@ -99,18 +102,18 @@ export class SignalingClient {
     })
   }
 
-  /** Zgłasza chęć nadawania. Odrzuca, gdy ktoś już udostępnia. */
-  startStream(): Promise<void> {
+  /** Zgłasza chęć nadawania danego rodzaju strumienia (ekran albo kamera). */
+  startStream(kind: StreamKind): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.pendingStart = { resolve: resolve as never, reject }
-      this.send({ type: 'start-stream' })
+      this.send({ type: 'start-stream', kind })
     })
   }
 
-  stopStream(): Promise<void> {
+  stopStream(kind: StreamKind): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       this.pendingStop = { resolve: resolve as never, reject }
-      this.send({ type: 'stop-stream' })
+      this.send({ type: 'stop-stream', kind })
     })
   }
 
@@ -152,7 +155,7 @@ export class SignalingClient {
           peerId,
           displayName: message['displayName'] as string,
           peers: message['peers'] as PeerInfo[],
-          streamers: (message['streamers'] as string[] | undefined) ?? []
+          streams: (message['streams'] as StreamRef[] | undefined) ?? []
         } as never)
         this.pendingJoin = null
         return
@@ -168,6 +171,7 @@ export class SignalingClient {
         return
       case 'stream-started': {
         const peerId = message['peerId'] as string
+        const kind = message['kind'] as StreamKind
         // Ta sama wiadomość jest potwierdzeniem dla zgłaszającego i zdarzeniem
         // dla reszty pokoju. Rozwiazujemy zadanie, ale zdarzenie emitujemy TAK
         // CZY OWAK: bez tego wlasne id nigdy nie trafia na liste nadajacych
@@ -176,16 +180,17 @@ export class SignalingClient {
           this.pendingStart.resolve(undefined as never)
           this.pendingStart = null
         }
-        this.emit('stream-started', peerId)
+        this.emit('stream-started', { peerId, kind })
         return
       }
       case 'stream-stopped': {
         const peerId = message['peerId'] as string
+        const kind = message['kind'] as StreamKind
         if (peerId === this._peerId && this.pendingStop) {
           this.pendingStop.resolve(undefined as never)
           this.pendingStop = null
         }
-        this.emit('stream-stopped', peerId)
+        this.emit('stream-stopped', { peerId, kind })
         return
       }
       case 'signal':

@@ -6,6 +6,7 @@ import {
   type SignalingServer
 } from '../../signaling-server/src/server.js'
 import { SignalingClient } from '../src/renderer/signaling/SignalingClient'
+import type { StreamRef } from '../src/shared/types'
 
 const ROOM = 'c'.repeat(64)
 
@@ -24,23 +25,23 @@ afterEach(async () => {
 function track(client: SignalingClient): {
   peersJoined: string[]
   peersLeft: string[]
-  streamStarted: string[]
-  streamStopped: string[]
+  streamStarted: StreamRef[]
+  streamStopped: StreamRef[]
   signals: { from: string; payload: unknown }[]
   errors: string[]
 } {
   const box = {
     peersJoined: [] as string[],
     peersLeft: [] as string[],
-    streamStarted: [] as string[],
-    streamStopped: [] as string[],
+    streamStarted: [] as StreamRef[],
+    streamStopped: [] as StreamRef[],
     signals: [] as { from: string; payload: unknown }[],
     errors: [] as string[]
   }
   client.on('peer-joined', (peer) => box.peersJoined.push(peer.peerId))
   client.on('peer-left', (peerId) => box.peersLeft.push(peerId))
-  client.on('stream-started', (peerId) => box.streamStarted.push(peerId))
-  client.on('stream-stopped', (peerId) => box.streamStopped.push(peerId))
+  client.on('stream-started', (ref) => box.streamStarted.push(ref))
+  client.on('stream-stopped', (ref) => box.streamStopped.push(ref))
   client.on('signal', (from, payload) => box.signals.push({ from, payload }))
   client.on('error', (message) => box.errors.push(message))
   return box
@@ -62,7 +63,7 @@ test('join zwraca peerId, listę obecnych i informację o nadającym', async () 
 
   expect(joined.peerId).toMatch(/^[0-9a-f-]{36}$/)
   expect(joined.peers).toEqual([])
-  expect(joined.streamers).toEqual([])
+  expect(joined.streams).toEqual([])
 })
 
 test('bez nicku serwer nadaje zastępczą nazwę', async () => {
@@ -89,12 +90,12 @@ test('nick z TS3 jest przekazywany i wraca w liście u pozostałych', async () =
 test('dołączający w trakcie transmisji od razu zna nadających', async () => {
   const streamer = await connect()
   const streamerJoined = await streamer.join(ROOM, null)
-  await streamer.startStream()
+  await streamer.startStream('screen')
 
   const pozny = await connect()
   const joined = await pozny.join(ROOM, null)
 
-  expect(joined.streamers).toEqual([streamerJoined.peerId])
+  expect(joined.streams).toEqual([{ peerId: streamerJoined.peerId, kind: 'screen' }])
 })
 
 test('klient dostaje powiadomienie o nowym peerze', async () => {
@@ -116,22 +117,22 @@ test('rozpoczęcie transmisji jest zgłaszane pozostałym', async () => {
   const streamer = await connect()
   const streamerJoined = await streamer.join(ROOM, null)
 
-  await streamer.startStream()
+  await streamer.startStream('screen')
   await settle()
 
-  expect(box.streamStarted).toEqual([streamerJoined.peerId])
+  expect(box.streamStarted).toEqual([{ peerId: streamerJoined.peerId, kind: 'screen' }])
 })
 
 test('kilka osób może nadawać jednocześnie', async () => {
   // Limit jednego nadającego zniesiony — drugi start-stream ma przejsc.
   const pierwszy = await connect()
   await pierwszy.join(ROOM, null)
-  await pierwszy.startStream()
+  await pierwszy.startStream('screen')
 
   const drugi = await connect()
   await drugi.join(ROOM, null)
 
-  await expect(drugi.startStream()).resolves.toBeUndefined()
+  await expect(drugi.startStream('screen')).resolves.toBeUndefined()
 })
 
 test('nadający dostaje zdarzenie także o własnej transmisji', async () => {
@@ -141,10 +142,10 @@ test('nadający dostaje zdarzenie także o własnej transmisji', async () => {
   const box = track(client)
   const joined = await client.join(ROOM, null)
 
-  await client.startStream()
+  await client.startStream('screen')
   await settle()
 
-  expect(box.streamStarted).toContain(joined.peerId)
+  expect(box.streamStarted).toContainEqual({ peerId: joined.peerId, kind: 'screen' })
 })
 
 test('zakończenie transmisji jest zgłaszane pozostałym', async () => {
@@ -153,13 +154,13 @@ test('zakończenie transmisji jest zgłaszane pozostałym', async () => {
   await widz.join(ROOM, null)
   const streamer = await connect()
   const streamerJoined = await streamer.join(ROOM, null)
-  await streamer.startStream()
+  await streamer.startStream('screen')
   await settle()
 
-  await streamer.stopStream()
+  await streamer.stopStream('screen')
   await settle()
 
-  expect(box.streamStopped).toEqual([streamerJoined.peerId])
+  expect(box.streamStopped).toEqual([{ peerId: streamerJoined.peerId, kind: 'screen' }])
 })
 
 test('po zakończeniu ktoś inny może przejąć nadawanie', async () => {
@@ -168,11 +169,11 @@ test('po zakończeniu ktoś inny może przejąć nadawanie', async () => {
   const drugi = await connect()
   await drugi.join(ROOM, null)
 
-  await pierwszy.startStream()
-  await pierwszy.stopStream()
+  await pierwszy.startStream('screen')
+  await pierwszy.stopStream('screen')
   await settle()
 
-  await expect(drugi.startStream()).resolves.toBeUndefined()
+  await expect(drugi.startStream('screen')).resolves.toBeUndefined()
 })
 
 test('sygnał dociera do adresata z poprawnym nadawcą', async () => {
@@ -208,12 +209,25 @@ test('zamknięcie okna nadającego zwalnia kanał dla pozostałych', async () =>
   await widz.join(ROOM, null)
   const streamer = await connect()
   await streamer.join(ROOM, null)
-  await streamer.startStream()
+  await streamer.startStream('screen')
   await settle()
 
   streamer.close()
   await settle()
 
   expect(box.streamStopped).toHaveLength(1)
-  await expect(widz.startStream()).resolves.toBeUndefined()
+  await expect(widz.startStream('screen')).resolves.toBeUndefined()
+})
+
+test('rodzaj strumienia dociera do drugiego klienta', async () => {
+  const a = await connect()
+  await a.join(ROOM, null)
+  const b = await connect()
+  const box = track(b)
+  await b.join(ROOM, null)
+
+  await a.startStream('camera')
+
+  await settle()
+  expect(box.streamStarted[0]).toMatchObject({ kind: 'camera' })
 })
