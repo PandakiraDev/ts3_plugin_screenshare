@@ -2,3 +2,9 @@
 
 export const IPC_GET_SOURCES = 'sources:get'
 export const IPC_GET_LAUNCH = 'launch:get'
+/**
+ * Renderer zapowiada, co zaraz przechwyci. getDisplayMedia nie przyjmuje id
+ * źródła — wybór trafia do handlera w main process, a ten musi wiedzieć,
+ * które źródło użytkownik kliknął.
+ */
+export const IPC_SET_CAPTURE_TARGET = 'capture:target'

@@ -10,45 +10,19 @@ import { RESOLUTION_DIMENSIONS } from '@shared/types'
 const NATIVE_MAX = { width: 7680, height: 4320 }
 
 /**
- * Electron przyjmuje desktopowe źródło przez nieoficjalne pole `mandatory`,
- * którego nie ma w standardowym typie MediaTrackConstraints.
+ * Standardowe constrainty getDisplayMedia. Identyfikator źródła NIE idzie tędy —
+ * podaje go main process w handlerze (patrz IPC_SET_CAPTURE_TARGET), bo
+ * getDisplayMedia nie ma na niego miejsca w API.
  */
-interface DesktopCaptureConstraints {
-  /**
-   * Dźwięk systemowy (loopback). Electron przyjmuje go tym samym nieoficjalnym
-   * polem `mandatory` co obraz, ale BEZ `chromeMediaSourceId` — identyfikator
-   * źródła dotyczy tylko wideo, a audio jest zawsze miksem całego systemu.
-   */
-  audio: false | { mandatory: { chromeMediaSource: 'desktop' } }
-  video: {
-    mandatory: {
-      chromeMediaSource: 'desktop'
-      chromeMediaSourceId: string
-      maxWidth: number
-      maxHeight: number
-      minFrameRate: number
-      maxFrameRate: number
-    }
-  }
-}
-
-function buildConstraints(
-  sourceId: string,
-  quality: QualitySettings
-): DesktopCaptureConstraints {
+function buildConstraints(quality: QualitySettings): MediaStreamConstraints {
   const size = RESOLUTION_DIMENSIONS[quality.resolution] ?? NATIVE_MAX
   return {
-    audio: quality.shareAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
     video: {
-      mandatory: {
-        chromeMediaSource: 'desktop',
-        chromeMediaSourceId: sourceId,
-        maxWidth: size.width,
-        maxHeight: size.height,
-        minFrameRate: quality.fps,
-        maxFrameRate: quality.fps
-      }
-    }
+      width: { max: size.width },
+      height: { max: size.height },
+      frameRate: { ideal: quality.fps, max: quality.fps }
+    },
+    audio: quality.shareAudio
   }
 }
 
@@ -109,28 +83,26 @@ export function useCapture(
      */
     const pobierz = async (): Promise<MediaStream> => {
       // Bitrate nie dotyczy capture — trafia dopiero do RTCRtpSender.
-      const zAudio = buildConstraints(sourceId, {
-        resolution,
-        fps,
-        shareAudio,
-        bitrateKbps: 0
-      }) as unknown as MediaStreamConstraints
+      const jakosc = { resolution, fps, shareAudio, bitrateKbps: 0 }
+
+      // Main process musi wiedziec, ktore zrodlo wybrano, ZANIM zawolamy
+      // getDisplayMedia — handler odpala sie synchronicznie z tym wywolaniem.
+      await window.companion.setCaptureTarget({ sourceId, withAudio: shareAudio })
 
       try {
-        return await navigator.mediaDevices.getUserMedia(zAudio)
+        return await navigator.mediaDevices.getDisplayMedia(buildConstraints(jakosc))
       } catch (err: unknown) {
         if (!shareAudio) throw err
-        const bezAudio = buildConstraints(sourceId, {
-          resolution,
-          fps,
-          shareAudio: false,
-          bitrateKbps: 0
-        }) as unknown as MediaStreamConstraints
-        const stream = await navigator.mediaDevices.getUserMedia(bezAudio)
+        // Dzwiek systemowy potrafi paść na kartach z nietypowymi sterownikami
+        // (sprawdzone: Sound Blaster -> NotReadableError). Bierzemy sam obraz.
+        await window.companion.setCaptureTarget({ sourceId, withAudio: false })
+        const stream = await navigator.mediaDevices.getDisplayMedia(
+          buildConstraints({ ...jakosc, shareAudio: false })
+        )
         if (!cancelled) {
           setAudioWarning(
             'Nie udało się przechwycić dźwięku systemowego — udostępniany jest ' +
-              'sam obraz. Windows nie zawsze na to pozwala.'
+              'sam obraz. Nie wszystkie karty i sterowniki dźwiękowe na to pozwalają.'
           )
         }
         return stream

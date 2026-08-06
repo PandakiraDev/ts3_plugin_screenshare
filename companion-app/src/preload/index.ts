@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { CaptureSource } from '@shared/types'
 import type { LaunchParseResult } from '@shared/cli'
-import { IPC_GET_LAUNCH, IPC_GET_SOURCES } from '@shared/ipc'
+import { IPC_GET_LAUNCH, IPC_GET_SOURCES, IPC_SET_CAPTURE_TARGET } from '@shared/ipc'
 
 /**
  * Jedyny most między rendererem a main. Renderer nie ma dostępu do modułu
@@ -9,7 +9,9 @@ import { IPC_GET_LAUNCH, IPC_GET_SOURCES } from '@shared/ipc'
  */
 const api = {
   getSources: (): Promise<CaptureSource[]> => ipcRenderer.invoke(IPC_GET_SOURCES),
-  getLaunch: (): Promise<LaunchParseResult> => ipcRenderer.invoke(IPC_GET_LAUNCH)
+  getLaunch: (): Promise<LaunchParseResult> => ipcRenderer.invoke(IPC_GET_LAUNCH),
+  setCaptureTarget: (target: { sourceId: string; withAudio: boolean }): Promise<void> =>
+    ipcRenderer.invoke(IPC_SET_CAPTURE_TARGET, target)
 }
 
 export type CompanionApi = typeof api

@@ -1,7 +1,7 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, screen, shell } from 'electron'
+import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session, shell } from 'electron'
 import { join } from 'path'
 import type { CaptureSource, SourceType } from '@shared/types'
-import { IPC_GET_LAUNCH, IPC_GET_SOURCES } from '@shared/ipc'
+import { IPC_GET_LAUNCH, IPC_GET_SOURCES, IPC_SET_CAPTURE_TARGET } from '@shared/ipc'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 
 /**
@@ -119,9 +119,50 @@ async function getCaptureSources(): Promise<CaptureSource[]> {
     })
 }
 
+/**
+ * Co renderer zaraz przechwyci. Ustawiane przez IPC tuż przed getDisplayMedia,
+ * bo to API nie przyjmuje identyfikatora źródła — wybór musi podać main process.
+ */
+let captureTarget: { sourceId: string; withAudio: boolean } = {
+  sourceId: '',
+  withAudio: false
+}
+
 app.whenReady().then(() => {
   ipcMain.handle(IPC_GET_SOURCES, () => getCaptureSources())
   ipcMain.handle(IPC_GET_LAUNCH, () => launch)
+  ipcMain.handle(IPC_SET_CAPTURE_TARGET, (_event, target: typeof captureTarget) => {
+    captureTarget = target
+  })
+
+  /*
+   * Jedyna droga do dźwięku systemowego na Windows. Stare constrainty
+   * `chromeMediaSource: 'desktop'` dla audio kończą się błędem
+   * "NotReadableError: Could not start audio source" niezależnie od wariantu.
+   *
+   * `useSystemPicker: false` — mamy własny wybór źródła, systemowy byłby
+   * drugim, zbędnym oknem.
+   */
+  session.defaultSession.setDisplayMediaRequestHandler(
+    (_request, callback) => {
+      void desktopCapturer
+        .getSources({ types: ['screen', 'window'] })
+        .then((sources) => {
+          const source = sources.find((s) => s.id === captureTarget.sourceId)
+          if (!source) {
+            // Pusty obiekt = odmowa; renderer dostanie NotAllowedError.
+            callback({})
+            return
+          }
+          callback(
+            captureTarget.withAudio
+              ? { video: source, audio: 'loopback' }
+              : { video: source }
+          )
+        })
+    },
+    { useSystemPicker: false }
+  )
 
   createWindow()
 
