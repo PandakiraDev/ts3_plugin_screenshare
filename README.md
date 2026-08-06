@@ -3,6 +3,10 @@
 Dodanie screen sharingu (jakość/opcje jak w Discordzie) do TeamSpeak 3 bez ręcznego
 odpalania osobnej aplikacji. Pełny kontekst i architektura: [ts3-screenshare-brief.md](ts3-screenshare-brief.md).
 
+## Wymagania
+- **TeamSpeak 3.6.x** — starsze klienty odrzucają wtyczkę (patrz [plugin/README.md](plugin/README.md))
+- Windows 64-bit
+
 ## Komponenty
 
 | Folder | Co to | Status |

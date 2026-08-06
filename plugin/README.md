@@ -20,6 +20,23 @@ Uwaga: `build.bat` wypisuje po drodze `'vswhere.exe' is not recognized`.
 Komunikat pochodzi z wnętrza `vcvars64.bat` Microsoftu, nie z naszego skryptu —
 środowisko mimo to ustawia się poprawnie i kompilacja przechodzi. Kosmetyka.
 
+## Wymagany klient: TeamSpeak 3.6.x
+
+Klient akceptuje **zakres** wersji API i odrzuca wtyczkę spoza niego.
+Sprawdzone na dwóch maszynach — zakresy się nie pokrywają:
+
+| Klient | Akceptuje |
+| --- | --- |
+| TS3 3.6.2 | minimum **26** (odrzuca 25) |
+| starszy klient | 23–**25** (odrzuca 26) |
+
+Nie ma więc jednej wartości działającej wszędzie. Zostajemy przy **26** zgodnie
+z SDK; użytkownicy starszych klientów zobaczą w Narzędzia → Opcje → Wtyczki
+komunikat `Api version is not compatible` i muszą zaktualizować TeamSpeaka.
+
+Gdyby kiedyś trzeba było wspierać oba naraz, jedyną drogą są dwa osobne DLL-e —
+wartość jest wkompilowana i klient jej nie negocjuje.
+
 ## Jedna pozycja menu, nie dwie
 
 Brief zakładał „Udostępnij ekran" i „Dołącz do udostępniania". W modelu lobby

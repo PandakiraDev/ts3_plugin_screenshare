@@ -22,20 +22,20 @@
 #include "ts3_functions.h"
 
 /*
- * Klient akceptuje ZAKRES wersji API i odrzuca plugin spoza niego. SDK
- * deklaruje 26, ale to wersja z najnowszego klienta — starsze przyjmują
- * najwyżej 25 i wtedy plugin nie ładuje się w ogóle:
+ * Klient akceptuje ZAKRES wersji API i odrzuca plugin spoza niego. Sprawdzone
+ * na dwóch maszynach — i te zakresy się NIE pokrywają:
  *
- *   "Api version is not compatible: 26 (minimum: 23, aktualne: 25)"
+ *   TS3 3.6.2      -> minimum 26  (odrzuca 25)
+ *   starszy klient -> minimum 23, maksimum 25  (odrzuca 26)
  *
- * Dlatego celowo deklarujemy 25, a nie 26: mieści się w zakresie zarówno
- * starszych klientów, jak i 3.6.2. Jest to bezpieczne, bo `TS3Functions`
- * rozrasta się przez dopisywanie na końcu, a plugin używa wyłącznie funkcji
- * obecnych od dawna (getPluginPath, getClientID, getServerVariableAsString,
- * getClientVariableAsString, logMessage, printMessageToCurrentTab, freeMemory).
- * Podnoszenie tej wartości bez potrzeby tylko odcina użytkowników.
+ * Nie ma więc jednej wartości działającej wszędzie. Świadoma decyzja:
+ * zostajemy przy 26 (zgodnie z SDK) i wymagamy klienta 3.6.x. Starsze klienty
+ * dostaną komunikat "Api version is not compatible" i muszą się zaktualizować.
+ *
+ * Gdyby kiedyś trzeba było wspierać oba naraz — jedyną drogą są dwa osobne
+ * DLL-e, bo wartość jest wkompilowana i klient nie negocjuje.
  */
-#define PLUGIN_API_VERSION 25
+#define PLUGIN_API_VERSION 26
 
 /*
  * Bez tego MSVC buduje DLL, ale NIE eksportuje nic — klient nie znajduje
