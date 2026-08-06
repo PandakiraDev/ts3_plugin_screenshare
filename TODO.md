@@ -63,6 +63,10 @@ jądrowego. Discord robi to własnym modułem natywnym.
 4. Powiązanie wybranego okna z PID — `desktopCapturer` daje id źródła, nie PID,
    więc potrzebne dodatkowe mapowanie przez WinAPI.
 
+**POTWIERDZONE, ze API dziala** — patrz `audio-native/` i pomiar w jego README.
+Proces grajacy: 476 032 niezerowych probek. Proces cichy w tym samym czasie: 0.
+Czyli przechwytywanie jest realnie per-proces.
+
 **Szacunek:** to największy pojedynczy kawałek pracy w tym projekcie — natywna
 kompilacja, osobne buildy pod architektury, sporo miejsc na błędy trudne do
 zdiagnozowania. Nie ma sensu zaczynać, dopóki nie działa prostsza wersja.

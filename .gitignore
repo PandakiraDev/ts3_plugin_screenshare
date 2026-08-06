@@ -17,3 +17,5 @@ plugin/ts3-diagnostyka.txt
 # electron-buildera, wiec nie moze byc ignorowane globalnie)
 plugin/build/
 companion-app/build/*.dll
+audio-native/*.exe
+audio-native/*.obj
