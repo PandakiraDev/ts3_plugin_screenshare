@@ -56,31 +56,31 @@ częsty przypadek.
 type StreamKind = 'screen' | 'camera'
 
 // klient -> serwer
-| { type: 'start-stream'; kind?: StreamKind }
-| { type: 'stop-stream'; kind?: StreamKind }
+| { type: 'start-stream'; kind: StreamKind }
+| { type: 'stop-stream'; kind: StreamKind }
 
 // serwer -> klient
+| { type: 'joined'; ...; streams: { peerId: string; kind: StreamKind }[] }
 | { type: 'stream-started'; peerId: string; kind: StreamKind }
 | { type: 'stream-stopped'; peerId: string; kind: StreamKind }
 ```
 
-### Zgodność ze starymi klientami — wymóg, nie życzenie
-
-Serwer jest jeden i wspólny, a koledzy mają zainstalowaną starą wersję. Zmiana
-protokołu nie może im urwać działania.
-
-- `kind` jest **opcjonalne** i domyślnie `'screen'`. Stary klient wysyła
-  `{ type: 'start-stream' }` i dalej udostępnia ekran.
-- W `joined` zostaje dotychczasowe pole `streamers: string[]` (same `peerId`
-  nadających **ekran**) i dochodzi nowe `streams: { peerId, kind }[]`. Stary
-  klient czyta pierwsze i ignoruje drugie; nowy czyta drugie.
-- `stream-started` / `stream-stopped` dostają dodatkowe pole `kind`. Stary
-  klient ignoruje nieznane pola.
-
-Skutek: stara wersja widzi ekrany i nie widzi kamer, zamiast przestać działać.
+`kind` jest **wymagane**, a pole `streamers: string[]` znika na rzecz
+`streams: { peerId, kind }[]`.
 
 Serwer trzyma `streamers: Map<roomId, Set<'peerId:kind'>>` — zmienia się klucz,
 nie logika.
+
+### Rozjazd wersji
+
+Świadoma decyzja właściciela projektu: wszyscy dostają nową wersję razem, więc
+protokół nie niesie zgodności wstecz. Bez tego trzeba by trzymać dwa równoległe
+kształty wiadomości w nieskończoność.
+
+Jedno zabezpieczenie zostaje, bo nic nie kosztuje: gdy `start-stream` przyjdzie
+bez `kind`, serwer odsyła `error` z czytelnym tekstem („ta wersja aplikacji jest
+za stara — zainstaluj nową"), a nie ogólne „niepoprawna wiadomość". Stary klient
+umie wyświetlić `error`, więc użytkownik dostanie instrukcję zamiast zagadki.
 
 ## Zmiany w kliencie
 
@@ -132,7 +132,8 @@ zajęta przez inną aplikację (`NotReadableError`), odmowa dostępu
 
 Jednostkowe (vitest), tam gdzie mieszka logika:
 
-- `parseClientMessage` przyjmuje `start-stream` bez `kind` i nadaje `'screen'`.
+- `parseClientMessage` odrzuca `start-stream` bez `kind`, a serwer odpowiada
+  komunikatem o starej wersji aplikacji.
 - Serwer trzyma ekran i kamerę tej samej osoby jako dwa niezależne wpisy;
   zatrzymanie kamery nie usuwa ekranu.
 - Rozłączenie peera sprząta oba jego strumienie.
@@ -162,5 +163,7 @@ warstwa UI jest kryta typecheckiem i e2e.
   z wieloma ścieżkami.
 - **Obciążenie kodera.** Kamera to drugi równoległy enkoder na tej samej
   maszynie. To jest dokładnie ten pomiar, który zamyka temat wydajności.
-- **Rozjazd wersji.** Zgodność wstecz jest zaprojektowana, ale trzeba ją
-  sprawdzić realnie: stary klient i nowy w jednym kanale.
+- **Rozjazd wersji.** Protokół nie niesie zgodności wstecz (decyzja świadoma),
+  więc aktualizacja musi trafić do wszystkich naraz. Kto zostanie na starej
+  wersji, zobaczy komunikat o konieczności aktualizacji i nie będzie mógł
+  nadawać.
