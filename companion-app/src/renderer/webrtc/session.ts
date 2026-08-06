@@ -205,10 +205,20 @@ export class LobbySession {
    * przy udostępnianiu ekranu to nie do użytku. Lepiej stracić trochę
    * płynności niż czytelność.
    *
-   * Sufit płynności stawia koder: Chromium negocjuje VP8 kodowany programowo
-   * (`libvpx`). Wymuszanie H.264 przez `setCodecPreferences` sprawdzone —
-   * nie działa, bo ten build Electrona nie ma enkodera H.264 i negocjacja
-   * i tak wraca do VP8. Przy 1080p daje to 40–55 fps zamiast 60.
+   * Sufit płynności i zużycia CPU stawia koder: Chromium negocjuje VP8
+   * kodowany PROGRAMOWO (`libvpx`), mimo że GPU jest sprawne
+   * (`video_encode = enabled`, RTX 4070).
+   *
+   * Dlaczego nie da się tego przenieść na GPU: NVENC nie koduje VP8, a jedyny
+   * powszechnie akcelerowany kodek — H.264 — jest w tym buildzie Electrona
+   * niedostępny do NADAWANIA. Sprawdzone wprost:
+   *
+   *   RTCRtpSender.getCapabilities('video')   -> setCodecPreferences rzuca
+   *     InvalidModificationError: invalid codec with name "H264"
+   *   RTCRtpReceiver.getCapabilities('video') -> OK (dekodowanie dziala)
+   *
+   * Czyli Electron potrafi H.264 odtwarzac, ale nie kodowac. Realne dzwignie
+   * na CPU to nizsza rozdzielczosc i FPS, a nie zmiana kodeka.
    */
   private async applyEncoding(sender: RTCRtpSender): Promise<void> {
     const parameters = sender.getParameters()
