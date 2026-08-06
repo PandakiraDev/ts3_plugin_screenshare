@@ -795,3 +795,22 @@ h3 {
   cursor: pointer;
   font-size: 13px;
 }
+
+/* ---------- klucz dostępu ---------- */
+
+.klucz {
+  max-width: 520px;
+  margin: 40px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.klucz__tytul {
+  font-size: 18px;
+}
+
+.klucz__input {
+  font-family: Consolas, 'Courier New', monospace;
+  letter-spacing: 0.02em;
+}

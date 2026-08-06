@@ -5,7 +5,7 @@ import type { PeerInfo } from '../signaling/SignalingClient'
 import { LobbySession } from '../webrtc/session'
 
 export interface LobbyState {
-  connection: 'connecting' | 'ready' | 'error'
+  connection: 'connecting' | 'ready' | 'error' | 'zly-klucz'
   /** Czy to my nadajemy. */
   jaNadaje: boolean
   /** peerId wszystkich nadających (łącznie z nami, jeśli nadajemy). */
@@ -46,7 +46,7 @@ export interface Lobby {
  * uczestnik: od razu widzi cudzy obraz, jeśli ktoś nadaje, i w każdej chwili
  * może sam zacząć — bez restartu aplikacji i bez wyboru trybu na starcie.
  */
-export function useLobby(options: LaunchOptions): Lobby {
+export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
   const [state, setState] = useState<LobbyState>(INITIAL)
   const signalingRef = useRef<SignalingClient | null>(null)
   const sessionRef = useRef<LobbySession | null>(null)
@@ -88,7 +88,12 @@ export function useLobby(options: LaunchOptions): Lobby {
         })
         sessionRef.current = session
 
-        const joined = await signaling.join(options.roomId as string, options.displayName)
+        const apiKey = await window.companion.getApiKey()
+        const joined = await signaling.join(
+          options.roomId as string,
+          options.displayName,
+          apiKey
+        )
         myPeerIdRef.current = joined.peerId
         setState((current) => ({
           ...current,
@@ -99,10 +104,13 @@ export function useLobby(options: LaunchOptions): Lobby {
         session.begin(joined)
       } catch (err: unknown) {
         if (cancelled) return
+        const komunikat = err instanceof Error ? err.message : String(err)
+        // Odrzucony klucz to nie awaria — użytkownik ma go poprawić, a nie
+        // patrzeć na ogólny błąd połączenia.
         setState((current) => ({
           ...current,
-          connection: 'error',
-          error: err instanceof Error ? err.message : String(err)
+          connection: /klucz/i.test(komunikat) ? 'zly-klucz' : 'error',
+          error: komunikat
         }))
       }
     })()
@@ -114,7 +122,9 @@ export function useLobby(options: LaunchOptions): Lobby {
       signalingRef.current?.close()
       signalingRef.current = null
     }
-  }, [options.roomId, options.signalingUrl, options.displayName])
+    // kluczVersion w zaleznosciach: zapisanie nowego klucza ma ponowic
+    // polaczenie, a nie czekac na restart aplikacji.
+  }, [options.roomId, options.signalingUrl, options.displayName, kluczVersion])
 
   const startSharing = useCallback(async (stream: MediaStream): Promise<void> => {
     const signaling = signalingRef.current

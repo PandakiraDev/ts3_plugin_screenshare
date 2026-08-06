@@ -12,3 +12,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
+      # Lista kluczy dostepu, po jednym w linii albo po przecinku.
+      # sync: false = Render pyta o wartosc przy tworzeniu i NIE trzyma jej
+      # w repo. Dodanie osoby to dopisanie linii w panelu, odebranie - usuniecie.
+      # Swiadomie bez bazy danych: darmowy Postgres na Renderze znika po 30 dniach.
+      - key: API_KEYS
+        sync: false

@@ -2,10 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { parseClientMessage, type ServerMessage } from './protocol.js'
+import { OpenKeyStore, type KeyStore } from './keys.js'
 
 export interface SignalingServerOptions {
   /** 0 = port efemeryczny (testy). */
   port: number
+  /**
+   * Skąd brać listę dozwolonych kluczy. Domyślnie wpuszcza wszystkich —
+   * brak konfiguracji ma oznaczać "bez autoryzacji", a nie "nikt nie wejdzie".
+   */
+  keyStore?: KeyStore
 }
 
 export interface SignalingServer {
@@ -60,6 +66,7 @@ export async function startSignalingServer(
    * mogłyby dostać ten sam numer.
    */
   const nameCounters = new Map<string, number>()
+  const keyStore: KeyStore = options.keyStore ?? new OpenKeyStore()
 
   /** Wysyła do wszystkich w pokoju poza wskazanym peerem. */
   function broadcastToRoom(
@@ -89,6 +96,35 @@ export async function startSignalingServer(
   wss.on('connection', (socket) => {
     let self: Peer | undefined
 
+    /** Właściwe wejście do pokoju — wołane dopiero po sprawdzeniu klucza. */
+    function dolaczDoPokoju(roomId: string, zadanaNazwa: string | null): void {
+      const peerId = randomUUID()
+      const roommates = [...peers.values()]
+        .filter((peer) => peer.roomId === roomId)
+        .map((peer) => ({ peerId: peer.peerId, displayName: peer.displayName }))
+
+      let displayName = zadanaNazwa
+      if (displayName === null) {
+        const next = (nameCounters.get(roomId) ?? 0) + 1
+        nameCounters.set(roomId, next)
+        displayName = `Użytkownik ${next}`
+      }
+
+      self = { peerId, displayName, roomId, socket }
+      peers.set(peerId, self)
+
+      send(socket, {
+        type: 'joined',
+        peerId,
+        displayName,
+        peers: roommates,
+        // Dołączający od razu wie, kogo jest co oglądać — bez tego musiałby
+        // czekać na `stream-started`, które już dawno przeszło.
+        streamers: [...(streamers.get(roomId) ?? [])]
+      })
+      broadcastToRoom(roomId, peerId, { type: 'peer-joined', peerId, displayName })
+    }
+
     socket.on('message', (raw) => {
       const parsed = parseClientMessage(String(raw))
       if (!parsed.ok) {
@@ -99,35 +135,28 @@ export async function startSignalingServer(
       const message = parsed.message
 
       if (message.type === 'join') {
-        const peerId = randomUUID()
-        const roommates = [...peers.values()]
-          .filter((peer) => peer.roomId === message.roomId)
-          .map((peer) => ({ peerId: peer.peerId, displayName: peer.displayName }))
-
-        let displayName = message.displayName
-        if (displayName === null) {
-          const next = (nameCounters.get(message.roomId) ?? 0) + 1
-          nameCounters.set(message.roomId, next)
-          displayName = `Użytkownik ${next}`
-        }
-
-        self = { peerId, displayName, roomId: message.roomId, socket }
-        peers.set(peerId, self)
-
-        send(socket, {
-          type: 'joined',
-          peerId,
-          displayName,
-          peers: roommates,
-          // Dołączający od razu wie, kogo jest co oglądać — bez tego musiałby
-          // czekać na `stream-started`, które już dawno przeszło.
-          streamers: [...(streamers.get(message.roomId) ?? [])]
-        })
-        broadcastToRoom(message.roomId, peerId, {
-          type: 'peer-joined',
-          peerId,
-          displayName
-        })
+        // Autoryzacja PRZED czymkolwiek innym: odrzucony peer nie może trafić
+        // do pokoju ani wywołać powiadomienia u pozostałych — inaczej ktoś bez
+        // klucza i tak zobaczyłby, kto siedzi w kanale.
+        void keyStore
+          .isValid(message.apiKey)
+          .then((ok) => {
+            if (!ok) {
+              send(socket, {
+                type: 'error',
+                message:
+                  'Niepoprawny klucz dostępu. Poproś o klucz osobę, która udostępnia serwer.'
+              })
+              return
+            }
+            dolaczDoPokoju(message.roomId, message.displayName)
+          })
+          .catch(() => {
+            send(socket, {
+              type: 'error',
+              message: 'Nie udało się zweryfikować klucza dostępu. Spróbuj ponownie.'
+            })
+          })
         return
       }
 

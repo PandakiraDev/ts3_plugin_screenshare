@@ -92,10 +92,10 @@ export class SignalingClient {
     }
   }
 
-  join(roomId: string, displayName: string | null): Promise<JoinResult> {
+  join(roomId: string, displayName: string | null, apiKey = ''): Promise<JoinResult> {
     return new Promise<JoinResult>((resolve, reject) => {
       this.pendingJoin = { resolve: resolve as never, reject }
-      this.send({ type: 'join', roomId, displayName })
+      this.send({ type: 'join', roomId, displayName, apiKey })
     })
   }
 

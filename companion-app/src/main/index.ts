@@ -1,7 +1,14 @@
 import { app, BrowserWindow, desktopCapturer, ipcMain, screen, session, shell } from 'electron'
 import { join } from 'path'
 import type { CaptureSource, SourceType } from '@shared/types'
-import { IPC_GET_LAUNCH, IPC_GET_SOURCES, IPC_SET_CAPTURE_TARGET } from '@shared/ipc'
+import {
+  IPC_GET_API_KEY,
+  IPC_GET_LAUNCH,
+  IPC_GET_SOURCES,
+  IPC_SET_API_KEY,
+  IPC_SET_CAPTURE_TARGET
+} from '@shared/ipc'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 
 /**
@@ -128,11 +135,31 @@ let captureTarget: { sourceId: string; withAudio: boolean } = {
   withAudio: false
 }
 
+/**
+ * Klucz dostępu trzymamy w userData, a nie w paczce aplikacji: wszyscy
+ * dostają ten sam instalator, a klucz jest indywidualny i wpisywany raz.
+ */
+function apiKeyPath(): string {
+  return join(app.getPath('userData'), 'api-key.txt')
+}
+
+function readApiKey(): string {
+  try {
+    return readFileSync(apiKeyPath(), 'utf8').trim()
+  } catch {
+    return ''
+  }
+}
+
 app.whenReady().then(() => {
   ipcMain.handle(IPC_GET_SOURCES, () => getCaptureSources())
   ipcMain.handle(IPC_GET_LAUNCH, () => launch)
   ipcMain.handle(IPC_SET_CAPTURE_TARGET, (_event, target: typeof captureTarget) => {
     captureTarget = target
+  })
+  ipcMain.handle(IPC_GET_API_KEY, () => readApiKey())
+  ipcMain.handle(IPC_SET_API_KEY, (_event, key: string) => {
+    writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
 
   /*

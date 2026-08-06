@@ -8,3 +8,7 @@ export const IPC_GET_LAUNCH = 'launch:get'
  * które źródło użytkownik kliknął.
  */
 export const IPC_SET_CAPTURE_TARGET = 'capture:target'
+
+/** Klucz dostępu do serwera sygnalizacyjnego — odczyt i zapis w userData. */
+export const IPC_GET_API_KEY = 'apikey:get'
+export const IPC_SET_API_KEY = 'apikey:set'

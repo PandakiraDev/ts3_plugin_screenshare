@@ -23,7 +23,7 @@ export const MAX_DISPLAY_NAME = 64
 
 /** Wiadomości klient → serwer. */
 export type ClientMessage =
-  | { type: 'join'; roomId: string; displayName: string | null }
+  | { type: 'join'; roomId: string; displayName: string | null; apiKey: string }
   | { type: 'signal'; to: string; payload: unknown }
   | { type: 'start-stream' }
   | { type: 'stop-stream' }
@@ -92,11 +92,16 @@ export function parseClientMessage(raw: string): ParseResult {
         return { ok: false, error: 'join: displayName musi być tekstem' }
       }
       const trimmed = typeof raw === 'string' ? raw.trim() : ''
+      const rawKey = fields['apiKey']
+      if (rawKey !== undefined && rawKey !== null && typeof rawKey !== 'string') {
+        return { ok: false, error: 'join: apiKey musi być tekstem' }
+      }
       return {
         ok: true,
         message: {
           type: 'join',
           roomId,
+          apiKey: typeof rawKey === 'string' ? rawKey.trim() : '',
           // Pusty nick to brak nicku — zastępnik nada serwer.
           displayName: trimmed.length === 0 ? null : trimmed.slice(0, MAX_DISPLAY_NAME)
         }

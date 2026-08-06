@@ -7,6 +7,7 @@ import { useLobby } from '../hooks/useLobby'
 import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
 import { StreamTile } from './StreamTile'
+import { ApiKeyPrompt } from './ApiKeyPrompt'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -21,12 +22,14 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [powiekszony, setPowiekszony] = useState<string | null>(null)
+  // Zmiana klucza musi przelaczyc widok od razu, bez restartu aplikacji.
+  const [kluczZapisany, setKluczZapisany] = useState(0)
   const [selected, setSelected] = useState<CaptureSource | null>(null)
   const [quality, setQuality] = useState<QualitySettings>(DEFAULT_QUALITY)
   const [startError, setStartError] = useState<string | null>(null)
 
   const capture = useCapture(selected, quality)
-  const lobby = useLobby(options)
+  const lobby = useLobby(options, kluczZapisany)
 
   const jaNadaje = lobby.state.jaNadaje
 
@@ -79,6 +82,17 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   const zakoncz = async (): Promise<void> => {
     await lobby.stopSharing()
     setSelected(null)
+  }
+
+  if (lobby.state.connection === 'zly-klucz') {
+    return (
+      <ApiKeyPrompt
+        error={lobby.state.error}
+        onSave={(klucz) => {
+          void window.companion.setApiKey(klucz).then(() => setKluczZapisany((n) => n + 1))
+        }}
+      />
+    )
   }
 
   if (pickerOpen) {
