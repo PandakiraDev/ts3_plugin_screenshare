@@ -2,7 +2,6 @@ node_modules/
 dist/
 out/
 release/
-build/
 .tmp/
 *.log
 .DS_Store
@@ -13,3 +12,8 @@ plugin/sdk/
 # Instalator i DLL kopiowany do build/ przy pakowaniu
 companion-app/build/*.dll
 plugin/ts3-diagnostyka.txt
+
+# Wyniki kompilacji wtyczki (companion-app/build to zasoby ZRODLOWE
+# electron-buildera, wiec nie moze byc ignorowane globalnie)
+plugin/build/
+companion-app/build/*.dll
