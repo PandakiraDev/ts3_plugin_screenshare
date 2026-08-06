@@ -41,7 +41,25 @@ export function StreamTile({
 
   return (
     <div className={`tile${powiekszony ? ' tile--zoom' : ''}`}>
-      <video ref={videoRef} autoPlay playsInline className="tile__video" />
+      {/*
+        Powiększenie kliknięciem w sam obraz. Osobny element zamiast handlera na
+        całym kafelku, bo pasek na dole ma własne kontrolki — suwak głośności
+        przeciągany myszą kończyłby się przypadkowym powiększeniem.
+      */}
+      <div
+        className="tile__ekran"
+        onClick={onToggleZoom}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          onToggleZoom()
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={powiekszony ? `Wróć do siatki: ${nazwa}` : `Powiększ: ${nazwa}`}
+      >
+        <video ref={videoRef} autoPlay playsInline className="tile__video" />
+      </div>
 
       <div className="tile__bar">
         <span className="tile__name" title={nazwa}>

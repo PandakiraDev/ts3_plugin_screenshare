@@ -78,7 +78,9 @@ PLUGINS_EXPORTDLL int ts3plugin_apiVersion() { return PLUGIN_API_VERSION; }
 PLUGINS_EXPORTDLL const char* ts3plugin_author() { return "Konrad"; }
 PLUGINS_EXPORTDLL const char* ts3plugin_description()
 {
-    return "Udostepnianie ekranu w kanale TS3 (companion app + WebRTC).";
+    /* Polskie znaki są tu bezpieczne dzięki /utf-8 w build.bat — Client API
+     * TS3 oczekuje UTF-8, a bez tej flagi MSVC kodowałby literały wg CP1250. */
+    return "Udostępnianie ekranu w kanale TS3 (companion app + WebRTC).";
 }
 
 PLUGINS_EXPORTDLL void ts3plugin_setFunctionPointers(const struct TS3Functions funcs) { ts3 = funcs; }
@@ -121,7 +123,7 @@ PLUGINS_EXPORTDLL void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, c
     int       n     = 0;
 
     *menuItems      = (struct PluginMenuItem**)malloc(sizeof(struct PluginMenuItem*) * (count + 1));
-    (*menuItems)[n++] = createMenuItem(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_SHARE, "Udostepnij ekran", "");
+    (*menuItems)[n++] = createMenuItem(PLUGIN_MENU_TYPE_CHANNEL, MENU_ID_SHARE, "Udostępnij ekran", "");
     (*menuItems)[n++] = NULL; /* lista musi być zakończona NULL-em */
 
     *menuIcon = NULL;
@@ -168,6 +170,17 @@ static void resolveCompanionPath(char* out, size_t outSize)
  * różny (IP kontra domena, inny port), a to rozjechałoby pokoje między ludźmi
  * połączonymi z tym samym serwerem na różne sposoby.
  */
+/*
+ * UTF-8 z Client API na UTF-16 dla WinAPI. Pusty napis przy braku wejścia,
+ * żeby wołający nie musiał sprawdzać NULL-a przy każdym użyciu.
+ */
+static void utf8ToWide(const char* utf8, wchar_t* out, int outChars)
+{
+    if (!utf8 || MultiByteToWideChar(CP_UTF8, 0, utf8, -1, out, outChars) == 0) {
+        out[0] = L'\0';
+    }
+}
+
 static void launchCompanion(uint64 serverConnectionHandlerID, uint64 channelID)
 {
     char* serverUid = NULL;
@@ -188,24 +201,40 @@ static void launchCompanion(uint64 serverConnectionHandlerID, uint64 channelID)
     char exePath[MAX_PATH];
     resolveCompanionPath(exePath, sizeof(exePath));
 
-    /* Cudzysłowy wokół ścieżki i nicku: obie potrafią zawierać spacje. */
-    char cmdline[2048];
-    _snprintf_s(cmdline, sizeof(cmdline), _TRUNCATE,
-                "\"%s\" --ts3-server=\"%s\" --channel=%llu%s%s%s",
-                exePath,
-                serverUid,
-                (unsigned long long)channelID,
-                nickname ? " --nick=\"" : "",
-                nickname ? nickname : "",
-                nickname ? "\"" : "");
+    /*
+     * Client API TS3 oddaje napisy w UTF-8, a CreateProcessA interpretuje je
+     * według systemowej strony kodowej (w Polsce 1250). Nick "Michał" docierał
+     * przez to do companion app jako "MichaÅ‚". Dlatego całą linię poleceń
+     * budujemy w UTF-16 i wołamy wersję W.
+     *
+     * Dotyczy też ścieżki: getPluginPath zwraca UTF-8, więc katalog użytkownika
+     * z polskimi znakami psuł uruchomienie w ogóle.
+     */
+    wchar_t exePathW[MAX_PATH];
+    wchar_t serverUidW[256];
+    wchar_t nicknameW[128];
+    utf8ToWide(exePath, exePathW, MAX_PATH);
+    utf8ToWide(serverUid, serverUidW, 256);
+    utf8ToWide(nickname, nicknameW, 128);
 
-    STARTUPINFOA        si;
+    /* Cudzysłowy wokół ścieżki i nicku: obie potrafią zawierać spacje. */
+    wchar_t cmdline[2048];
+    _snwprintf_s(cmdline, 2048, _TRUNCATE,
+                 L"\"%s\" --ts3-server=\"%s\" --channel=%llu%s%s%s",
+                 exePathW,
+                 serverUidW,
+                 (unsigned long long)channelID,
+                 nickname ? L" --nick=\"" : L"",
+                 nickname ? nicknameW : L"",
+                 nickname ? L"\"" : L"");
+
+    STARTUPINFOW        si;
     PROCESS_INFORMATION pi;
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     ZeroMemory(&pi, sizeof(pi));
 
-    if (CreateProcessA(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+    if (CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         /* Uchwytów nie trzymamy — companion app żyje własnym życiem i nie chcemy,
          * żeby jej zamknięcie czy działanie blokowało klienta TS3. */
         CloseHandle(pi.hProcess);
@@ -213,7 +242,7 @@ static void launchCompanion(uint64 serverConnectionHandlerID, uint64 channelID)
     } else {
         char err[512];
         _snprintf_s(err, sizeof(err), _TRUNCATE,
-                    "Nie udalo sie uruchomic companion app (blad %lu): %s",
+                    "Nie udało się uruchomić companion app (błąd %lu): %s",
                     GetLastError(), exePath);
         ts3.logMessage(err, LogLevel_ERROR, "TS3ScreenShare", serverConnectionHandlerID);
         ts3.printMessageToCurrentTab("[TS3 Screen Share] Nie udalo sie uruchomic aplikacji udostepniania.");

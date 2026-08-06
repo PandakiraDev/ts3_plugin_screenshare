@@ -53,7 +53,10 @@ if errorlevel 1 (
 if not exist build mkdir build
 
 REM Klient TS3 jest 64-bitowy, wiec plugin tez musi byc 64-bitowy.
-cl /nologo /LD /O2 /W3 ^
+REM /utf-8: zrodlo jest w UTF-8 bez BOM, wiec bez tej flagi MSVC czyta je
+REM wedlug systemowej strony kodowej (u nas 1250). Client API TS3 oczekuje
+REM UTF-8, a napisy z polskimi znakami przechodzily dotad tylko przypadkiem.
+cl /nologo /LD /O2 /W3 /utf-8 ^
    /I sdk\include ^
    src\plugin.c ^
    /Fo:build\ ^
