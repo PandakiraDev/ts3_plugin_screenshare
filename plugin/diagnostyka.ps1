@@ -123,5 +123,52 @@ foreach ($k in @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", 
 }
 if (-not $found) { Write-Output "    BRAK wpisu - instalator nie zostal ukonczony." }
 
+# --- 7. Gdzie wskazuje deinstalator ---------------------------------------
+# InstallLocation bywa puste, ale UninstallString zawsze zawiera pelna
+# sciezke - po niej poznajemy, gdzie instalator NAPRAWDE polozyl pliki.
+Write-Output ""
+Write-Output "[7] Sciezka z deinstalatora:"
+$sciezki = @()
+foreach ($k in @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")) {
+    $wpisy = Get-ItemProperty $k -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*TS3 Screen Share*" }
+    foreach ($w in $wpisy) {
+        Write-Output "    UninstallString: $($w.UninstallString)"
+        # Trzeba odciac argumenty ("/currentuser") PRZED Split-Path: PowerShell
+        # traktuje ukosnik jako separator sciezki i bierze je za kolejny segment,
+        # przez co katalog wychodzi bledny, a liczba plikow mylaca.
+        if ($w.UninstallString -match '^"([^"]+)"') { $exeU = $matches[1] }
+        else { $exeU = ($w.UninstallString -split ' ')[0] }
+        $kat = Split-Path $exeU -Parent -ErrorAction SilentlyContinue
+        if ($kat) {
+            $sciezki += $kat
+            Write-Output "    katalog istnieje: $(Test-Path -LiteralPath $kat)"
+            if (Test-Path -LiteralPath $kat) {
+                $ile = (Get-ChildItem -LiteralPath $kat -ErrorAction SilentlyContinue | Measure-Object).Count
+                Write-Output "    plikow w katalogu: $ile"
+            }
+        }
+    }
+}
+if ($sciezki.Count -eq 0) { Write-Output "    brak danych" }
+
+# --- 8. Czy antywirus czegos nie usunal -----------------------------------
+# Aplikacja jest NIEPODPISANA, wiec Defender/AV potrafi ja usunac po cichu
+# juz po zakonczeniu instalacji - zostaje wtedy wpis w rejestrze bez plikow.
+Write-Output ""
+Write-Output "[8] Wykrycia antywirusa (ostatnie):"
+try {
+    $wykrycia = Get-MpThreatDetection -ErrorAction Stop | Sort-Object InitialDetectionTime -Descending | Select-Object -First 5
+    if ($wykrycia) {
+        foreach ($w in $wykrycia) {
+            Write-Output "    $($w.InitialDetectionTime) | $($w.Resources -join '; ')"
+        }
+    } else {
+        Write-Output "    Defender nic nie zglosil"
+    }
+} catch {
+    Write-Output "    Nie udalo sie odczytac (inny antywirus niz Defender?): $($_.Exception.Message)"
+}
+Write-Output "    UWAGA: sprawdz tez recznie kwarantanne swojego antywirusa."
+
 Write-Output ""
 Write-Output "=== koniec ==="
