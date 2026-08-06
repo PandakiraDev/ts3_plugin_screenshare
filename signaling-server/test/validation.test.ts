@@ -103,6 +103,21 @@ test('nieznany rodzaj strumienia to zwykły błąd walidacji, nie komunikat o we
   expect(await client.next()).toEqual({ type: 'error', message: 'Nieznany rodzaj strumienia.' })
 })
 
+test('jawne kind: null to zła wartość, nie brak pola', async () => {
+  // Rozróżnienie jest celowe i wąskie: parser sprawdza dokładnie `kind ===
+  // undefined`, żeby odróżnić starą wersję aplikacji (w ogóle nie wysyła
+  // pola) od obecnego klienta, który wysłał złą wartość. Uproszczenie tego
+  // warunku do np. `!kind` albo `kind == null` po cichu zmieniłoby ten
+  // przypadek na komunikat o starej wersji — mylący, bo aplikacja wcale nie
+  // jest stara. Ten test ma złapać taką regresję.
+  const client = await connect()
+  await join(client, ROOM_A)
+
+  client.send({ type: 'start-stream', kind: null })
+
+  expect(await client.next()).toEqual({ type: 'error', message: 'Nieznany rodzaj strumienia.' })
+})
+
 test('poprawny rodzaj strumienia przechodzi', async () => {
   const client = await connect()
   const peerId = await join(client, ROOM_A)
