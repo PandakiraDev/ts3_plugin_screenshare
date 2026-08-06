@@ -76,3 +76,42 @@ export const RESOLUTION_DIMENSIONS: Record<
   '1440p': { width: 2560, height: 1440 },
   source: null
 }
+
+/** Presety rozdzielczości kamery. Bez 'source' i '1440p' — kamery internetowe ich nie mają. */
+export type CameraResolution = '480p' | '720p' | '1080p'
+
+export const CAMERA_DIMENSIONS: Record<CameraResolution, { width: number; height: number }> = {
+  '480p': { width: 854, height: 480 },
+  '720p': { width: 1280, height: 720 },
+  '1080p': { width: 1920, height: 1080 }
+}
+
+export interface CameraSettings {
+  /** null = urządzenie domyślne systemu. */
+  deviceId: string | null
+  resolution: CameraResolution
+  fps: number
+}
+
+export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
+  deviceId: null,
+  resolution: '720p',
+  fps: 30
+}
+
+/**
+ * Kamera nigdy nie niesie dźwięku (`audio: false`): głos idzie przez
+ * TeamSpeaka, a mikrofon w tym streamie odtworzyłby echo tego samego
+ * rodzaju, jakie naprawialiśmy przy przechwytywaniu dźwięku aplikacji.
+ */
+export function cameraConstraints(settings: CameraSettings): MediaStreamConstraints {
+  const rozmiar = CAMERA_DIMENSIONS[settings.resolution]
+  const video: MediaTrackConstraints = {
+    width: { ideal: rozmiar.width },
+    height: { ideal: rozmiar.height },
+    frameRate: { ideal: settings.fps, max: settings.fps }
+  }
+  // deviceId: null wywala getUserMedia — brak wyboru to brak pola, nie null.
+  if (settings.deviceId) video.deviceId = { exact: settings.deviceId }
+  return { video, audio: false }
+}
