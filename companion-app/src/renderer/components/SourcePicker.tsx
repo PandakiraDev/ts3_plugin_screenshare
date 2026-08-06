@@ -74,6 +74,14 @@ export function SourcePicker({
         </div>
       )}
 
+      {capture.audioWarning && (
+        <div className="sharebar">
+          <div className="notice sharebar__error">
+            <span>{capture.audioWarning}</span>
+          </div>
+        </div>
+      )}
+
       <div className="app__body">
         <main className="app__main">
           <SourceGrid

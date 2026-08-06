@@ -58,6 +58,28 @@ export function SettingsPanel({ quality, onChange }: SettingsPanelProps): JSX.El
       </div>
 
       <div className="settings__field">
+        <label className="settings__label" htmlFor="share-audio">
+          Dźwięk
+        </label>
+        <label className="settings__checkbox">
+          <input
+            id="share-audio"
+            type="checkbox"
+            checked={quality.shareAudio}
+            onChange={(event) =>
+              onChange({ ...quality, shareAudio: event.target.checked })
+            }
+          />
+          <span>Udostępnij też dźwięk</span>
+        </label>
+        <p className="settings__hint">
+          Windows pozwala przechwycić tylko dźwięk <strong>całego systemu</strong> —
+          nie da się wziąć audio pojedynczego okna. Nawet przy udostępnianiu jednego
+          okna słychać będzie wszystko, co gra na Twoim komputerze.
+        </p>
+      </div>
+
+      <div className="settings__field">
         <label className="settings__label" htmlFor="bitrate">
           Bitrate
         </label>

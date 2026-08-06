@@ -3,8 +3,8 @@ import type { PeerInfo } from '../signaling/SignalingClient'
 interface PeerPanelProps {
   me: PeerInfo | null
   peers: PeerInfo[]
-  /** peerId nadającego — także gdy to my. null = nikt nie nadaje. */
-  streamerPeerId: string | null
+  /** peerId wszystkich nadających — ikona przy każdym z nich. */
+  streamerIds: string[]
   collapsed: boolean
   onToggle: () => void
 }
@@ -17,7 +17,7 @@ interface PeerPanelProps {
 export function PeerPanel({
   me,
   peers,
-  streamerPeerId,
+  streamerIds,
   collapsed,
   onToggle
 }: PeerPanelProps): JSX.Element {
@@ -62,7 +62,7 @@ export function PeerPanel({
 
       <ul className="peers__list">
         {wszyscy.map((peer) => {
-          const nadaje = peer.peerId === streamerPeerId
+          const nadaje = streamerIds.includes(peer.peerId)
           return (
             <li
               key={peer.peerId}

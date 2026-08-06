@@ -13,8 +13,8 @@ export interface JoinResult {
   peerId: string
   displayName: string
   peers: PeerInfo[]
-  /** Kto nadaje w chwili wejścia; null gdy nikt. */
-  streamerId: string | null
+  /** Wszyscy nadający w chwili wejścia. Pusta lista = nikt nie nadaje. */
+  streamers: string[]
 }
 
 type EventMap = {
@@ -152,7 +152,7 @@ export class SignalingClient {
           peerId,
           displayName: message['displayName'] as string,
           peers: message['peers'] as PeerInfo[],
-          streamerId: (message['streamerId'] as string | null) ?? null
+          streamers: (message['streamers'] as string[] | undefined) ?? []
         } as never)
         this.pendingJoin = null
         return
@@ -169,11 +169,12 @@ export class SignalingClient {
       case 'stream-started': {
         const peerId = message['peerId'] as string
         // Ta sama wiadomość jest potwierdzeniem dla zgłaszającego i zdarzeniem
-        // dla reszty pokoju — rozróżnia je to, czy dotyczy nas.
+        // dla reszty pokoju. Rozwiazujemy zadanie, ale zdarzenie emitujemy TAK
+        // CZY OWAK: bez tego wlasne id nigdy nie trafia na liste nadajacych
+        // i nadajacy nie widzi ikony przy sobie samym.
         if (peerId === this._peerId && this.pendingStart) {
           this.pendingStart.resolve(undefined as never)
           this.pendingStart = null
-          return
         }
         this.emit('stream-started', peerId)
         return
@@ -183,7 +184,6 @@ export class SignalingClient {
         if (peerId === this._peerId && this.pendingStop) {
           this.pendingStop.resolve(undefined as never)
           this.pendingStop = null
-          return
         }
         this.emit('stream-stopped', peerId)
         return

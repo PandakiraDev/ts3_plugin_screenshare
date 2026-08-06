@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { CaptureSource, QualitySettings } from '@shared/types'
 import { DEFAULT_QUALITY } from '@shared/types'
 import type { LaunchOptions } from '../../shared/cli'
@@ -6,6 +6,7 @@ import { useCapture } from '../hooks/useCapture'
 import { useLobby } from '../hooks/useLobby'
 import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
+import { StreamTile } from './StreamTile'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -19,23 +20,34 @@ interface LobbyViewProps {
 export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
+  const [powiekszony, setPowiekszony] = useState<string | null>(null)
   const [selected, setSelected] = useState<CaptureSource | null>(null)
   const [quality, setQuality] = useState<QualitySettings>(DEFAULT_QUALITY)
   const [startError, setStartError] = useState<string | null>(null)
 
   const capture = useCapture(selected, quality)
   const lobby = useLobby(options)
-  const videoRef = useRef<HTMLVideoElement>(null)
 
-  const jaNadaje = lobby.state.streamer === 'me'
-  const ktosInnyNadaje = lobby.state.streamer !== null && !jaNadaje
+  const jaNadaje = lobby.state.jaNadaje
 
-  // Podgląd pokazuje obraz zdalny, a gdy sami nadajemy — własny.
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.srcObject = jaNadaje ? capture.stream : lobby.state.remoteStream
-  }, [jaNadaje, capture.stream, lobby.state.remoteStream])
+  /**
+   * Kafelki: cudze strumienie plus nasz wlasny podglad, gdy nadajemy.
+   * Wlasny bierzemy z lokalnego capture, a nie z sieci — nie wysylamy
+   * obrazu do samych siebie.
+   */
+  const kafelki: { peerId: string; stream: MediaStream; nazwa: string; toJa: boolean }[] = []
+  if (jaNadaje && capture.stream && lobby.state.me) {
+    kafelki.push({
+      peerId: lobby.state.me.peerId,
+      stream: capture.stream,
+      nazwa: lobby.state.me.displayName,
+      toJa: true
+    })
+  }
+  for (const [peerId, stream] of lobby.state.remoteStreams) {
+    const peer = lobby.state.peers.find((p) => p.peerId === peerId)
+    kafelki.push({ peerId, stream, nazwa: peer?.displayName ?? 'Uczestnik', toJa: false })
+  }
 
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
@@ -47,6 +59,11 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   useEffect(() => {
     lobby.applyQuality(quality.bitrateKbps, quality.fps)
   }, [quality.bitrateKbps, quality.fps, lobby])
+
+  // Powiekszony kafelek moze zniknac (streamer skonczyl) — wtedy wracamy do siatki.
+  useEffect(() => {
+    if (powiekszony && !kafelki.some((k) => k.peerId === powiekszony)) setPowiekszony(null)
+  })
 
   const potwierdzWybor = async (): Promise<void> => {
     if (!capture.stream) return
@@ -83,8 +100,6 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
     )
   }
 
-  const maObraz = jaNadaje ? capture.stream !== null : lobby.state.remoteStream !== null
-
   return (
     <div className="app">
       <header className="app__titlebar">
@@ -93,15 +108,16 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
           {lobby.state.connection === 'connecting' && 'Łączenie z kanałem…'}
           {lobby.state.connection === 'error' && 'Brak połączenia'}
           {lobby.state.connection === 'ready' &&
-            (jaNadaje
-              ? `Udostępniasz ekran · ${
-                  lobby.state.viewers === 0
-                    ? 'nikt jeszcze nie ogląda'
-                    : `${lobby.state.viewers} ${lobby.state.viewers === 1 ? 'widz' : 'widzów'}`
-                }`
-              : ktosInnyNadaje
-                ? 'Ktoś udostępnia ekran'
-                : 'Nikt nie udostępnia ekranu')}
+            (kafelki.length === 0
+              ? 'Nikt nie udostępnia ekranu'
+              : `${kafelki.length} ${kafelki.length === 1 ? 'transmisja' : 'transmisje'}` +
+                (jaNadaje
+                  ? ` · Ty: ${
+                      lobby.state.viewers === 0
+                        ? 'nikt nie ogląda'
+                        : `${lobby.state.viewers} ${lobby.state.viewers === 1 ? 'widz' : 'widzów'}`
+                    }`
+                  : ''))}
         </span>
 
         <div className="app__actions">
@@ -114,8 +130,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
               type="button"
               className="btn btn--primary"
               onClick={() => setPickerOpen(true)}
-              disabled={ktosInnyNadaje || lobby.state.connection !== 'ready'}
-              title={ktosInnyNadaje ? 'Ktoś już udostępnia ekran w tym kanale' : undefined}
+              disabled={lobby.state.connection !== 'ready'}
             >
               Udostępnij ekran
             </button>
@@ -130,17 +145,33 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
               <strong>Nie udało się połączyć z kanałem.</strong>
               <span>{lobby.state.error}</span>
             </div>
-          ) : (
+          ) : kafelki.length === 0 ? (
             <div className="viewer__stage">
-              <video ref={videoRef} autoPlay muted playsInline className="viewer__video" />
-              {!maObraz && (
-                <div className="viewer__waiting">
-                  {ktosInnyNadaje
-                    ? 'Odbieranie obrazu…'
-                    : 'Nikt nie udostępnia ekranu. Możesz zacząć jako pierwszy.'}
-                </div>
-              )}
-              {jaNadaje && <span className="viewer__badge">Twój obraz</span>}
+              <div className="viewer__waiting">
+                {lobby.state.streamerIds.length > 0
+                  ? 'Odbieranie obrazu…'
+                  : 'Nikt nie udostępnia ekranu. Możesz zacząć jako pierwszy.'}
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`siatka${powiekszony ? ' siatka--zoom' : ''}`}
+              data-ile={Math.min(kafelki.length, 4)}
+            >
+              {kafelki
+                .filter((k) => !powiekszony || k.peerId === powiekszony)
+                .map((k) => (
+                  <StreamTile
+                    key={k.peerId}
+                    stream={k.stream}
+                    nazwa={k.nazwa}
+                    toJa={k.toJa}
+                    powiekszony={powiekszony === k.peerId}
+                    onToggleZoom={() =>
+                      setPowiekszony((c) => (c === k.peerId ? null : k.peerId))
+                    }
+                  />
+                ))}
             </div>
           )}
         </div>
@@ -148,7 +179,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
         <PeerPanel
           me={lobby.state.me}
           peers={lobby.state.peers}
-          streamerPeerId={lobby.state.streamerPeerId}
+          streamerIds={lobby.state.streamerIds}
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
         />

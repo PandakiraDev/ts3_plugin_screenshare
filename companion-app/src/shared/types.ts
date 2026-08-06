@@ -27,6 +27,12 @@ export interface QualitySettings {
   fps: FpsPreset
   /** Górny limit bitrate w kbps → `RTCRtpSender.setParameters()` → `maxBitrate`. */
   bitrateKbps: number
+  /**
+   * Czy wysyłać dźwięk razem z obrazem. Na Windows Electron potrafi przechwycić
+   * wyłącznie dźwięk CAŁEGO systemu — nie da się wziąć audio pojedynczego okna.
+   * Nawet przy udostępnianiu jednego okna leci więc miks systemowy.
+   */
+  shareAudio: boolean
 }
 
 /**
@@ -40,7 +46,10 @@ export const BITRATE_PRESETS_KBPS = [2500, 5000, 8000, 15000, 25000] as const
 export const DEFAULT_QUALITY: QualitySettings = {
   resolution: '1080p',
   fps: 60,
-  bitrateKbps: 8000
+  bitrateKbps: 8000,
+  // Domyślnie bez dźwięku: nadający świadomie decyduje, czy dzielić się tym,
+  // co słychać na jego komputerze.
+  shareAudio: false
 }
 
 /** Wymiary w pikselach dla presetu; null dla 'source' (brak ograniczenia). */

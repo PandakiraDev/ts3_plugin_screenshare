@@ -69,8 +69,23 @@ const przyciskUdostepnij = `(() => {
   const b = [...document.querySelectorAll('button')].find(x => /Udostępnij ekran/.test(x.textContent));
   return b ? (b.disabled ? 'NIEAKTYWNY' : 'AKTYWNY') : 'BRAK';
 })()`
+
+/** Ile kafelkow w siatce i czy maja sciezke audio. */
+const SIATKA = `(() => {
+  const kafelki = [...document.querySelectorAll('.tile')].map(el => {
+    const v = el.querySelector('.tile__video');
+    const s = v && v.srcObject;
+    return {
+      nazwa: el.querySelector('.tile__name').textContent.trim(),
+      obraz: v && v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'BRAK',
+      audio: s ? s.getAudioTracks().length : 0,
+      wyciszony: v ? v.muted : null
+    };
+  });
+  return JSON.stringify({ ile: kafelki.length, kafelki });
+})()`
 const OBRAZ = `(async () => {
-  const v = document.querySelector('.viewer__video');
+  const v = document.querySelector('.tile__video');
   if (!v || !v.videoWidth) return JSON.stringify({ obraz: false,
     tekst: (document.querySelector('.viewer__waiting')||{}).textContent || '' });
   const c = document.createElement('canvas'); c.width=160; c.height=90;
@@ -85,11 +100,20 @@ const OBRAZ = `(async () => {
 })()`
 
 /** Klika "Udostępnij ekran", wybiera pierwszy ekran i potwierdza. */
-async function udostepnij(cdp) {
+async function udostepnij(cdp, zDzwiekiem = false) {
   await cdp.evaluate(`[...document.querySelectorAll('button')].find(b=>/Udostępnij ekran/.test(b.textContent)).click()`)
   await sleep(2500)
   await cdp.evaluate(`[...document.querySelectorAll('.source-card')].find(c=>/Ekran/.test(c.textContent)).click()`)
-  await sleep(2500)
+  await sleep(1500)
+  if (zDzwiekiem) {
+    await cdp.evaluate(`(() => {
+      const cb = document.getElementById('share-audio');
+      if (cb && !cb.checked) cb.click();
+      return cb ? cb.checked : 'brak';
+    })()`)
+    await sleep(2500)
+  }
+  await sleep(1500)
   return cdp.evaluate(`(() => {
     const b = [...document.querySelectorAll('button')].find(x=>/Rozpocznij udostępnianie/.test(x.textContent));
     if (!b) return 'BRAK PRZYCISKU'; if (b.disabled) return 'NIEAKTYWNY';
@@ -136,12 +160,24 @@ try {
   console.log('L4 B przycisk :', await B.evaluate(przyciskUdostepnij))
 
   // Teraz B przejmuje nadawanie — to jest sedno "kazdy moze byc streamerem"
-  console.log('L5 B udostepnia:', await udostepnij(B))
+  console.log('L5 B udostepnia (z dzwiekiem):', await udostepnij(B, true))
   await sleep(7000)
   console.log('L5 A naglowek :', await A.evaluate(naglowek))
   console.log('L5 A obraz    :', await A.evaluate(OBRAZ))
   console.log('L5 C obraz    :', await C.evaluate(OBRAZ))
   console.log('L5 panel u C  :', await C.evaluate(panel))
+
+  // --- L6: DRUGI nadajacy rownoczesnie (wczesniej serwer by go odrzucil)
+  console.log('L6 A dolacza jako drugi nadajacy:', await udostepnij(A))
+  await sleep(9000)
+  console.log('L6 siatka u C :', await C.evaluate(SIATKA))
+  console.log('L6 siatka u A :', await A.evaluate(SIATKA))
+  console.log('L6 panel u C  :', await C.evaluate(panel))
+
+  // --- L7: jeden konczy, drugi ma nadawac dalej
+  await A.evaluate(`[...document.querySelectorAll('button')].find(x=>/Zakończ udostępnianie/.test(x.textContent)).click()`)
+  await sleep(5000)
+  console.log('L7 siatka u C po zakonczeniu A:', await C.evaluate(SIATKA))
 
   A.close(); B.close(); C.close(); c.kill()
 } catch (e) {

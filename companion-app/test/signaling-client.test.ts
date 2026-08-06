@@ -62,7 +62,7 @@ test('join zwraca peerId, listę obecnych i informację o nadającym', async () 
 
   expect(joined.peerId).toMatch(/^[0-9a-f-]{36}$/)
   expect(joined.peers).toEqual([])
-  expect(joined.streamerId).toBeNull()
+  expect(joined.streamers).toEqual([])
 })
 
 test('bez nicku serwer nadaje zastępczą nazwę', async () => {
@@ -86,7 +86,7 @@ test('nick z TS3 jest przekazywany i wraca w liście u pozostałych', async () =
   ])
 })
 
-test('dołączający w trakcie transmisji od razu zna nadającego', async () => {
+test('dołączający w trakcie transmisji od razu zna nadających', async () => {
   const streamer = await connect()
   const streamerJoined = await streamer.join(ROOM, null)
   await streamer.startStream()
@@ -94,7 +94,7 @@ test('dołączający w trakcie transmisji od razu zna nadającego', async () => 
   const pozny = await connect()
   const joined = await pozny.join(ROOM, null)
 
-  expect(joined.streamerId).toBe(streamerJoined.peerId)
+  expect(joined.streamers).toEqual([streamerJoined.peerId])
 })
 
 test('klient dostaje powiadomienie o nowym peerze', async () => {
@@ -122,7 +122,8 @@ test('rozpoczęcie transmisji jest zgłaszane pozostałym', async () => {
   expect(box.streamStarted).toEqual([streamerJoined.peerId])
 })
 
-test('drugi chętny dostaje czytelną odmowę', async () => {
+test('kilka osób może nadawać jednocześnie', async () => {
+  // Limit jednego nadającego zniesiony — drugi start-stream ma przejsc.
   const pierwszy = await connect()
   await pierwszy.join(ROOM, null)
   await pierwszy.startStream()
@@ -130,8 +131,20 @@ test('drugi chętny dostaje czytelną odmowę', async () => {
   const drugi = await connect()
   await drugi.join(ROOM, null)
 
-  // To jest ścieżka, którą UI pokazuje jako "ktoś już udostępnia".
-  await expect(drugi.startStream()).rejects.toThrow(/udostępnia/i)
+  await expect(drugi.startStream()).resolves.toBeUndefined()
+})
+
+test('nadający dostaje zdarzenie także o własnej transmisji', async () => {
+  // Bez tego wlasne id nie trafia na liste nadajacych i panel nie pokazuje
+  // ikony przy sobie samym.
+  const client = await connect()
+  const box = track(client)
+  const joined = await client.join(ROOM, null)
+
+  await client.startStream()
+  await settle()
+
+  expect(box.streamStarted).toContain(joined.peerId)
 })
 
 test('zakończenie transmisji jest zgłaszane pozostałym', async () => {

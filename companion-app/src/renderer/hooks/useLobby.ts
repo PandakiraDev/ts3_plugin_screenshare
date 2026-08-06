@@ -6,11 +6,12 @@ import { LobbySession } from '../webrtc/session'
 
 export interface LobbyState {
   connection: 'connecting' | 'ready' | 'error'
-  /** Kto nadaje: 'me', peerId kogoś innego, albo null gdy nikt. */
-  streamer: 'me' | string | null
-  /** peerId nadającego — także wtedy, gdy to my. Panel po tym rysuje ikonę. */
-  streamerPeerId: string | null
-  remoteStream: MediaStream | null
+  /** Czy to my nadajemy. */
+  jaNadaje: boolean
+  /** peerId wszystkich nadających (łącznie z nami, jeśli nadajemy). */
+  streamerIds: string[]
+  /** peerId nadającego -> jego obraz. Wiele naraz jest normalne. */
+  remoteStreams: Map<string, MediaStream>
   viewers: number
   /** Pozostali uczestnicy pokoju (bez nas). */
   peers: PeerInfo[]
@@ -21,9 +22,9 @@ export interface LobbyState {
 
 const INITIAL: LobbyState = {
   connection: 'connecting',
-  streamer: null,
-  streamerPeerId: null,
-  remoteStream: null,
+  jaNadaje: false,
+  streamerIds: [],
+  remoteStreams: new Map(),
   viewers: 0,
   peers: [],
   me: null,
@@ -65,13 +66,20 @@ export function useLobby(options: LaunchOptions): Lobby {
         signalingRef.current = signaling
 
         const session = new LobbySession(signaling, {
-          onRemoteStream: (remoteStream) =>
-            setState((current) => ({ ...current, remoteStream })),
-          onStreamerChange: (peerId) =>
+          onRemoteStream: (peerId, stream) =>
+            setState((current) => {
+              // Nowa mapa, nie mutacja: React porownuje referencje.
+              const remoteStreams = new Map(current.remoteStreams)
+              if (stream) remoteStreams.set(peerId, stream)
+              else remoteStreams.delete(peerId)
+              return { ...current, remoteStreams }
+            }),
+          onStreamersChange: (peerIds) =>
             setState((current) => ({
               ...current,
-              streamerPeerId: peerId,
-              streamer: peerId === myPeerIdRef.current && peerId ? 'me' : peerId
+              streamerIds: peerIds,
+              // Serwer rozglasza tez nasze wlasne start/stop-stream.
+              jaNadaje: myPeerIdRef.current !== null && peerIds.includes(myPeerIdRef.current)
             })),
           onPeersChange: (peers) => setState((current) => ({ ...current, peers })),
           onViewerCountChange: (viewers) =>
@@ -117,23 +125,13 @@ export function useLobby(options: LaunchOptions): Lobby {
     // wysyłamy cokolwiek. Odmowa ("ktoś już udostępnia") wraca jako wyjątek.
     await signaling.startStream()
     session.startStreaming(stream)
-    setState((current) => ({
-      ...current,
-      streamer: 'me',
-      streamerPeerId: myPeerIdRef.current,
-      error: null
-    }))
+    setState((current) => ({ ...current, jaNadaje: true, error: null }))
   }, [])
 
   const stopSharing = useCallback(async (): Promise<void> => {
     sessionRef.current?.stopStreaming()
     await signalingRef.current?.stopStream()
-    setState((current) => ({
-      ...current,
-      streamer: null,
-      streamerPeerId: null,
-      viewers: 0
-    }))
+    setState((current) => ({ ...current, jaNadaje: false, viewers: 0 }))
   }, [])
 
   const replaceStream = useCallback((stream: MediaStream): void => {

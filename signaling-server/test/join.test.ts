@@ -28,7 +28,7 @@ async function join(client: TestClient, roomId: string): Promise<string> {
   return message.peerId
 }
 
-test('pierwszy peer dostaje swoje id, pusty pokój i informację, że nikt nie nadaje', async () => {
+test('pierwszy peer dostaje swoje id, pusty pokój i pustą listę nadających', async () => {
   const client = await connect()
 
   client.send({ type: 'join', roomId: ROOM_A })
@@ -37,7 +37,7 @@ test('pierwszy peer dostaje swoje id, pusty pokój i informację, że nikt nie n
   if (message.type !== 'joined') throw new Error('zły typ')
   expect(message.peerId).toBeTypeOf('string')
   expect(message.peers).toEqual([])
-  expect(message.streamerId).toBeNull()
+  expect(message.streamers).toEqual([])
 })
 
 test('drugi peer widzi pierwszego', async () => {
@@ -64,7 +64,7 @@ test('dołączający w trakcie transmisji od razu wie, kto nadaje', async () => 
 
   const message = await pozny.next()
   if (message.type !== 'joined') throw new Error('zły typ')
-  expect(message.streamerId).toBe(streamerId)
+  expect(message.streamers).toEqual([streamerId])
 })
 
 test('obecni dostają powiadomienie o nowym peerze', async () => {

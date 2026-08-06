@@ -14,7 +14,12 @@ const NATIVE_MAX = { width: 7680, height: 4320 }
  * którego nie ma w standardowym typie MediaTrackConstraints.
  */
 interface DesktopCaptureConstraints {
-  audio: false
+  /**
+   * Dźwięk systemowy (loopback). Electron przyjmuje go tym samym nieoficjalnym
+   * polem `mandatory` co obraz, ale BEZ `chromeMediaSourceId` — identyfikator
+   * źródła dotyczy tylko wideo, a audio jest zawsze miksem całego systemu.
+   */
+  audio: false | { mandatory: { chromeMediaSource: 'desktop' } }
   video: {
     mandatory: {
       chromeMediaSource: 'desktop'
@@ -33,7 +38,7 @@ function buildConstraints(
 ): DesktopCaptureConstraints {
   const size = RESOLUTION_DIMENSIONS[quality.resolution] ?? NATIVE_MAX
   return {
-    audio: false,
+    audio: quality.shareAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
     video: {
       mandatory: {
         chromeMediaSource: 'desktop',
@@ -51,6 +56,8 @@ export interface CaptureState {
   stream: MediaStream | null
   error: string | null
   isStarting: boolean
+  /** Ustawiane, gdy poproszono o dźwięk, ale udało się wziąć tylko obraz. */
+  audioWarning: string | null
 }
 
 /**
@@ -64,13 +71,14 @@ export function useCapture(
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+  const [audioWarning, setAudioWarning] = useState<string | null>(null)
 
   // Trzymamy aktywny stream też w refie: cleanup efektu musi go zatrzymać
   // niezależnie od tego, czy setState zdążył się przepropagować.
   const activeStream = useRef<MediaStream | null>(null)
 
   const sourceId = source?.id ?? null
-  const { resolution, fps } = quality
+  const { resolution, fps, shareAudio } = quality
 
   useEffect(() => {
     const stopActive = (): void => {
@@ -81,6 +89,7 @@ export function useCapture(
     stopActive()
     setStream(null)
     setError(null)
+    setAudioWarning(null)
 
     if (!sourceId) {
       setIsStarting(false)
@@ -92,16 +101,43 @@ export function useCapture(
     let cancelled = false
     setIsStarting(true)
 
-    navigator.mediaDevices
-      .getUserMedia(
-        // Bitrate nie dotyczy capture — trafia dopiero do RTCRtpSender,
-        // więc tutaj jego wartość nie ma znaczenia.
-        buildConstraints(sourceId, {
+    /**
+     * Dźwięk systemowy potrafi się nie udać (`NotReadableError: Could not start
+     * audio source`) — zależnie od wersji Windows i sterowników. Wtedy NIE
+     * przerywamy udostępniania: bierzemy sam obraz i mówimy o tym wprost.
+     * Bez tego zaznaczenie "udostępnij dźwięk" blokowało całą transmisję.
+     */
+    const pobierz = async (): Promise<MediaStream> => {
+      // Bitrate nie dotyczy capture — trafia dopiero do RTCRtpSender.
+      const zAudio = buildConstraints(sourceId, {
+        resolution,
+        fps,
+        shareAudio,
+        bitrateKbps: 0
+      }) as unknown as MediaStreamConstraints
+
+      try {
+        return await navigator.mediaDevices.getUserMedia(zAudio)
+      } catch (err: unknown) {
+        if (!shareAudio) throw err
+        const bezAudio = buildConstraints(sourceId, {
           resolution,
           fps,
+          shareAudio: false,
           bitrateKbps: 0
         }) as unknown as MediaStreamConstraints
-      )
+        const stream = await navigator.mediaDevices.getUserMedia(bezAudio)
+        if (!cancelled) {
+          setAudioWarning(
+            'Nie udało się przechwycić dźwięku systemowego — udostępniany jest ' +
+              'sam obraz. Windows nie zawsze na to pozwala.'
+          )
+        }
+        return stream
+      }
+    }
+
+    pobierz()
       .then((mediaStream) => {
         if (cancelled) {
           mediaStream.getTracks().forEach((track) => track.stop())
@@ -140,7 +176,9 @@ export function useCapture(
       cancelled = true
       stopActive()
     }
-  }, [sourceId, resolution, fps])
+    // shareAudio w zaleznosciach: wlaczenie dzwieku wymaga nowego getUserMedia,
+    // bo sciezki audio nie da sie dolozyc do istniejacego strumienia.
+  }, [sourceId, resolution, fps, shareAudio])
 
-  return { stream, error, isStarting }
+  return { stream, error, isStarting, audioWarning }
 }

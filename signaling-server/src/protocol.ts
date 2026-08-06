@@ -6,6 +6,8 @@
  * każdy może zacząć udostępniać bez restartu aplikacji, a zakończenie
  * transmisji jest zwykłym stanem pokoju, nie błędem po stronie oglądających.
  *
+ * Nadających może być wielu naraz — serwer niczego tu nie limituje.
+ *
  * Serwer nie wie nic o WebRTC — `payload` w `signal` jest dla niego
  * nieprzezroczysty (SDP, ICE, cokolwiek dojdzie później).
  */
@@ -33,7 +35,8 @@ export type ServerMessage =
       peerId: string
       displayName: string
       peers: PeerInfo[]
-      streamerId: string | null
+      /** Wszyscy aktualnie nadający w pokoju. Pusta lista = nikt nie nadaje. */
+      streamers: string[]
     }
   | { type: 'peer-joined'; peerId: string; displayName: string }
   | { type: 'peer-left'; peerId: string }

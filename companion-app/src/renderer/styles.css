@@ -693,3 +693,105 @@ h3 {
 .peers__you {
   color: var(--text-muted);
 }
+
+/* ---------- siatka strumieni ---------- */
+
+.siatka {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
+/* Do dwoch kafelkow obok siebie, powyzej 2x2 — wiecej niz cztery i tak
+   przestaje byc czytelne, wiec kolejne po prostu sie dokladaja. */
+.siatka[data-ile="2"],
+.siatka[data-ile="3"],
+.siatka[data-ile="4"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Powiekszony: jeden kafelek na cala scene. */
+.siatka--zoom {
+  grid-template-columns: 1fr !important;
+}
+
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--radius);
+  background: #000;
+  overflow: hidden;
+}
+
+.tile__video {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  object-fit: contain;
+  display: block;
+}
+
+.tile__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.55);
+  flex-shrink: 0;
+}
+
+.tile__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.tile__audio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tile__volume {
+  width: 72px;
+}
+
+.tile__cichy {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tile__btn {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.tile__btn:hover {
+  color: var(--accent);
+}
+
+.settings__checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}

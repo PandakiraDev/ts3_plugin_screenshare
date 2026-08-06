@@ -62,10 +62,10 @@ function hintContent(stream: MediaStream): void {
 }
 
 export interface LobbyCallbacks {
-  /** Obraz od nadającego; null gdy nikt nie nadaje albo transmisja się skończyła. */
-  onRemoteStream: (stream: MediaStream | null) => void
-  /** Kto nadaje (null = nikt). Steruje tym, czy przycisk "Udostępnij" jest aktywny. */
-  onStreamerChange: (peerId: string | null) => void
+  /** Obraz od konkretnego nadającego; `stream === null` = jego transmisja się skończyła. */
+  onRemoteStream: (peerId: string, stream: MediaStream | null) => void
+  /** Pełna lista aktualnie nadających (bez nas). */
+  onStreamersChange: (peerIds: string[]) => void
   onViewerCountChange: (count: number) => void
   /** Lista uczestników pokoju (bez nas) — zasila panel boczny. */
   onPeersChange: (peers: PeerInfo[]) => void
@@ -78,11 +78,15 @@ export class LobbySession {
   /** Połączenia wychodzące, gdy to my nadajemy: peerId widza -> połączenie. */
   private readonly outgoing = new Map<string, RTCPeerConnection>()
   private readonly outgoingBuffers = new Map<string, CandidateBuffer>()
-  /** Połączenie przychodzące, gdy oglądamy. */
-  private incoming: RTCPeerConnection | null = null
-  private incomingBuffer: CandidateBuffer | null = null
+  /**
+   * Połączenia przychodzące: peerId nadającego -> połączenie. Mapa, nie jedno
+   * połączenie, bo nadających może być wielu naraz i każdy wymaga osobnego
+   * RTCPeerConnection.
+   */
+  private readonly incoming = new Map<string, RTCPeerConnection>()
+  private readonly incomingBuffers = new Map<string, CandidateBuffer>()
 
-  private streamerId: string | null = null
+  private readonly streamerIds = new Set<string>()
   private localStream: MediaStream | null = null
   private disposed = false
   private bitrateKbps = 8000
@@ -99,8 +103,8 @@ export class LobbySession {
 
   begin(joined: JoinResult): void {
     for (const peer of joined.peers) this.peers.set(peer.peerId, peer.displayName)
-    this.streamerId = joined.streamerId
-    this.callbacks.onStreamerChange(joined.streamerId)
+    for (const id of joined.streamers) this.streamerIds.add(id)
+    this.emitStreamers()
     this.emitPeers()
 
     this.signaling.on('peer-joined', (peer) => {
@@ -114,27 +118,35 @@ export class LobbySession {
       this.peers.delete(peerId)
       this.emitPeers()
       this.dropOutgoing(peerId)
+      // Peer mógł odejść nie zdejmując wcześniej transmisji.
+      if (this.streamerIds.delete(peerId)) {
+        this.closeIncoming(peerId)
+        this.emitStreamers()
+        this.callbacks.onRemoteStream(peerId, null)
+      }
     })
 
     this.signaling.on('stream-started', (peerId) => {
-      this.streamerId = peerId
-      this.callbacks.onStreamerChange(peerId)
+      this.streamerIds.add(peerId)
+      this.emitStreamers()
     })
 
     this.signaling.on('stream-stopped', (peerId) => {
-      if (this.streamerId === peerId) {
-        this.streamerId = null
-        this.closeIncoming()
-        this.callbacks.onStreamerChange(null)
-        // Koniec transmisji to zwykły stan lobby, nie błąd — dlatego czyścimy
-        // obraz zamiast pokazywać komunikat, z którego nie ma powrotu.
-        this.callbacks.onRemoteStream(null)
-      }
+      if (!this.streamerIds.delete(peerId)) return
+      this.closeIncoming(peerId)
+      this.emitStreamers()
+      // Koniec transmisji to zwykły stan lobby, nie błąd — dlatego czyścimy
+      // obraz zamiast pokazywać komunikat, z którego nie ma powrotu.
+      this.callbacks.onRemoteStream(peerId, null)
     })
 
     this.signaling.on('signal', (from, payload) => {
       void this.onSignal(from, payload as SignalPayload)
     })
+  }
+
+  private emitStreamers(): void {
+    this.callbacks.onStreamersChange([...this.streamerIds])
   }
 
   private emitPeers(): void {
@@ -269,12 +281,13 @@ export class LobbySession {
   // --- oglądanie ---------------------------------------------------------
 
   private ensureIncoming(streamerId: string): RTCPeerConnection {
-    if (this.incoming) return this.incoming
+    const istniejace = this.incoming.get(streamerId)
+    if (istniejace) return istniejace
 
     const connection = new RTCPeerConnection(RTC_CONFIG)
     connection.addEventListener('track', (event) => {
       const [stream] = event.streams
-      if (stream) this.callbacks.onRemoteStream(stream)
+      if (stream) this.callbacks.onRemoteStream(streamerId, stream)
     })
     connection.addEventListener('icecandidate', (event) => {
       if (event.candidate) {
@@ -289,15 +302,15 @@ export class LobbySession {
         this.callbacks.onError('Nie udało się zestawić połączenia z nadającym')
       }
     })
-    this.incoming = connection
-    this.incomingBuffer = new CandidateBuffer(connection)
+    this.incoming.set(streamerId, connection)
+    this.incomingBuffers.set(streamerId, new CandidateBuffer(connection))
     return connection
   }
 
-  private closeIncoming(): void {
-    this.incoming?.close()
-    this.incoming = null
-    this.incomingBuffer = null
+  private closeIncoming(streamerId: string): void {
+    this.incoming.get(streamerId)?.close()
+    this.incoming.delete(streamerId)
+    this.incomingBuffers.delete(streamerId)
   }
 
   // --- sygnalizacja ------------------------------------------------------
@@ -305,11 +318,12 @@ export class LobbySession {
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
     if (payload.kind === 'offer') {
       // Nadający zaczął od nowa (np. po restarcie transmisji) — stare
-      // połączenie jest bezużyteczne, więc budujemy je od zera.
-      if (this.incoming) this.closeIncoming()
+      // połączenie z NIM jest bezużyteczne, więc budujemy je od zera.
+      // Połączeń z pozostałymi nadającymi to nie dotyka.
+      this.closeIncoming(from)
       const connection = this.ensureIncoming(from)
       await connection.setRemoteDescription({ type: 'offer', sdp: payload.sdp })
-      await this.incomingBuffer?.flush()
+      await this.incomingBuffers.get(from)?.flush()
       const answer = await connection.createAnswer()
       await connection.setLocalDescription(answer)
       this.signaling.signal(from, { kind: 'answer', sdp: answer.sdp ?? '' })
@@ -329,13 +343,14 @@ export class LobbySession {
       await this.outgoingBuffers.get(from)?.add(payload.candidate)
       return
     }
-    if (this.incoming) await this.incomingBuffer?.add(payload.candidate)
+    if (this.incoming.has(from)) await this.incomingBuffers.get(from)?.add(payload.candidate)
   }
 
   dispose(): void {
     this.disposed = true
     this.stopStreaming()
-    this.closeIncoming()
+    for (const id of [...this.incoming.keys()]) this.closeIncoming(id)
     this.peers.clear()
+    this.streamerIds.clear()
   }
 }

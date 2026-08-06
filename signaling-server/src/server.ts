@@ -51,8 +51,8 @@ export async function startSignalingServer(
   })
   /** peerId -> Peer. Pokój wyciągamy filtrując po roomId. */
   const peers = new Map<string, Peer>()
-  /** roomId -> peerId nadającego. Brak wpisu = nikt nie nadaje. */
-  const streamers = new Map<string, string>()
+  /** roomId -> zbiór peerId nadających. Wielu naraz jest dozwolonych. */
+  const streamers = new Map<string, Set<string>>()
   /**
    * roomId -> ile razy nadano zastępczą nazwę. Numeruje serwer, nie klient:
    * gdyby każdy numerował u siebie, każdy widziałby inną listę uczestników.
@@ -73,10 +73,12 @@ export async function startSignalingServer(
     }
   }
 
-  /** Zdejmuje transmisję, jeśli dany peer ją trzymał. Zwraca, czy coś zmieniło. */
+  /** Zdejmuje transmisję danego peera. Zwraca, czy faktycznie nadawał. */
   function releaseStream(peer: Peer): boolean {
-    if (streamers.get(peer.roomId) !== peer.peerId) return false
-    streamers.delete(peer.roomId)
+    const wPokoju = streamers.get(peer.roomId)
+    if (!wPokoju || !wPokoju.delete(peer.peerId)) return false
+    // Pusty zbiór usuwamy, żeby mapa nie rosła w nieskończoność po pokojach.
+    if (wPokoju.size === 0) streamers.delete(peer.roomId)
     broadcastToRoom(peer.roomId, peer.peerId, {
       type: 'stream-stopped',
       peerId: peer.peerId
@@ -117,9 +119,9 @@ export async function startSignalingServer(
           peerId,
           displayName,
           peers: roommates,
-          // Dołączający od razu wie, czy jest co oglądać — bez tego musiałby
-          // czekać na przypadkowe `stream-started`, które już dawno przeszło.
-          streamerId: streamers.get(message.roomId) ?? null
+          // Dołączający od razu wie, kogo jest co oglądać — bez tego musiałby
+          // czekać na `stream-started`, które już dawno przeszło.
+          streamers: [...(streamers.get(message.roomId) ?? [])]
         })
         broadcastToRoom(message.roomId, peerId, {
           type: 'peer-joined',
@@ -136,18 +138,14 @@ export async function startSignalingServer(
       }
 
       if (message.type === 'start-stream') {
-        // MVP: jeden nadający na pokój. Rozstrzygamy to na serwerze, bo dwie
-        // osoby mogą kliknąć "udostępnij" w tej samej chwili. Wielu naraz =
-        // usunięcie tego bloku; reszta serwera jest już na to gotowa.
-        const current = streamers.get(sender.roomId)
-        if (current !== undefined && current !== sender.peerId) {
-          send(socket, {
-            type: 'error',
-            message: 'Ktoś już udostępnia ekran w tym kanale'
-          })
-          return
+        // Bez limitu: w pokoju może nadawać dowolnie wiele osób naraz.
+        // Set sam pilnuje, żeby ponowne zgłoszenie nie zdublowało wpisu.
+        let wPokoju = streamers.get(sender.roomId)
+        if (!wPokoju) {
+          wPokoju = new Set<string>()
+          streamers.set(sender.roomId, wPokoju)
         }
-        streamers.set(sender.roomId, sender.peerId)
+        wPokoju.add(sender.peerId)
         // Potwierdzenie leci też do nadawcy — to jego sygnał, że zgłoszenie
         // przeszło i może zacząć wysyłać oferty.
         send(socket, { type: 'stream-started', peerId: sender.peerId })
