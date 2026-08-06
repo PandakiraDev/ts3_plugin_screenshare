@@ -66,21 +66,27 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
         signalingRef.current = signaling
 
         const session = new LobbySession(signaling, {
-          onRemoteStream: (peerId, stream) =>
+          // Pelna przebudowa pod dwa niezalezne strumienie to Task 7 — na razie
+          // panel widzi tylko ekran, wiec kamere po prostu ignorujemy.
+          onRemoteStream: (peerId, kind, stream) => {
+            if (kind !== 'screen') return
             setState((current) => {
               // Nowa mapa, nie mutacja: React porownuje referencje.
               const remoteStreams = new Map(current.remoteStreams)
               if (stream) remoteStreams.set(peerId, stream)
               else remoteStreams.delete(peerId)
               return { ...current, remoteStreams }
-            }),
-          onStreamersChange: (peerIds) =>
+            })
+          },
+          onStreamersChange: (streams) => {
+            const peerIds = streams.filter((s) => s.kind === 'screen').map((s) => s.peerId)
             setState((current) => ({
               ...current,
               streamerIds: peerIds,
               // Serwer rozglasza tez nasze wlasne start/stop-stream.
               jaNadaje: myPeerIdRef.current !== null && peerIds.includes(myPeerIdRef.current)
-            })),
+            }))
+          },
           onPeersChange: (peers) => setState((current) => ({ ...current, peers })),
           onViewerCountChange: (viewers) =>
             setState((current) => ({ ...current, viewers })),
@@ -127,25 +133,23 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
   }, [options.roomId, options.signalingUrl, options.displayName, kluczVersion])
 
   const startSharing = useCallback(async (stream: MediaStream): Promise<void> => {
-    const signaling = signalingRef.current
     const session = sessionRef.current
-    if (!signaling || !session) throw new Error('Brak połączenia z serwerem')
+    if (!session) throw new Error('Brak połączenia z serwerem')
 
-    // Najpierw pytamy serwer o prawo do nadawania — dopiero po zgodzie
-    // wysyłamy cokolwiek. Odmowa ("ktoś już udostępnia") wraca jako wyjątek.
-    await signaling.startStream()
-    session.startStreaming(stream)
+    // Zgloszenie u serwera i start wysylania siedza teraz razem w
+    // LobbySession.startStream — patrz jej komentarz co do kolejnosci.
+    // Na razie zawsze 'screen': kamera jako osobny strumien to Task 7.
+    await session.startStream(stream, 'screen')
     setState((current) => ({ ...current, jaNadaje: true, error: null }))
   }, [])
 
   const stopSharing = useCallback(async (): Promise<void> => {
-    sessionRef.current?.stopStreaming()
-    await signalingRef.current?.stopStream()
+    await sessionRef.current?.stopStream('screen')
     setState((current) => ({ ...current, jaNadaje: false, viewers: 0 }))
   }, [])
 
   const replaceStream = useCallback((stream: MediaStream): void => {
-    void sessionRef.current?.replaceStream(stream)
+    void sessionRef.current?.replaceStream(stream, 'screen')
   }, [])
 
   const applyQuality = useCallback((bitrateKbps: number, fps: number): void => {
