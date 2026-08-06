@@ -56,7 +56,7 @@ test('dołączający w trakcie transmisji od razu wie, kto nadaje', async () => 
   // Sedno lobby: wchodzisz i natychmiast wiesz, czy jest co oglądać.
   const streamer = await connect()
   const streamerId = await join(streamer, ROOM_A)
-  streamer.send({ type: 'start-stream' })
+  streamer.send({ type: 'start-stream', kind: 'screen' })
   await streamer.next()
 
   const pozny = await connect()

@@ -20,6 +20,13 @@ async function connect(): Promise<TestClient> {
   return client
 }
 
+async function join(client: TestClient, roomId: string): Promise<string> {
+  client.send({ type: 'join', roomId })
+  const message = await client.next()
+  if (message.type !== 'joined') throw new Error(`oczekiwano joined, jest ${message.type}`)
+  return message.peerId
+}
+
 /** Wiadomości, które muszą zostać odrzucone błędem, a nie wywalić serwera. */
 const zleWiadomosci: [string, unknown][] = [
   ['join bez roomId', { type: 'join', role: 'stream' }],
@@ -55,4 +62,52 @@ test('serwer żyje dalej po serii złych wiadomości', async () => {
   client.send({ type: 'join', roomId: ROOM_A, role: 'stream' })
   const message = await client.next()
   expect(message.type).toBe('joined')
+})
+
+// Brak pola kind i zła wartość pola kind to dwie różne sytuacje: pierwsza to
+// stara wersja aplikacji (nie wie, że pole w ogóle istnieje), druga to zwykła
+// literówka klienta. Użytkownik ma dostać różne podpowiedzi.
+test('start-stream bez pola kind mówi wprost o starej wersji aplikacji', async () => {
+  const client = await connect()
+  await join(client, ROOM_A)
+
+  client.send({ type: 'start-stream' })
+
+  expect(await client.next()).toEqual({
+    type: 'error',
+    message: 'Ta wersja aplikacji jest za stara — zainstaluj nową, żeby udostępniać.'
+  })
+})
+
+test('stop-stream bez pola kind dostaje tę samą instrukcję', async () => {
+  const client = await connect()
+  await join(client, ROOM_A)
+
+  client.send({ type: 'stop-stream' })
+
+  expect(await client.next()).toEqual({
+    type: 'error',
+    message: 'Ta wersja aplikacji jest za stara — zainstaluj nową, żeby udostępniać.'
+  })
+})
+
+test('nieznany rodzaj strumienia to zwykły błąd walidacji, nie komunikat o wersji', async () => {
+  // Inaczej literówka w kliencie ('ekran' zamiast 'screen') tworzyłaby
+  // cichy, niewidoczny strumień albo myliłaby użytkownika komunikatem o
+  // przestarzałej aplikacji, choć wcale o to nie chodzi.
+  const client = await connect()
+  await join(client, ROOM_A)
+
+  client.send({ type: 'start-stream', kind: 'ekran' })
+
+  expect(await client.next()).toEqual({ type: 'error', message: 'Nieznany rodzaj strumienia.' })
+})
+
+test('poprawny rodzaj strumienia przechodzi', async () => {
+  const client = await connect()
+  const peerId = await join(client, ROOM_A)
+
+  client.send({ type: 'start-stream', kind: 'camera' })
+
+  expect(await client.next()).toEqual({ type: 'stream-started', peerId })
 })
