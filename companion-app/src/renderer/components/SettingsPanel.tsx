@@ -5,7 +5,7 @@ import type {
   QualitySettings,
   ResolutionPreset
 } from '@shared/types'
-import { BITRATE_PRESETS_KBPS, CAMERA_DIMENSIONS, DEFAULT_CAMERA_SETTINGS } from '@shared/types'
+import { BITRATE_PRESETS_KBPS, CAMERA_DIMENSIONS } from '@shared/types'
 
 const RESOLUTION_OPTIONS: { value: ResolutionPreset; label: string }[] = [
   { value: '720p', label: '720p' },
@@ -26,21 +26,22 @@ interface SettingsPanelProps {
   quality: QualitySettings
   onChange: (quality: QualitySettings) => void
   /**
-   * Opcjonalne: zadanie 7 podepnie tu prawdziwy stan kamery z App.tsx.
-   * Do tego czasu panel renderuje się samodzielnie z wartościami domyślnymi,
-   * żeby nie trzeba było ruszać wywołania w App.tsx w tym zadaniu.
+   * Wymagane, choć panel dałoby się wyrenderować z wartościami domyślnymi.
+   * Domyślne wartości znaczyłyby tu tyle, że zmiany użytkownika lecą w próżnię,
+   * a sekcja „Kamera" wygląda na sprawną — i nic nie zaświeciłoby się na
+   * czerwono. Brak propsa ma być błędem kompilacji.
    */
-  cameraSettings?: CameraSettings
-  onCameraSettingsChange?: (settings: CameraSettings) => void
-  cameraDevices?: { deviceId: string; label: string }[]
+  cameraSettings: CameraSettings
+  onCameraSettingsChange: (settings: CameraSettings) => void
+  cameraDevices: { deviceId: string; label: string }[]
 }
 
 export function SettingsPanel({
   quality,
   onChange,
-  cameraSettings = DEFAULT_CAMERA_SETTINGS,
-  onCameraSettingsChange = () => {},
-  cameraDevices = []
+  cameraSettings,
+  onCameraSettingsChange,
+  cameraDevices
 }: SettingsPanelProps): JSX.Element {
   return (
     <aside className="settings">

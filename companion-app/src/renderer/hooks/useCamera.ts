@@ -22,11 +22,16 @@ function opiszBlad(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** Filtruje enumerateDevices do samych kamer, w kształcie do listy wyboru. */
+/**
+ * Kamery bez etykiety wypadają. Przed pierwszą zgodą przeglądarka zwraca
+ * urządzenia z pustym `label` — w selektorze byłyby to nierozróżnialne, puste
+ * pozycje, czyli gorzej niż nic. Pusta lista jest czytelna: panel ustawień
+ * pokazuje wtedy „lista pojawi się po pierwszym włączeniu kamery".
+ */
 async function pobierzUrzadzenia(): Promise<{ deviceId: string; label: string }[]> {
   const wszystkie = await navigator.mediaDevices.enumerateDevices()
   return wszystkie
-    .filter((d) => d.kind === 'videoinput')
+    .filter((d) => d.kind === 'videoinput' && d.label !== '')
     .map((d) => ({ deviceId: d.deviceId, label: d.label }))
 }
 
@@ -47,8 +52,11 @@ export function useCamera(enabled: boolean, settings: CameraSettings): CameraSta
   const { deviceId, resolution, fps } = settings
 
   useEffect(() => {
-    // Lista urządzeń nie zależy od tego, czy kamera jest włączona — pytamy
-    // od razu, żeby selektor kamery dało się wypełnić przed startem.
+    // Pytanie przy montowaniu zostaje: selektor kamery w ustawieniach musi dać
+    // się wypełnić PRZED włączeniem kamery, a w trybie samodzielnym kamera nie
+    // rusza w ogóle i to jedyne źródło listy. Zgoda na kamerę jest pamiętana
+    // w profilu, więc po pierwszym uruchomieniu etykiety są tu od razu; przy
+    // pierwszym w życiu starcie lista jest pusta i uzupełnia się po zgodzie.
     let cancelled = false
     pobierzUrzadzenia()
       .then((lista) => {

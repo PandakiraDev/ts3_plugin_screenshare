@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CaptureSource, QualitySettings } from '@shared/types'
+import type { CameraSettings, CaptureSource, QualitySettings } from '@shared/types'
 import type { CaptureState } from '../hooks/useCapture'
 import { SourceGrid } from './SourceGrid'
 import { PreviewPane } from './PreviewPane'
@@ -10,6 +10,13 @@ interface SourcePickerProps {
   onSelect: (source: CaptureSource) => void
   quality: QualitySettings
   onQualityChange: (quality: QualitySettings) => void
+  /**
+   * Ustawienia kamery przechodzą tędy tylko dlatego, że panel ustawień jest
+   * jeden — wybór źródła ekranu sam z siebie kamery nie dotyczy.
+   */
+  cameraSettings: CameraSettings
+  onCameraSettingsChange: (settings: CameraSettings) => void
+  cameraDevices: { deviceId: string; label: string }[]
   capture: CaptureState
   error: string | null
   onConfirm: () => void
@@ -22,6 +29,9 @@ export function SourcePicker({
   onSelect,
   quality,
   onQualityChange,
+  cameraSettings,
+  onCameraSettingsChange,
+  cameraDevices,
   capture,
   error,
   onConfirm,
@@ -100,7 +110,13 @@ export function SourcePicker({
             onStop={onCancel}
           />
         </main>
-        <SettingsPanel quality={quality} onChange={onQualityChange} />
+        <SettingsPanel
+          quality={quality}
+          onChange={onQualityChange}
+          cameraSettings={cameraSettings}
+          onCameraSettingsChange={onCameraSettingsChange}
+          cameraDevices={cameraDevices}
+        />
       </div>
     </div>
   )

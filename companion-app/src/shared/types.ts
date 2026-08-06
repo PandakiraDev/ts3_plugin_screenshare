@@ -86,6 +86,15 @@ export const CAMERA_DIMENSIONS: Record<CameraResolution, { width: number; height
   '1080p': { width: 1920, height: 1080 }
 }
 
+/**
+ * Sufit bitrate kamery. Ustawienia kamery świadomie nie mają suwaka bitrate
+ * (urządzenie, rozdzielczość, FPS — i tyle), a przepisanie na nią sufitu ekranu
+ * kazałoby koderowi pompować w obraz twarzy pasmo przewidziane na czytelny
+ * drobny druk. 2,5 Mb/s to tyle, ile WebRTC bierze samo z siebie — twarzy
+ * w 720p30 to wystarcza.
+ */
+export const CAMERA_BITRATE_KBPS = 2500
+
 export interface CameraSettings {
   /** null = urządzenie domyślne systemu. */
   deviceId: string | null

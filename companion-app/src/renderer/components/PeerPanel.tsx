@@ -1,10 +1,14 @@
+import type { StreamRef } from '@shared/types'
 import type { PeerInfo } from '../signaling/SignalingClient'
 
 interface PeerPanelProps {
   me: PeerInfo | null
   peers: PeerInfo[]
-  /** peerId wszystkich nadających — ikona przy każdym z nich. */
-  streamerIds: string[]
+  /**
+   * Wszystkie nadawane strumienie. Lista par, nie samych peerId: osoba
+   * z ekranem i kamerą naraz ma pokazać obie ikony, nie jedną.
+   */
+  streams: StreamRef[]
   collapsed: boolean
   onToggle: () => void
 }
@@ -17,7 +21,7 @@ interface PeerPanelProps {
 export function PeerPanel({
   me,
   peers,
-  streamerIds,
+  streams,
   collapsed,
   onToggle
 }: PeerPanelProps): JSX.Element {
@@ -62,18 +66,22 @@ export function PeerPanel({
 
       <ul className="peers__list">
         {wszyscy.map((peer) => {
-          const nadaje = streamerIds.includes(peer.peerId)
+          const rodzaje = streams.filter((s) => s.peerId === peer.peerId)
+          const ekran = rodzaje.some((s) => s.kind === 'screen')
+          const kamera = rodzaje.some((s) => s.kind === 'camera')
+          const opisy: string[] = []
+          if (ekran) opisy.push('Udostępnia ekran')
+          if (kamera) opisy.push('Ma włączoną kamerę')
+          const opis = opisy.join(' · ') || undefined
           return (
             <li
               key={peer.peerId}
-              className={`peers__item${nadaje ? ' peers__item--streaming' : ''}`}
+              className={`peers__item${ekran || kamera ? ' peers__item--streaming' : ''}`}
             >
-              <span
-                className="peers__icon"
-                title={nadaje ? 'Udostępnia ekran' : undefined}
-                aria-label={nadaje ? 'Udostępnia ekran' : undefined}
-              >
-                {nadaje ? '🖥' : '•'}
+              <span className="peers__icon" title={opis} aria-label={opis}>
+                {ekran && '🖥'}
+                {kamera && '📷'}
+                {!ekran && !kamera && '•'}
               </span>
               <span className="peers__name">
                 {peer.displayName}

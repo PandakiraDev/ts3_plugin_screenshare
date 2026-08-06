@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CaptureSource, QualitySettings } from '@shared/types'
-import { DEFAULT_QUALITY } from '@shared/types'
+import type { CameraSettings, CaptureSource, QualitySettings } from '@shared/types'
+import { DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { LaunchParseResult } from '../shared/cli'
 import { SourceGrid } from './components/SourceGrid'
 import { PreviewPane } from './components/PreviewPane'
 import { SettingsPanel } from './components/SettingsPanel'
 import { LobbyView } from './components/LobbyView'
+import { useCamera } from './hooks/useCamera'
 import { useCapture } from './hooks/useCapture'
 
 export default function App(): JSX.Element {
@@ -52,8 +53,12 @@ function StandaloneApp(): JSX.Element {
   const [sourcesError, setSourcesError] = useState<string | null>(null)
   const [selected, setSelected] = useState<CaptureSource | null>(null)
   const [quality, setQuality] = useState<QualitySettings>(DEFAULT_QUALITY)
+  const [cameraSettings, setCameraSettings] = useState<CameraSettings>(DEFAULT_CAMERA_SETTINGS)
 
   const capture = useCapture(selected, quality)
+  // Tryb samodzielny niczego nie nadaje, więc kamery nie włączamy (`false`) —
+  // hook wołamy wyłącznie po listę urządzeń do selektora w ustawieniach.
+  const camera = useCamera(false, cameraSettings)
 
   const loadSources = useCallback(async (): Promise<void> => {
     setIsLoadingSources(true)
@@ -102,7 +107,13 @@ function StandaloneApp(): JSX.Element {
             onStop={() => setSelected(null)}
           />
         </main>
-        <SettingsPanel quality={quality} onChange={setQuality} />
+        <SettingsPanel
+          quality={quality}
+          onChange={setQuality}
+          cameraSettings={cameraSettings}
+          onCameraSettingsChange={setCameraSettings}
+          cameraDevices={camera.devices}
+        />
       </div>
     </div>
   )
