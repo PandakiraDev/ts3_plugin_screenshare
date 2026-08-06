@@ -15,6 +15,7 @@ files:
 # Instalator (plugin + app w jednym) dojdzie jako osobny krok.
 win:
   target:
+    - nsis
     - dir
   # Wyłącza etap podpisywania i edycji zasobów .exe. electron-builder ściąga
   # do niego paczkę winCodeSign z symlinkami macOS, których Windows nie
@@ -24,3 +25,16 @@ win:
 # Bez podpisu kodu: nie mamy certyfikatu, a electron-builder domyślnie
 # próbowałby podpisać i przerwał build.
 forceCodeSigning: false
+
+nsis:
+  # Per-user: katalog pluginow TS3 siedzi w %APPDATA%, wiec uprawnienia
+  # administratora sa zbedne — instalator nie wywola UAC.
+  perMachine: false
+  oneClick: false
+  # Sciezka jest czescia kontraktu z pluginem, wiec uzytkownik jej nie zmienia.
+  allowToChangeInstallationDirectory: false
+  include: build/installer.nsh
+  createDesktopShortcut: false
+  # Aplikacja jest uruchamiana przez plugin z TS3, nie recznie z menu Start.
+  createStartMenuShortcut: false
+  artifactName: TS3-Screen-Share-Setup-${version}.${ext}

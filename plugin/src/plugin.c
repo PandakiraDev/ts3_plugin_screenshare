@@ -45,8 +45,19 @@
 static struct TS3Functions ts3;
 static char* pluginID = NULL;
 
-/* Ścieżka do companion app względem katalogu pluginów. Instalator kładzie
- * spakowaną aplikację obok pluginu, żeby użytkownik nic nie konfigurował. */
+/*
+ * Gdzie szukać companion app. Dwie drogi, w tej kolejności:
+ *
+ * 1. Plik `ts3-screenshare.path` obok DLL-a — zapisuje go instalator i trzyma
+ *    w nim pełną ścieżkę do .exe. Dzięki temu aplikacja może leżeć tam, gdzie
+ *    Windows normalnie instaluje programy, zamiast 270+ MB w katalogu pluginów.
+ * 2. Ścieżka względna obok pluginu — dla instalacji ręcznej (rozpakowanie ZIP-a).
+ *
+ * Bez tego pierwszego instalator musiałby wymuszać katalog instalacji, czego
+ * electron-builder i tak nie respektuje (sprawdzone: aplikacja lądowała
+ * w %LOCALAPPDATA%\Programs mimo nadpisania $INSTDIR).
+ */
+#define COMPANION_PATH_FILE "ts3-screenshare.path"
 #define COMPANION_RELATIVE "ts3-screenshare\\TS3 Screen Share.exe"
 
 PLUGINS_EXPORTDLL const char* ts3plugin_name() { return "TS3 Screen Share"; }
@@ -106,6 +117,36 @@ PLUGINS_EXPORTDLL void ts3plugin_initMenus(struct PluginMenuItem*** menuItems, c
 
 /* ---- uruchamianie companion app --------------------------------------- */
 
+/** Ustala ścieżkę do .exe companion app: najpierw plik od instalatora, potem obok pluginu. */
+static void resolveCompanionPath(char* out, size_t outSize)
+{
+    char pluginDir[MAX_PATH];
+    ts3.getPluginPath(pluginDir, MAX_PATH, pluginID);
+
+    char pathFile[MAX_PATH];
+    _snprintf_s(pathFile, MAX_PATH, _TRUNCATE, "%s%s", pluginDir, COMPANION_PATH_FILE);
+
+    FILE* f = NULL;
+    if (fopen_s(&f, pathFile, "r") == 0 && f != NULL) {
+        char      line[MAX_PATH] = {0};
+        const int ok             = (fgets(line, (int)sizeof(line), f) != NULL);
+        fclose(f);
+        if (ok) {
+            /* fgets zostawia znak nowej linii; obcinamy go razem z CR i spacjami. */
+            size_t len = strlen(line);
+            while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' ')) {
+                line[--len] = '\0';
+            }
+            if (len > 0) {
+                _strcpy(out, outSize, line);
+                return;
+            }
+        }
+    }
+
+    _snprintf_s(out, outSize, _TRUNCATE, "%s%s", pluginDir, COMPANION_RELATIVE);
+}
+
 /*
  * Klucz pokoju liczy companion app z (identyfikator serwera + ID kanału).
  * Plugin przekazuje surowe dane; hashowanie zostaje po stronie aplikacji,
@@ -133,9 +174,7 @@ static void launchCompanion(uint64 serverConnectionHandlerID, uint64 channelID)
     }
 
     char exePath[MAX_PATH];
-    char pluginDir[MAX_PATH];
-    ts3.getPluginPath(pluginDir, MAX_PATH, pluginID);
-    _snprintf_s(exePath, MAX_PATH, _TRUNCATE, "%s%s", pluginDir, COMPANION_RELATIVE);
+    resolveCompanionPath(exePath, sizeof(exePath));
 
     /* Cudzysłowy wokół ścieżki i nicku: obie potrafią zawierać spacje. */
     char cmdline[2048];

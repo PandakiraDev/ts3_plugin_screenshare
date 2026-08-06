@@ -9,3 +9,6 @@ build/
 
 # SDK TeamSpeaka klonujemy osobno (patrz plugin/README.md)
 plugin/sdk/
+
+# Instalator i DLL kopiowany do build/ przy pakowaniu
+companion-app/build/*.dll

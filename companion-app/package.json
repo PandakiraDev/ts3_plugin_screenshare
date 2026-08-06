@@ -17,7 +17,8 @@
     "lobby": "electron . --user-data-dir=.tmp/profil-1 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
     "e2e:fps": "node e2e/fps-stats.mjs",
     "lobby:2": "electron . --user-data-dir=.tmp/profil-2 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
-    "package": "npm run build && electron-builder --win --dir"
+    "package": "npm run build && electron-builder --win --dir",
+    "installer": "npm run build && electron-builder --win"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
