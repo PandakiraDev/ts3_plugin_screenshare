@@ -13,12 +13,21 @@ odpalania osobnej aplikacji. Pełny kontekst i architektura: [ts3-screenshare-br
 | --- | --- | --- |
 | [`companion-app/`](companion-app/) | Electron + React + TS: lobby, source picker, capture, WebRTC | **Kroki 1–3 gotowe** (31 testów + e2e) |
 | [`signaling-server/`](signaling-server/) | Node.js + WebSocket relay (pokoje = ID kanału TS3) | **Gotowy** — model lobby, nazwy uczestników (50 testów) |
-| [`plugin/`](plugin/) | TS3 Client Plugin (C) — menu "Udostępnij ekran", spawn companion app | **Krok 4: buduje się** (x64, 12 eksportów); niesprawdzony w kliencie |
+| [`plugin/`](plugin/) | TS3 Client Plugin (C) — menu "Udostępnij ekran", spawn companion app | **Gotowy** — ładuje się w kliencie, odpala lobby |
 
-## Kolejność implementacji
-Patrz sekcja "Sugerowana kolejność implementacji" w brief. Zrealizowane **kroki 1–3**:
-wideo leci end-to-end przez WebRTC P2P między dwiema instancjami companion app.
-Następny: krok 4 — szkielet pluginu C, menu w TS3 i spawnowanie companion app.
+## Stan
+Wszystkie kroki z brief zrealizowane. Pełny przepływ działa: klik w menu kanału TS3
+→ wtyczka odpala companion app z kontekstem → lobby łączy się z serwerem
+sygnalizacyjnym → obraz leci P2P przez WebRTC.
+
+Do rozdania wystarczy jeden plik: `companion-app/release/TS3-Screen-Share-Setup-*.exe`.
+
+Czego świadomie nie ma:
+- **TURN** — bez niego połączenie nie wstanie u osób za symetrycznym NAT-em.
+  Warto najpierw sprawdzić na realnych użytkownikach, czy problem w ogóle występuje.
+- **podpis kodu** — SmartScreen pokaże ostrzeżenie przy instalacji.
+- **wielu nadających naraz** — MVP ogranicza do jednego na kanał; zdjęcie limitu
+  to usunięcie jednego bloku w `signaling-server/src/server.ts`.
 
 Sprawdzenie całości (wymaga zbudowanych obu pakietów):
 ```bash

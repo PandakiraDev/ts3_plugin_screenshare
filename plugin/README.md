@@ -12,9 +12,9 @@ kontekstowego kanału i uruchamia companion app z kontekstem z Client API.
 - **12 funkcji `ts3plugin_*` w tablicy eksportów** (`dumpbin /exports`),
 - `PLUGIN_API_VERSION` = 26, zgodnie z SDK.
 
-**Czego NIE zweryfikowano:** czy klient faktycznie ładuje plugin, czy pozycja
-menu się pojawia i czy kliknięcie uruchamia companion app. To wymaga wpięcia do
-TS3 i kliknięcia — patrz „Instalacja" niżej.
+Sprawdzone w działającym kliencie: wtyczka ładuje się bez błędu, pozycja menu
+pojawia się w menu kontekstowym kanału, a kliknięcie odpala lobby companion app
+ze ścieżki odczytanej z `ts3-screenshare.path`.
 
 Uwaga: `build.bat` wypisuje po drodze `'vswhere.exe' is not recognized`.
 Komunikat pochodzi z wnętrza `vcvars64.bat` Microsoftu, nie z naszego skryptu —
