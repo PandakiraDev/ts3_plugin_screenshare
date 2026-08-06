@@ -1,0 +1,35 @@
+{
+  "name": "ts3-screenshare-audio",
+  "version": "0.1.0",
+  "description": "Przechwytywanie dzwieku z wybranego procesu (Windows Process Loopback) jako modul N-API",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "author": "Konrad",
+  "license": "MIT",
+  "private": true,
+  "os": [
+    "win32"
+  ],
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:electron": "node check/electron.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "node-gyp": "^11.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

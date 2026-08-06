@@ -55,17 +55,23 @@ jądrowego. Discord robi to własnym modułem natywnym.
 
 **Co trzeba zbudować:**
 
-1. Natywny dodatek Node (C++/N-API) z WASAPI process loopback — przyjmuje PID,
-   zwraca strumień PCM.
+1. ~~Natywny dodatek Node (C++/N-API) z WASAPI process loopback — przyjmuje PID,
+   zwraca strumień PCM.~~ **ZROBIONE** — `audio-native/`, 8 testów + sprawdzian
+   w Electronie. Ten sam `.node` działa w Node i w Electronie bez przebudowy.
 2. Przekazanie PCM z main process do renderera.
 3. Zamiana PCM na `MediaStreamTrack`: `AudioWorklet` →
    `MediaStreamAudioDestinationNode` → ścieżka audio do WebRTC.
 4. Powiązanie wybranego okna z PID — `desktopCapturer` daje id źródła, nie PID,
    więc potrzebne dodatkowe mapowanie przez WinAPI.
 
-**POTWIERDZONE, ze API dziala** — patrz `audio-native/` i pomiar w jego README.
+**POTWIERDZONE, ze API dziala** — patrz `audio-native/` i pomiary w jego README.
 Proces grajacy: 476 032 niezerowych probek. Proces cichy w tym samym czasie: 0.
 Czyli przechwytywanie jest realnie per-proces.
+
+**Pułapka na krok 4:** nieistniejący PID **nie** daje błędu — Windows aktywuje
+loopback i podaje ciszę w nieskończoność. Złe mapowanie okna na PID objawi się
+więc niemym streamem, a nie wyjątkiem. Konstruktor `AudioCapture` sam sprawdza
+proces przez `OpenProcess`, ale mapowanie i tak trzeba zweryfikować osobno.
 
 **Szacunek:** to największy pojedynczy kawałek pracy w tym projekcie — natywna
 kompilacja, osobne buildy pod architektury, sporo miejsc na błędy trudne do

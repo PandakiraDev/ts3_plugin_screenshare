@@ -19,3 +19,6 @@ plugin/build/
 companion-app/build/*.dll
 audio-native/*.exe
 audio-native/*.obj
+
+# Wynik node-gyp (odtwarzalny przez: cd audio-native && npm run build)
+audio-native/build/
