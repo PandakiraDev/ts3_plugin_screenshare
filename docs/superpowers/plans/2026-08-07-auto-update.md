@@ -15,6 +15,7 @@
 - **Identyfikatory w kodzie po angielsku; komentarze i komunikaty dla użytkownika po polsku.** Dotyczy też nazw nowych plików.
 - **`build/installer.nsh` bez polskich znaków diakrytycznych** — tak jak dziś („dzialajacym", nie „działającym"). NSIS ma z nimi problemy z kodowaniem. Myślnik `—` w komentarzach jest w porządku, występuje w pliku dziś.
 - **W NSIS nie używaj skoków względnych (`+2`) przed `!insertmacro`.** Makro rozwija się do wielu instrukcji, więc skok wylądowałby w jego środku. Zawsze etykieta.
+- **Wyjątek od reguły angielskich identyfikatorów: etykiety i makra w `build/installer.nsh` zostają po polsku** (`wpisz_dll`, `odsun_stary`, `pomin_sprawdzenie_ts3`), spójnie z tym, co w pliku już jest (`sprawdz_`, `zablokowany_`, `koniec_`, makro `SprawdzTS3`). Ustalone 2026-08-07: mieszanka dwóch konwencji w jednym 60-liniowym pliku czyta się gorzej niż konsekwentna jedna. **To nie jest usterka do zgłoszenia w przeglądzie.**
 - **Testy jednostkowe (`test/*.test.ts`) nie mogą importować `electron` ani `electron-updater`.** Vitest chodzi w gołym Node, bez konfiguracji — patrz `test/cli.test.ts`, importy są względne (`../src/...`).
 - **Zero zmian w protokole sygnalizacji**, `src/renderer/hooks/useLobby.ts`, `src/renderer/webrtc/session.ts`, `src/renderer/signaling/SignalingClient.ts`, `signaling-server/`, `plugin/src/plugin.c`.
 - **Rejestr `$0` w NSIS jest współdzielony z electron-builderem** — każde użycie w `Push`/`Pop`.
@@ -40,6 +41,7 @@
 | `src/renderer/App.tsx` | Modyfikacja: hook, przekazanie props, plakietka. | 3 |
 | `src/renderer/components/LobbyView.tsx` | Modyfikacja: props, plakietka, pasek. | 3 |
 | `src/renderer/styles.css` | Modyfikacja: `.app__version`, `.app__update`. | 3 |
+| `e2e/dll-lock.mjs` | **Nowy.** Blokada DLL przez proces pomocniczy — wspólna dla obu sprawdzianów. | 4 |
 | `e2e/dll-swap.mjs` | **Nowy.** Charakteryzacja zachowania Windows przy załadowanym DLL. | 4 |
 | `e2e/silent-install.mjs` | **Nowy.** Cichy instalator na zablokowanym DLL. | 5 |
 | `build/installer.nsh` | Modyfikacja: wyciszenie nagu + podmiana przez `.old`. | 6 |
@@ -575,14 +577,79 @@ Cała podmiana wtyczki stoi na jednym zachowaniu Windows: **załadowanego DLL ni
 Uczciwie: **ten sprawdzian przechodzi od pierwszego uruchomienia** — nie jest cyklem RED→GREEN, bo bada zachowanie systemu, a nie nasz kod. Jego wartość jest regresyjna. Prawdziwy RED→GREEN dla instalatora jest w Zadaniach 5 i 6.
 
 **Files:**
+- Create: `companion-app/e2e/dll-lock.mjs`
 - Create: `companion-app/e2e/dll-swap.mjs`
 - Modify: `companion-app/package.json` (skrypt `e2e:dll-swap`)
 
 **Interfaces:**
 - Consumes: `companion-app/build/ts3_screenshare.dll` (plik istnieje w repo).
-- Produces: `npm run e2e:dll-swap`.
+- Produces:
+  - `async function lockDll(dllPath: string): Promise<{ release: () => void }>` w `e2e/dll-lock.mjs` — **Zadanie 5 też z tego korzysta**
+  - `npm run e2e:dll-swap`
 
-- [ ] **Step 1: Napisz skrypt**
+- [ ] **Step 1: Napisz wspólny moduł blokady**
+
+Utwórz `companion-app/e2e/dll-lock.mjs`:
+
+```js
+// Blokada DLL na potrzeby sprawdzianow autoaktualizacji.
+//
+// Windows blokuje plik DLL dopiero wtedy, gdy jest ZALADOWANY jako obraz
+// (LoadLibrary) — zwykle otwarcie do odczytu nie wystarczy. Node tego nie
+// potrafi: process.dlopen przyjmuje wylacznie dodatki N-API, a plugin TS3 nim
+// nie jest. Stad proces pomocniczy w PowerShellu.
+//
+// Wspolny modul, bo blokady potrzebuja dwa sprawdziany: dll-swap.mjs (sam
+// mechanizm) i silent-install.mjs (caly instalator). Ten sam wzorzec co
+// e2e/cdp.mjs, ktory jest wspolnym harnessem dla sprawdzianow w Electronie.
+import { spawn } from 'node:child_process'
+
+const LOAD_TIMEOUT_MS = 30_000
+
+/**
+ * Laduje DLL w osobnym procesie i trzyma go, dopoki nie zawolasz release().
+ *
+ * Rzuca, gdy LoadLibraryW odmowi — sprawdzian bez PRAWDZIWEJ blokady niczego
+ * nie dowodzi, wiec lepiej przerwac niz zaraportowac falszywy sukces.
+ */
+export async function lockDll(dllPath) {
+  // Apostrofy w sciezce podwajamy — PowerShell tak escapuje w napisach
+  // pojedynczo cytowanych.
+  const script = `
+Add-Type -Name N -Namespace W -MemberDefinition '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);'
+$h = [W.N]::LoadLibraryW('${dllPath.replace(/'/g, "''")}')
+if ($h -eq [IntPtr]::Zero) { Write-Output 'LOAD-FAILED'; exit 1 }
+Write-Output 'LOADED'
+while ($true) { Start-Sleep -Seconds 3600 }
+`
+
+  const holder = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script])
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      holder.kill()
+      reject(new Error(`proces pomocniczy nie zaladowal DLL w ${LOAD_TIMEOUT_MS / 1000} s`))
+    }, LOAD_TIMEOUT_MS)
+
+    holder.stdout.on('data', (chunk) => {
+      const text = String(chunk)
+      if (text.includes('LOADED')) {
+        clearTimeout(timer)
+        resolve()
+      }
+      if (text.includes('LOAD-FAILED')) {
+        clearTimeout(timer)
+        holder.kill()
+        reject(new Error('LoadLibraryW odmowil zaladowania DLL — sprawdzian bylby bezwartosciowy'))
+      }
+    })
+  })
+
+  return { release: () => holder.kill() }
+}
+```
+
+- [ ] **Step 2: Napisz skrypt sprawdzianu**
 
 Utwórz `companion-app/e2e/dll-swap.mjs`:
 
@@ -598,15 +665,15 @@ Utwórz `companion-app/e2e/dll-swap.mjs`:
 // uruchomienia. Jest po to, żeby zmiana w systemie albo blokada antywirusa nie
 // zepsuła autoaktualizacji po cichu.
 //
-// Blokadę trzyma proces pomocniczy z LoadLibraryW — uruchomiony TeamSpeak nie
-// jest potrzebny. Pracujemy na KOPII w katalogu tymczasowym, nigdy na pliku
-// zainstalowanym w %APPDATA%.
+// Blokadę trzyma proces pomocniczy z LoadLibraryW (e2e/dll-lock.mjs) —
+// uruchomiony TeamSpeak nie jest potrzebny. Pracujemy na KOPII w katalogu
+// tymczasowym, nigdy na pliku zainstalowanym w %APPDATA%.
 //
 // Uruchomienie: npm run e2e:dll-swap
-import { spawn } from 'node:child_process'
 import { copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { lockDll } from './dll-lock.mjs'
 
 const SOURCE_DLL = join(import.meta.dirname, '..', 'build', 'ts3_screenshare.dll')
 
@@ -616,17 +683,6 @@ const oldPath = `${dllPath}.old`
 
 copyFileSync(SOURCE_DLL, dllPath)
 const originalBytes = readFileSync(dllPath)
-
-// Proces pomocniczy: ładuje DLL, mówi o tym na stdout i czeka, aż go ubijemy.
-const holderScript = `
-Add-Type -Name N -Namespace W -MemberDefinition '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);'
-$h = [W.N]::LoadLibraryW('${dllPath.replace(/'/g, "''")}')
-if ($h -eq [IntPtr]::Zero) { Write-Output 'LOAD-FAILED'; exit 1 }
-Write-Output 'LOADED'
-while ($true) { Start-Sleep -Seconds 3600 }
-`
-
-const holder = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', holderScript])
 
 const failures = []
 function check(name, condition, detail) {
@@ -638,25 +694,9 @@ function check(name, condition, detail) {
   }
 }
 
-function waitForLoad() {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('proces pomocniczy nie zaladowal DLL w 30 s')), 30_000)
-    holder.stdout.on('data', (chunk) => {
-      const text = String(chunk)
-      if (text.includes('LOADED')) {
-        clearTimeout(timer)
-        resolve()
-      }
-      if (text.includes('LOAD-FAILED')) {
-        clearTimeout(timer)
-        reject(new Error('LoadLibraryW odmowil zaladowania DLL — sprawdzian bylby bezwartosciowy'))
-      }
-    })
-  })
-}
+const lock = await lockDll(dllPath)
 
 try {
-  await waitForLoad()
   console.log('DLL zaladowany przez proces pomocniczy — zaczynam sprawdzian.\n')
 
   // 1. Nadpisanie MUSI się nie udać. Gdyby się udało, cała ostrożność
@@ -707,8 +747,15 @@ try {
     )
   }
 } finally {
-  holder.kill()
-  rmSync(workDir, { recursive: true, force: true })
+  lock.release()
+  // Ubicie procesu jest asynchroniczne — Windows moze jeszcze przez chwile
+  // trzymac zamapowany obraz, wiec kasowanie z ponowieniami. Zaleglosc
+  // w katalogu tymczasowym jest nieszkodliwa, wiec bledu tu nie eskalujemy.
+  try {
+    rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  } catch {
+    console.warn(`Nie udalo sie posprzatac ${workDir} — mozna skasowac recznie.`)
+  }
 }
 
 if (failures.length > 0) {
@@ -718,7 +765,7 @@ if (failures.length > 0) {
 console.log('\nWszystko przeszlo. Mechanizm podmiany wtyczki ma podstawy.')
 ```
 
-- [ ] **Step 2: Dodaj skrypt npm**
+- [ ] **Step 3: Dodaj skrypt npm**
 
 W `companion-app/package.json`, w `scripts`, po `"e2e:audio"`:
 
@@ -726,7 +773,7 @@ W `companion-app/package.json`, w `scripts`, po `"e2e:audio"`:
     "e2e:dll-swap": "node e2e/dll-swap.mjs",
 ```
 
-- [ ] **Step 3: Uruchom i potwierdź, że przechodzi**
+- [ ] **Step 4: Uruchom i potwierdź, że przechodzi**
 
 ```bash
 cd companion-app && npm run e2e:dll-swap
@@ -736,10 +783,10 @@ Oczekiwane: cztery-pięć linii `OK`, kod wyjścia 0, katalog tymczasowy posprz�
 
 Gdyby `LoadLibraryW` odmówił załadowania — skrypt kończy się błędem zamiast udawać sukces. To celowe: sprawdzian bez prawdziwej blokady niczego nie dowodzi.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add companion-app/e2e/dll-swap.mjs companion-app/package.json
+git add companion-app/e2e/dll-lock.mjs companion-app/e2e/dll-swap.mjs companion-app/package.json
 git commit -m "test(update): sprawdzian przemianowania zaladowanego DLL wtyczki"
 ```
 
@@ -756,7 +803,7 @@ git commit -m "test(update): sprawdzian przemianowania zaladowanego DLL wtyczki"
 - Modify: `companion-app/package.json` (skrypt `e2e:silent-install`)
 
 **Interfaces:**
-- Consumes: zbudowany `companion-app/release/TS3-Screen-Share-Setup-*.exe`.
+- Consumes: `lockDll(dllPath)` z `e2e/dll-lock.mjs` (Zadanie 4) — zwraca `{ release: () => void }`; zbudowany `companion-app/release/TS3-Screen-Share-Setup-*.exe`.
 - Produces: `npm run e2e:silent-install`.
 
 - [ ] **Step 1: Napisz skrypt**
@@ -790,6 +837,7 @@ Utwórz `companion-app/e2e/silent-install.mjs`:
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { lockDll } from './dll-lock.mjs'
 
 const LIMIT_MS = 180_000
 
@@ -822,34 +870,7 @@ try {
   process.exit(1)
 }
 
-const holderScript = `
-Add-Type -Name N -Namespace W -MemberDefinition '[DllImport("kernel32", SetLastError=true, CharSet=CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);'
-$h = [W.N]::LoadLibraryW('${installedDll.replace(/'/g, "''")}')
-if ($h -eq [IntPtr]::Zero) { Write-Output 'LOAD-FAILED'; exit 1 }
-Write-Output 'LOADED'
-while ($true) { Start-Sleep -Seconds 3600 }
-`
-
-const holder = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', holderScript])
-
-function waitForLoad() {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('proces pomocniczy nie zaladowal DLL w 30 s')), 30_000)
-    holder.stdout.on('data', (chunk) => {
-      const text = String(chunk)
-      if (text.includes('LOADED')) {
-        clearTimeout(timer)
-        resolve()
-      }
-      if (text.includes('LOAD-FAILED')) {
-        clearTimeout(timer)
-        reject(new Error('LoadLibraryW odmowil — bez blokady sprawdzian jest bezwartosciowy'))
-      }
-    })
-  })
-}
-
-// Rzucamy wyjatkiem zamiast process.exit — `finally` musi ubic proces
+// Rzucamy wyjatkiem zamiast process.exit — `finally` musi zwolnic proces
 // pomocniczy, a process.exit blokow finally NIE wykonuje.
 function fail(message) {
   throw new Error(message)
@@ -878,8 +899,9 @@ function runInstaller(label) {
   })
 }
 
+const lock = await lockDll(installedDll)
+
 try {
-  await waitForLoad()
   console.log('DLL zablokowany przez proces pomocniczy.')
 
   // PRZEBIEG 1 — zablokowany DLL, spodziewamy sie sciezki z przemianowaniem.
@@ -915,7 +937,7 @@ try {
   console.error(`\nBLAD: ${err instanceof Error ? err.message : String(err)}`)
   process.exitCode = 1
 } finally {
-  holder.kill()
+  lock.release()
 }
 ```
 
