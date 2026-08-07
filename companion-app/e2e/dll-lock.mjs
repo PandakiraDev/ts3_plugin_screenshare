@@ -37,6 +37,14 @@ while ($true) { Start-Sleep -Seconds 3600 }
       reject(new Error(`proces pomocniczy nie zaladowal DLL w ${LOAD_TIMEOUT_MS / 1000} s`))
     }, LOAD_TIMEOUT_MS)
 
+    // Gdy powershell.exe w ogole nie da sie uruchomic (brak w PATH, polityka
+    // grupy, blokada antywirusa) — bez tego nasluchu Node rzucilby
+    // nieobsluzonym wyjatkiem zamiast odrzucic obietnice.
+    holder.on('error', (err) => {
+      clearTimeout(timer)
+      reject(new Error(`nie udalo sie uruchomic procesu pomocniczego PowerShell: ${err.message}`))
+    })
+
     holder.stdout.on('data', (chunk) => {
       const text = String(chunk)
       if (text.includes('LOADED')) {

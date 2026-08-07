@@ -38,7 +38,27 @@ function check(name, condition, detail) {
   }
 }
 
-const lock = await lockDll(dllPath)
+// Sprzatanie katalogu tymczasowego — wolane i z bloku finally ponizej,
+// i z gałęzi „lockDll odrzucil", bo awaria moze wystapic zanim wejdziemy
+// w try/finally (np. brak powershell.exe w PATH).
+function cleanupWorkDir() {
+  // Ubicie procesu jest asynchroniczne — Windows moze jeszcze przez chwile
+  // trzymac zamapowany obraz, wiec kasowanie z ponowieniami. Zaleglosc
+  // w katalogu tymczasowym jest nieszkodliwa, wiec bledu tu nie eskalujemy.
+  try {
+    rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+  } catch {
+    console.warn(`Nie udalo sie posprzatac ${workDir} — mozna skasowac recznie.`)
+  }
+}
+
+let lock
+try {
+  lock = await lockDll(dllPath)
+} catch (err) {
+  cleanupWorkDir()
+  throw err
+}
 
 try {
   console.log('DLL zaladowany przez proces pomocniczy — zaczynam sprawdzian.\n')
@@ -92,14 +112,7 @@ try {
   }
 } finally {
   lock.release()
-  // Ubicie procesu jest asynchroniczne — Windows moze jeszcze przez chwile
-  // trzymac zamapowany obraz, wiec kasowanie z ponowieniami. Zaleglosc
-  // w katalogu tymczasowym jest nieszkodliwa, wiec bledu tu nie eskalujemy.
-  try {
-    rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
-  } catch {
-    console.warn(`Nie udalo sie posprzatac ${workDir} — mozna skasowac recznie.`)
-  }
+  cleanupWorkDir()
 }
 
 if (failures.length > 0) {
