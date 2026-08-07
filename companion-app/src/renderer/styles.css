@@ -741,18 +741,18 @@ h3 {
 }
 
 /* Klikalny obszar obrazu — powiększa i zmniejsza kafelek. */
-.tile__ekran {
+.tile__stage {
   flex: 1;
   min-height: 0;
   display: flex;
   cursor: zoom-in;
 }
 
-.tile--zoom .tile__ekran {
+.tile--zoom .tile__stage {
   cursor: zoom-out;
 }
 
-.tile__ekran:focus-visible {
+.tile__stage:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -794,7 +794,7 @@ h3 {
   width: 72px;
 }
 
-.tile__cichy {
+.tile__silent {
   font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;

@@ -54,7 +54,7 @@ export function StreamTile({
         przeciągany myszą kończyłby się przypadkowym powiększeniem.
       */}
       <div
-        className="tile__ekran"
+        className="tile__stage"
         onClick={onToggleZoom}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -101,7 +101,7 @@ export function StreamTile({
           </div>
         )}
 
-        {audioApplies && !hasAudio && <span className="tile__cichy">bez dźwięku</span>}
+        {audioApplies && !hasAudio && <span className="tile__silent">bez dźwięku</span>}
 
         <button
           type="button"

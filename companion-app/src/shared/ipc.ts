@@ -29,9 +29,9 @@ export const IPC_AUDIO_STOP = 'audio:stop'
  * nasłuch trzeba założyć wcześniej, inaczej wiadomość przepadnie:
  *
  * ```ts
- * const oczekiwanie = new Promise((resolve) => { ...nasłuch na IPC_AUDIO_PORT... })
+ * const portReady = new Promise((resolve) => { ...nasłuch na IPC_AUDIO_PORT... })
  * const format = await window.companion.startAppAudio(pid)
- * const port = await oczekiwanie
+ * const port = await portReady
  * ```
  */
 export const IPC_AUDIO_PORT = 'audio:port'
