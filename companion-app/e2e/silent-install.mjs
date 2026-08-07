@@ -92,7 +92,10 @@ try {
   console.log('DLL zablokowany przez proces pomocniczy.')
 
   // PRZEBIEG 1 — zablokowany DLL, spodziewamy sie sciezki z przemianowaniem.
-  await runInstaller('przebieg 1')
+  const exitCode1 = await runInstaller('przebieg 1')
+  if (exitCode1 !== 0) {
+    fail(`[przebieg 1] instalator zakonczyl sie kodem ${exitCode1}, oczekiwano 0`)
+  }
 
   if (!existsSync(oldDll)) {
     fail(`nie powstal ${oldDll} — sciezka z przemianowaniem sie nie wykonala`)
@@ -109,7 +112,25 @@ try {
   // TeamSpeaka": .old jest zajety i nie da sie go skasowac, ale
   // ts3_screenshare.dll to juz nowy plik, ktorego nikt nie trzyma — instalator
   // ma pojsc zwyklym nadpisaniem, a NIE probowac przemianowac na zajete .old.
-  await runInstaller('przebieg 2')
+  //
+  // UWAGA na granice tego sprawdzenia — NIE probowac go "wzmocnic" ponizszymi
+  // pomyslami, obie sa slepe uliczki:
+  //   - porownanie tresci installedDll nic nie da: oba przebiegi instaluja
+  //     ten sam build/ts3_screenshare.dll, wiec bajty przed i po sa
+  //     identyczne z definicji, niezaleznie czy przebieg 2 cokolwiek zrobil;
+  //   - znacznik czasu (mtime) prawdopodobnie tez nie pomoze: polecenie File
+  //     w NSIS zwykle zachowuje date modyfikacji pliku zrodlowego, wiec mtime
+  //     po obu przebiegach bylby ten sam. Nie sprawdzano tego empirycznie —
+  //     wymagaloby to uruchomienia instalatora, na co ten skrypt (etap
+  //     pisania, przed zgoda na wykonanie) nie pozwala.
+  // Realny sygnal, jaki ten test daje: instalator skonczyl bez dialogu (czyli
+  // NIE wpadl w sciezke z nagiem przy zajetym .old), wyszedl kodem 0 i NIE
+  // ruszyl .old. To NIE dowodzi, ze przebieg 2 faktycznie nadpisal
+  // installedDll nowa tresca — tylko ze nie zepsul .old i nie zawisl.
+  const exitCode2 = await runInstaller('przebieg 2')
+  if (exitCode2 !== 0) {
+    fail(`[przebieg 2] instalator zakonczyl sie kodem ${exitCode2}, oczekiwano 0`)
+  }
 
   if (!readFileSync(oldDll).equals(beforeBytes)) {
     fail('.old zmienil sie w drugim przebiegu — cos nadpisalo zablokowany plik')
