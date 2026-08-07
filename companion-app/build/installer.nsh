@@ -92,7 +92,14 @@
 !macroend
 
 !macro customUnInit
-  !insertmacro SprawdzTS3 "uninit"
+  ; Ta sama pulapka co w customInit, tylko wchodzi inna droga: przy KAZDEJ
+  ; instalacji electron-builder uruchamia stary deinstalator przez
+  ; ExecWait z /S (installSection.nsh -> installUtil.nsh) i czeka na niego.
+  ; Bez tego zabezpieczenia MessageBox z SprawdzTS3 wyskakuje wlasnie tam
+  ; i wiesza cala cicha aktualizacje, zanim dojdzie do customInstall.
+  IfSilent pomin_sprawdzenie_ts3_uninit 0
+    !insertmacro SprawdzTS3 "uninit"
+  pomin_sprawdzenie_ts3_uninit:
 !macroend
 
 !macro customUnInstall
