@@ -78,6 +78,22 @@ const KLATKI_EKRANU = `(async () => {
   return klatek
 })()`
 
+/**
+ * Bezpieczny próg dla porównania K4 w klatkach na sekundę. Zdrowy ekran daje
+ * tu dziesiątki fps; zerwane połączenie w oknie pomiaru potrafi wciąż wnieść
+ * pojedynczą zabłąkaną klatkę (np. z bufora dekodera), więc goły warunek
+ * `po > przed` przechodzi nawet przy realnej regresji. Próg fps zamiast
+ * progu bezwzględnego, bo okno pomiaru (sleep + polling siatki) nie ma
+ * stałej długości — próg w klatkach musiałby się z nim rozjeżdżać.
+ */
+const MIN_FPS_EKRANU = 5
+
+/** framesReceived + znacznik czasu z tej samej chwili — do liczenia fps okna pomiaru. */
+async function odczytajKlatkiEkranu(cdp) {
+  const klatek = await cdp.evaluate(KLATKI_EKRANU)
+  return { klatek, czas: Date.now() }
+}
+
 /** Czeka aż lobby.state.connection === 'ready' — sygnalizowane odblokowaniem przycisku. */
 async function czekajNaGotowosc(cdp, etykieta) {
   for (let i = 0; i < 40; i++) {
@@ -184,8 +200,8 @@ try {
 
   // Troche czasu, zeby na polaczeniu ekranu narosly klatki do porownania.
   await sleep(3000)
-  const klatekPrzed = await B.evaluate(KLATKI_EKRANU)
-  console.log('K3 framesReceived ekranu PRZED wylaczeniem kamery:', klatekPrzed)
+  const przed = await odczytajKlatkiEkranu(B)
+  console.log('K3 framesReceived ekranu PRZED wylaczeniem kamery:', przed.klatek)
 
   // --- K4: SEDNO TESTU — A wylacza kamere, ekran ma nadal plynac ---
   console.log('K4 A wylacza kamere:', await wylaczKamere(A))
@@ -199,18 +215,29 @@ try {
 
   // Kolejna porcja czasu na narosniecie klatek PO sprzataniu polaczenia kamery.
   await sleep(3000)
-  const klatekPo = await B.evaluate(KLATKI_EKRANU)
-  console.log('K4 framesReceived ekranu PO wylaczeniu kamery:', klatekPo)
+  const po = await odczytajKlatkiEkranu(B)
+  console.log('K4 framesReceived ekranu PO wylaczeniu kamery:', po.klatek)
 
-  if (klatekPrzed === null || klatekPo === null) {
+  if (przed.klatek === null || po.klatek === null) {
     zle('nie udalo sie odczytac framesReceived z zapamietanego polaczenia ekranu')
-  } else if (!(klatekPo > klatekPrzed)) {
-    zle(
-      `REGRESJA: ekran przestal plynac po wylaczeniu kamery ` +
-        `(framesReceived ${klatekPrzed} -> ${klatekPo}, oczekiwano wzrostu)`
-    )
   } else {
-    console.log(`K4 OK — ekran dalej plynie (${klatekPrzed} -> ${klatekPo} klatek)`)
+    const oknoSekund = Math.max((po.czas - przed.czas) / 1000, 0.001)
+    const przyrost = po.klatek - przed.klatek
+    const fps = przyrost / oknoSekund
+    const wymaganyPrzyrost = Math.ceil(MIN_FPS_EKRANU * oknoSekund)
+    if (przyrost < wymaganyPrzyrost) {
+      zle(
+        `REGRESJA: ekran ledwo plynie (albo w ogole nie plynie) po wylaczeniu kamery ` +
+          `(framesReceived ${przed.klatek} -> ${po.klatek}, przyrost ${przyrost} klatek ` +
+          `w ${oknoSekund.toFixed(1)}s = ${fps.toFixed(1)} fps, ` +
+          `oczekiwano co najmniej ${wymaganyPrzyrost} klatek przy progu ${MIN_FPS_EKRANU} fps)`
+      )
+    } else {
+      console.log(
+        `K4 OK — ekran dalej plynie (${przed.klatek} -> ${po.klatek} klatek, ` +
+          `${przyrost} w ${oknoSekund.toFixed(1)}s = ${fps.toFixed(1)} fps)`
+      )
+    }
   }
 } catch (err) {
   zle(`wyjatek w trakcie scenariusza: ${err instanceof Error ? err.message : String(err)}`)
