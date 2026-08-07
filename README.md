@@ -25,6 +25,19 @@ sygnalizacyjnym → obraz leci P2P przez WebRTC.
 
 Do rozdania wystarczy jeden plik: `companion-app/release/TS3-Screen-Share-Setup-*.exe`.
 
+Od wersji 0.2.0 aplikacja aktualizuje się sama: przy starcie sprawdza wydania
+na GitHubie, pobiera nowe w tle i instaluje po zamknięciu okna. Wtyczka TS3
+wchodzi razem z nią, ale dopiero przy następnym uruchomieniu TeamSpeaka —
+załadowanego DLL nie da się podmienić w locie.
+
+Nowe wydanie: podbij `version` w `companion-app/package.json`, potem
+`npm run release` w `companion-app`. Powstaje **szkic** wydania na GitHubie;
+sprawdź, że są w nim `.exe` **oraz `latest.yml`**, i opublikuj ręcznie. Do czasu
+publikacji nikt aktualizacji nie dostanie.
+
+Wersję 0.1.0 trzeba raz zainstalować ręcznie — stara aplikacja nie ma skąd
+wiedzieć o nowej.
+
 Czego świadomie nie ma:
 - **TURN** — bez niego połączenie nie wstanie u osób za symetrycznym NAT-em.
   Warto najpierw sprawdzić na realnych użytkownikach, czy problem w ogóle występuje.

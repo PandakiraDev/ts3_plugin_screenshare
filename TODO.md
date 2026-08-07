@@ -236,22 +236,55 @@ Kolejność jest celowa — punkt 1 usuwa problem powtarzalny, reszta to pojedyn
 usprawnienia. Świadomie odrzucone przez właściciela projektu: kodowanie na GPU
 (CPU zostaje), sufit bitrate kamery (jest dobrze), dźwięk (działa poprawnie).
 
-### 3.1 Automatyczna aktualizacja aplikacji
+### 3.1 Automatyczna aktualizacja aplikacji — ZROBIONE (2026-08-07)
 
-**Po co:** protokół sygnalizacji nie niesie zgodności wstecz (decyzja świadoma),
-więc **każda** zmiana protokołu zmusza wszystkich do ręcznej instalacji nowego
-pliku. Przerabialiśmy to 2026-08-07 przy wdrożeniu kamery: do czasu instalacji
-koledzy widzieli komunikat „Ta wersja aplikacji jest za stara". To jedyny punkt
-z tej listy, który likwiduje problem wracający przy każdym wydaniu.
+`electron-updater` + GitHub Releases. Sprawdzanie przy starcie, pobieranie w
+tle, instalacja po zamknięciu okna (`autoInstallOnAppQuit`). Sesja
+udostępniania nigdy nie jest przerywana. Spec:
+`docs/superpowers/specs/2026-08-07-auto-update-design.md`.
 
-**Jak:** `electron-updater` + GitHub Releases. Repo jest publiczne na GitHubie,
-więc provider `github` wystarczy bez tokenu po stronie użytkownika. Do
-`electron-builder.yml` dochodzi sekcja `publish`, do main proces sprawdzania
-i pobierania aktualizacji, do interfejsu informacja „jest nowa wersja".
+**Rzecz, której nie było w planie, a okazała się sednem zadania:** podczas
+autoaktualizacji TeamSpeak ZAWSZE działa — bo to on uruchomił aplikację — więc
+`ts3_screenshare.dll` jest załadowany i zablokowany. Dotychczasowy
+`installer.nsh` pokazywał wtedy `MessageBox` RETRY/CANCEL, a `MessageBox` w NSIS
+wyświetla się także przy `/S`: cichy instalator wisiałby przy każdym update.
 
-**Uwaga:** aplikacja jest uruchamiana przez wtyczkę TS3 z konkretnej ścieżki
-(`ts3-screenshare.path`) — instalator per-user do `%LOCALAPPDATA%\Programs`.
-Sprawdzić, czy podmiana plików w trakcie działania nie psuje tego kontraktu.
+Rozwiązanie: załadowanego DLL nie da się **nadpisać**, ale da się go
+**przemianować** (sprawdzone, `npm run e2e:dll-swap`). Stary plik idzie na
+`.old`, nowy ląduje pod właściwą nazwą, a TeamSpeak przełącza się na niego przy
+następnym starcie. Rozgałęzienie w instalatorze idzie po faktycznej blokadzie
+pliku, nie po trybie `/S`, więc instalacja ręczna przy zamkniętym TS3 działa
+dokładnie jak wcześniej.
+
+**Pułapka, która o mało nie umknęła:** zabezpieczenie samego `customInit` nie
+wystarczyło. Przy każdej instalacji electron-builder uruchamia stary
+deinstalator przez `ExecWait … /S` (`installSection.nsh` → `installUtil.nsh`)
+i **czeka na niego**, a `customUnInit` był niezabezpieczony — więc `MessageBox`
+wyskakiwał tam i wieszał aktualizację, zanim w ogóle doszło do podmiany DLL.
+Oba makra muszą być wyciszone przy `IfSilent`. Że to znana pułapka, widać po
+samym electron-builderze: swój własny `MessageBox` zabezpiecza przez
+`/SD IDCANCEL` (`installUtil.nsh:219`).
+
+Poprawka działa dopiero dla deinstalatorów zbudowanych po niej — cicha
+aktualizacja *z* wersji sprzed poprawki uruchomiłaby stary, niezabezpieczony
+deinstalator. Nas to nie dotyczy: 0.1.0 nie ma w ogóle `electron-updatera`, więc
+pierwsza autoaktualizacja to dopiero 0.2.0 → 0.3.0, a deinstalator 0.2.0
+poprawkę już ma.
+
+**Czego nie zrobiono:**
+
+- **Restartu aplikacji z instalatora.** Argumenty `--ts3-server` / `--channel` /
+  `--nick` przychodzą od wtyczki przez `CreateProcessW`; aplikacja wskrzeszona
+  przez instalator dostałaby pustą linię poleceń i wstała poza kanałem.
+- **Wersjonowania wtyczki.** Obie części jadą w jednym instalatorze, więc nie
+  mają jak się rozjechać.
+- **Podpisu kodu.** SmartScreen dalej ostrzega przy instalacji (patrz § 4).
+- **Sprawdzenia na prawdziwej aktualizacji między dwoma wydaniami.** Sam
+  mechanizm podmiany zablokowanego DLL jest **potwierdzony empirycznie**:
+  `npm run e2e:dll-swap` przechodzi, 5/5 asercji, na prawdziwym pliku wtyczki.
+  Nie sprawdzone: **cały instalator** przy zablokowanym DLL
+  (`npm run e2e:silent-install`) i przebieg 0.2.0 → 0.3.0 z prawdziwym
+  GitHubem — oba czekają na uruchomienie przez właściciela projektu.
 
 ### 3.2 Widoczna informacja, że łącze nie wyrabia
 
