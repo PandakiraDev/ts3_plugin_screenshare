@@ -35,3 +35,15 @@ export const IPC_AUDIO_STOP = 'audio:stop'
  * ```
  */
 export const IPC_AUDIO_PORT = 'audio:port'
+
+/** Numer wersji aplikacji — do plakietki w nagłówku. */
+export const IPC_GET_VERSION = 'app:version'
+
+/**
+ * Stan aktualizacji. Dwa kanały, bo renderer montuje się później niż main:
+ * zdarzenie `update-downloaded` może przyjść, zanim ktokolwiek słucha, więc
+ * `IPC_GET_UPDATE_STATE` pozwala dociągnąć stan raz na starcie, a
+ * `IPC_UPDATE_STATE` niesie każdą kolejną zmianę.
+ */
+export const IPC_GET_UPDATE_STATE = 'update:get'
+export const IPC_UPDATE_STATE = 'update:state'
