@@ -100,9 +100,11 @@ export function SettingsPanel({
           <span>Udostępnij też dźwięk</span>
         </label>
         <p className="settings__hint">
-          Windows pozwala przechwycić tylko dźwięk <strong>całego systemu</strong> —
-          nie da się wziąć audio pojedynczego okna. Nawet przy udostępnianiu jednego
-          okna słychać będzie wszystko, co gra na Twoim komputerze.
+          Przy udostępnianiu <strong>okna</strong> idzie dźwięk tylko tej
+          aplikacji — TeamSpeak nie trafia do streamu, więc rozmówca nie usłyszy
+          sam siebie. Przy udostępnianiu <strong>ekranu</strong> Windows daje
+          wyłącznie miks całego systemu, więc słychać wszystko, co gra na
+          komputerze.
         </p>
       </div>
 
