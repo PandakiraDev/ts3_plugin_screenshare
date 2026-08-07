@@ -47,7 +47,13 @@ export function registerUpdates(getWindow: () => BrowserWindow | null): void {
 
   // Świadomie NIE checkForUpdatesAndNotify: to pokazuje powiadomienie systemowe,
   // które dublowałoby nasz własny pasek.
-  void autoUpdater.checkForUpdates().catch((error: unknown) => {
-    console.warn('[update] sprawdzenie aktualizacji nie powiodlo sie:', error)
+  //
+  // Ten .catch() ma milczeć — nie duplikuje logowania. electron-updater przy tej
+  // samej awarii i tak emituje 'error' (obsłużone wyżej) ORAZ odrzuca tę obietnicę
+  // (AppUpdater.js: emit("error", ...) po czym throw e). Bez pustego .catch()
+  // odrzucenie wyszłoby jako unhandled rejection; z console.warn tutaj dublowałby
+  // się log z handlera 'error' przy każdym nieudanym sprawdzeniu (np. brak sieci).
+  void autoUpdater.checkForUpdates().catch(() => {
+    // celowo pusto — patrz komentarz wyżej
   })
 }
