@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import type { StreamKind } from '@shared/types'
 
 interface StreamTileProps {
   stream: MediaStream
   nazwa: string
+  /** Rodzaj strumienia — kamera nie ma i nie będzie miała ścieżki audio. */
+  kind: StreamKind
   /** Własny obraz nie ma sensu odtwarzać z dźwiękiem — słyszelibyśmy siebie. */
   toJa: boolean
   powiekszony: boolean
@@ -16,6 +19,7 @@ interface StreamTileProps {
 export function StreamTile({
   stream,
   nazwa,
+  kind,
   toJa,
   powiekszony,
   onToggleZoom
@@ -24,6 +28,9 @@ export function StreamTile({
   const [glosnosc, setGlosnosc] = useState(1)
   const [wyciszony, setWyciszony] = useState(false)
 
+  // Kamera nigdy nie niesie dźwięku, więc ani suwak, ani napis "bez dźwięku"
+  // nie mają tu czego opisywać — to byłby stały, nieusuwalny komunikat.
+  const dotyczyDzwieku = kind === 'screen' && !toJa
   const maDzwiek = stream.getAudioTracks().length > 0
 
   useEffect(() => {
@@ -67,7 +74,7 @@ export function StreamTile({
           {toJa && <span className="peers__you"> (Ty)</span>}
         </span>
 
-        {maDzwiek && !toJa && (
+        {dotyczyDzwieku && maDzwiek && (
           <div className="tile__audio">
             <button
               type="button"
@@ -94,7 +101,7 @@ export function StreamTile({
           </div>
         )}
 
-        {!maDzwiek && !toJa && <span className="tile__cichy">bez dźwięku</span>}
+        {dotyczyDzwieku && !maDzwiek && <span className="tile__cichy">bez dźwięku</span>}
 
         <button
           type="button"

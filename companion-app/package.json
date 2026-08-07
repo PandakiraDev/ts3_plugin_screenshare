@@ -16,6 +16,8 @@
     "e2e": "node e2e/lobby.mjs",
     "lobby": "electron . --user-data-dir=.tmp/profil-1 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
     "e2e:fps": "node e2e/fps-stats.mjs",
+    "e2e:kamera": "node e2e/kamera.mjs",
+    "e2e:obciazenie": "node e2e/obciazenie.mjs",
     "e2e:audio": "npm run sync:native && npm run build && node e2e/app-audio.mjs",
     "lobby:2": "electron . --user-data-dir=.tmp/profil-2 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
     "sync:native": "node -e \"require('node:fs').rmSync('node_modules/ts3-screenshare-audio',{recursive:true,force:true})\" && npm install --no-audit --no-fund",

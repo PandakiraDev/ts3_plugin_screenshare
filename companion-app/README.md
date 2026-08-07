@@ -64,7 +64,7 @@ istnieją tylko po to, żeby każda instancja dostała **własny katalog profilu
 (`.tmp/profil-1` i `.tmp/profil-2`). Bez tego dwa Electrony biją się o ten sam
 katalog danych i sypią błędami `Unable to move the cache`.
 
-Co powinieneś zobaczyć: oba okna piszą „Nikt nie udostępnia ekranu" i mają
+Co powinieneś zobaczyć: oba okna piszą „Nikt nie nadaje obrazu" i mają
 aktywny przycisk **Udostępnij ekran**. Kliknij go w jednym, wybierz ekran,
 potwierdź — drugie okno od razu pokaże obraz, a jego przycisk zgaśnie
 z podpowiedzią, że ktoś już udostępnia.
