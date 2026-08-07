@@ -6,8 +6,14 @@ Rzeczy odłożone świadomie, z ustaleniami potrzebnymi do podjęcia tematu.
 
 ## 1. Kodowanie na GPU (AV1/VP9) — niedokończone śledztwo
 
-**Problem:** obraz koduje programowy VP8 (`libvpx`), co zjada CPU. Przy 1080p60
-daje to 40–55 fps zamiast 60.
+**Problem:** obraz koduje programowy VP8 (`libvpx`), co zjada CPU.
+
+> **Uwaga — zdanie poniżej było nieaktualne.** Pierwotnie stało tu „przy 1080p60
+> daje to 40–55 fps zamiast 60". Pomiar z 2026-08-07 (patrz ZMIERZONE niżej)
+> pokazał **57 kl/s** przy `qualityLimitationReason: none`, i to przy
+> jednoczesnym nadawaniu ekranu i kamery. Skąd pochodziła stara obserwacja —
+> inny sprzęt czy stan sprzed wprowadzenia jawnego `maxBitrate` — nie
+> sprawdziliśmy. Nie traktować „40–55 fps" jako faktu.
 
 **Co już wiadomo:**
 
@@ -224,7 +230,63 @@ głośnikach. Po naszej stronie to tylko lista urządzeń i `deviceId` w
 
 ---
 
-## 3. Drobne
+## 3. Następne zadania (ustalone 2026-08-07)
+
+Kolejność jest celowa — punkt 1 usuwa problem powtarzalny, reszta to pojedyncze
+usprawnienia. Świadomie odrzucone przez właściciela projektu: kodowanie na GPU
+(CPU zostaje), sufit bitrate kamery (jest dobrze), dźwięk (działa poprawnie).
+
+### 3.1 Automatyczna aktualizacja aplikacji
+
+**Po co:** protokół sygnalizacji nie niesie zgodności wstecz (decyzja świadoma),
+więc **każda** zmiana protokołu zmusza wszystkich do ręcznej instalacji nowego
+pliku. Przerabialiśmy to 2026-08-07 przy wdrożeniu kamery: do czasu instalacji
+koledzy widzieli komunikat „Ta wersja aplikacji jest za stara". To jedyny punkt
+z tej listy, który likwiduje problem wracający przy każdym wydaniu.
+
+**Jak:** `electron-updater` + GitHub Releases. Repo jest publiczne na GitHubie,
+więc provider `github` wystarczy bez tokenu po stronie użytkownika. Do
+`electron-builder.yml` dochodzi sekcja `publish`, do main proces sprawdzania
+i pobierania aktualizacji, do interfejsu informacja „jest nowa wersja".
+
+**Uwaga:** aplikacja jest uruchamiana przez wtyczkę TS3 z konkretnej ścieżki
+(`ts3-screenshare.path`) — instalator per-user do `%LOCALAPPDATA%\Programs`.
+Sprawdzić, czy podmiana plików w trakcie działania nie psuje tego kontraktu.
+
+### 3.2 Widoczna informacja, że łącze nie wyrabia
+
+**Po co:** architektura to pełna siatka — nadawca wysyła osobną kopię do każdego
+widza. Przy ekranie i kamerze do trzech osób to około 21 Mb/s wysyłania, a
+typowe łącze domowe ma 10–20. Gdy się zatka, obraz się sypie i użytkownik nie ma
+żadnej wskazówki, że to jego łącze, a nie zepsuta aplikacja.
+
+**Jak:** dane już mamy — `qualityLimitationReason` z `getStats()` czytamy w
+`companion-app/e2e/obciazenie.mjs`. Wystarczy odpytywać to cyklicznie w
+rendererze i przy wartości `bandwidth` pokazać zdanie w rodzaju „Twoje łącze nie
+nadąża — zmniejsz rozdzielczość albo FPS".
+
+### 3.3 Zachowanie przy zaśnięciu serwera
+
+**Po co:** darmowy plan Rendera usypia usługę po 15 minutach bezczynności, a
+pierwsze połączenie po przebudzeniu trwa kilkadziesiąt sekund. Dotyczy to
+**codziennego** pierwszego wejścia wieczorem.
+
+**Czego nie wiadomo:** co aplikacja wtedy pokazuje. Jeśli nic, wygląda to jak
+zawieszenie. **Najpierw sprawdzić**, potem ewentualnie dodać komunikat
+„łączę się, serwer się budzi…" z licznikiem.
+
+### 3.4 Uczciwa diagnoza nieudanego połączenia (i ewentualnie TURN)
+
+**Po co:** mamy tylko STUN. Jeśli któryś użytkownik siedzi za symetrycznym
+NAT-em, połączenie nie wstanie **nigdy**, a on zobaczy wieczny spinner bez
+żadnego wyjaśnienia.
+
+**Jak, po kolei:** najpierw wykryć `iceConnectionState === 'failed'` i powiedzieć
+wprost, że nie udało się zestawić połączenia bezpośredniego — to godzina roboty
+i koniec zgadywania. Dopiero gdy okaże się, że problem realnie występuje u
+kogoś, rozważyć płatny TURN.
+
+## 4. Drobne
 
 - **TURN** — bez niego połączenie nie wstanie u osób za symetrycznym NAT-em.
   Warto sprawdzić na realnych użytkownikach, czy problem występuje, zanim
@@ -233,3 +295,32 @@ głośnikach. Po naszej stronie to tylko lista urządzeń i `deviceId` w
   złotych rocznie.
 - **Dźwięk nie działa na Sound Blaster AE-5** (`NotReadableError`), a u innych
   osób tak. Karty Creative nie wspierają pętli zwrotnej WASAPI.
+
+### Długi z przeglądów kodu (kamera, 2026-08-07)
+
+Znalezione przy przeglądach, świadomie odłożone jako drobne. Każdy na
+kilkanaście minut:
+
+- **Sekcja „Kamera" w trybie samodzielnym nic nie robi.** `App.tsx` woła
+  `useCamera(false, …)`, a tryb bez wtyczki i tak nic nie nadaje — ustawienia
+  lądują w stanie i giną przy zamknięciu okna.
+- **Błąd nieudanego zatrzymania ekranu nie ma gdzie się pokazać.** `startError`
+  renderuje się tylko wewnątrz `SourcePicker`, więc w głównym widoku lobby
+  komunikat przepada.
+- **`takeOldestPending` w `SignalingClient` może odrzucić niewłaściwą
+  obietnicę.** Wiadomość `error` z serwera nie niesie pola `kind`, więc przy
+  zbiegu okoliczności (np. zaległy kandydat ICE do peera, który wyszedł)
+  użytkownik zobaczy mrugnięcie kamery i komunikat bez związku. Pełna naprawa
+  wymaga dodania `kind` do wiadomości `error` w protokole.
+- **Test `lobby-kafelki.test.ts` buduje oczekiwanie tą samą funkcją, której
+  używa implementacja** — w izolacji sprawdza sam siebie. Rozróżnialność ratuje
+  osobny `session-keys.test.ts`, więc luki w pokryciu nie ma.
+- **Pomiar obciążenia: wariant 1080p60 mierzył głównie rozbieg.** Okno pomiaru
+  (20–40 s) pokrywało się z dochodzeniem kamery do pełnej rozdzielczości
+  (~41 s), więc „+53% CPU" nie jest liczbą stanu ustabilizowanego. Do tego każdy
+  wariant zmierzono jednorazowo — nie ma przedziału ufności.
+- **Uwaga dla każdego, kto wróci do mierzenia wydajności:** przy dłuższych
+  pomiarach Chromium dławi renderer zasłoniętego okna i FPS spada do 5–33, co
+  wygląda jak limit kodera, a nim nie jest. Trzeba dodać flagi
+  `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`
+  i `--disable-background-timer-throttling`.
