@@ -37,35 +37,35 @@ test('zgłoszenie transmisji potwierdza samemu nadawcy', async () => {
 })
 
 test('pozostali w pokoju dowiadują się, że ktoś zaczął nadawać', async () => {
-  const widz = await connect()
-  await join(widz, ROOM_A)
+  const viewer = await connect()
+  await join(viewer, ROOM_A)
   const streamer = await connect()
   const streamerId = await join(streamer, ROOM_A)
-  await widz.next() // peer-joined
+  await viewer.next() // peer-joined
 
   streamer.send({ type: 'start-stream', kind: 'screen' })
   await streamer.next()
 
-  expect(await widz.next()).toEqual({ type: 'stream-started', peerId: streamerId, kind: 'screen' })
+  expect(await viewer.next()).toEqual({ type: 'stream-started', peerId: streamerId, kind: 'screen' })
 })
 
 test('kilka osób może nadawać jednocześnie', async () => {
   // Sedno zmiany: limit jednego nadającego zniesiony.
-  const pierwszy = await connect()
-  const pierwszyId = await join(pierwszy, ROOM_A)
-  const drugi = await connect()
-  const drugiId = await join(drugi, ROOM_A)
-  await pierwszy.next() // peer-joined
+  const first = await connect()
+  const firstId = await join(first, ROOM_A)
+  const second = await connect()
+  const secondId = await join(second, ROOM_A)
+  await first.next() // peer-joined
 
-  pierwszy.send({ type: 'start-stream', kind: 'screen' })
-  await pierwszy.next()
-  await drugi.next() // stream-started pierwszego
+  first.send({ type: 'start-stream', kind: 'screen' })
+  await first.next()
+  await second.next() // stream-started pierwszego
 
-  drugi.send({ type: 'start-stream', kind: 'screen' })
+  second.send({ type: 'start-stream', kind: 'screen' })
 
-  expect(await drugi.next()).toEqual({ type: 'stream-started', peerId: drugiId, kind: 'screen' })
-  expect(await pierwszy.next()).toEqual({ type: 'stream-started', peerId: drugiId, kind: 'screen' })
-  expect(pierwszyId).not.toBe(drugiId)
+  expect(await second.next()).toEqual({ type: 'stream-started', peerId: secondId, kind: 'screen' })
+  expect(await first.next()).toEqual({ type: 'stream-started', peerId: secondId, kind: 'screen' })
+  expect(firstId).not.toBe(secondId)
 })
 
 test('dołączający widzi wszystkich aktualnie nadających', async () => {
@@ -82,9 +82,9 @@ test('dołączający widzi wszystkich aktualnie nadających', async () => {
   await b.next()
   await a.next()
 
-  const pozny = await connect()
-  pozny.send({ type: 'join', roomId: ROOM_A })
-  const joined = await pozny.next()
+  const latecomer = await connect()
+  latecomer.send({ type: 'join', roomId: ROOM_A })
+  const joined = await latecomer.next()
 
   if (joined.type !== 'joined') throw new Error('zły typ')
   expect(joined.streams).toHaveLength(2)
@@ -119,9 +119,9 @@ test('zakończenie transmisji zdejmuje tylko tego nadającego', async () => {
   await a.next()
   await b.next() // stream-stopped a
 
-  const pozny = await connect()
-  pozny.send({ type: 'join', roomId: ROOM_A })
-  const joined = await pozny.next()
+  const latecomer = await connect()
+  latecomer.send({ type: 'join', roomId: ROOM_A })
+  const joined = await latecomer.next()
 
   if (joined.type !== 'joined') throw new Error('zły typ')
   expect(joined.streams).toEqual([{ peerId: bId, kind: 'screen' }])
@@ -131,21 +131,21 @@ test('zakończenie transmisji zdejmuje tylko tego nadającego', async () => {
 test('rozłączenie nadającego zdejmuje go z listy', async () => {
   const streamer = await connect()
   await join(streamer, ROOM_A)
-  const widz = await connect()
-  await join(widz, ROOM_A)
+  const viewer = await connect()
+  await join(viewer, ROOM_A)
   await streamer.next()
 
   streamer.send({ type: 'start-stream', kind: 'screen' })
   await streamer.next()
-  await widz.next()
+  await viewer.next()
 
   streamer.close()
-  await widz.next()
-  await widz.next()
+  await viewer.next()
+  await viewer.next()
 
-  const pozny = await connect()
-  pozny.send({ type: 'join', roomId: ROOM_A })
-  const joined = await pozny.next()
+  const latecomer = await connect()
+  latecomer.send({ type: 'join', roomId: ROOM_A })
+  const joined = await latecomer.next()
 
   if (joined.type !== 'joined') throw new Error('zły typ')
   expect(joined.streams).toEqual([])
@@ -160,23 +160,23 @@ test('ponowne start-stream od tego samego peera nie duplikuje wpisu', async () =
   client.send({ type: 'start-stream', kind: 'screen' })
   await client.next()
 
-  const pozny = await connect()
-  pozny.send({ type: 'join', roomId: ROOM_A })
-  const joined = await pozny.next()
+  const latecomer = await connect()
+  latecomer.send({ type: 'join', roomId: ROOM_A })
+  const joined = await latecomer.next()
 
   if (joined.type !== 'joined') throw new Error('zły typ')
   expect(joined.streams).toEqual([{ peerId, kind: 'screen' }])
 })
 
 test('nadawanie w innym pokoju nie miesza się z tym pokojem', async () => {
-  const wA = await connect()
-  await join(wA, ROOM_A)
-  wA.send({ type: 'start-stream', kind: 'screen' })
-  await wA.next()
+  const inRoomA = await connect()
+  await join(inRoomA, ROOM_A)
+  inRoomA.send({ type: 'start-stream', kind: 'screen' })
+  await inRoomA.next()
 
-  const wB = await connect()
-  wB.send({ type: 'join', roomId: ROOM_B })
-  const joined = await wB.next()
+  const inRoomB = await connect()
+  inRoomB.send({ type: 'join', roomId: ROOM_B })
+  const joined = await inRoomB.next()
 
   if (joined.type !== 'joined') throw new Error('zły typ')
   expect(joined.streams).toEqual([])
@@ -197,11 +197,11 @@ test('stop-stream od kogoś, kto nie nadaje, to błąd', async () => {
   streamer.send({ type: 'start-stream', kind: 'screen' })
   await streamer.next()
 
-  const widz = await connect()
-  await join(widz, ROOM_A)
+  const viewer = await connect()
+  await join(viewer, ROOM_A)
   await streamer.next()
 
-  widz.send({ type: 'stop-stream', kind: 'screen' })
+  viewer.send({ type: 'stop-stream', kind: 'screen' })
 
-  expect((await widz.next()).type).toBe('error')
+  expect((await viewer.next()).type).toBe('error')
 })

@@ -28,13 +28,13 @@ async function join(client: TestClient, roomId: string): Promise<string> {
 }
 
 /** Wiadomości, które muszą zostać odrzucone błędem, a nie wywalić serwera. */
-const zleWiadomosci: [string, unknown][] = [
+const badMessages: [string, unknown][] = [
   ['join bez roomId', { type: 'join', role: 'stream' }],
   ['join z roomId nie-stringiem', { type: 'join', roomId: 42, role: 'stream' }],
   ['join z pustym roomId', { type: 'join', roomId: '', role: 'stream' }],
   // Poniższe mają poprawny roomId, żeby padały z powodu roli, a nie ID pokoju.
-  
-  
+
+
   ['signal bez pola to', { type: 'signal', payload: {} }],
   ['signal z to nie-stringiem', { type: 'signal', to: 7, payload: {} }],
   ['wiadomość bez typu', { roomId: ROOM_A }],
@@ -42,19 +42,19 @@ const zleWiadomosci: [string, unknown][] = [
   ['goły null', null]
 ]
 
-test.each(zleWiadomosci)('odrzuca błędem: %s', async (_opis, wiadomosc) => {
+test.each(badMessages)('odrzuca błędem: %s', async (_description, message) => {
   const client = await connect()
 
-  client.send(wiadomosc)
+  client.send(message)
 
-  const message = await client.next()
-  expect(message.type).toBe('error')
+  const response = await client.next()
+  expect(response.type).toBe('error')
 })
 
 test('serwer żyje dalej po serii złych wiadomości', async () => {
   const client = await connect()
-  for (const [, wiadomosc] of zleWiadomosci) {
-    client.send(wiadomosc)
+  for (const [, message] of badMessages) {
+    client.send(message)
     await client.next()
   }
 

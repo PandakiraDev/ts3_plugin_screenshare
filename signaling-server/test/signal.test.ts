@@ -52,15 +52,15 @@ test('serwer nie interpretuje payloadu — przekazuje go bez zmian', async () =>
   await a.next() // peer-joined
 
   // Cokolwiek WebRTC przyśle później, serwer ma to przepuścić nietknięte.
-  const dziwnyPayload = {
+  const oddPayload = {
     candidate: 'candidate:0 1 UDP 2122252543 192.168.1.5 54321 typ host',
-    zagnieżdżone: { tablica: [1, 2, { głęboko: true }], nullowe: null }
+    nested: { array: [1, 2, { deep: true }], nullable: null }
   }
-  a.send({ type: 'signal', to: bId, payload: dziwnyPayload })
+  a.send({ type: 'signal', to: bId, payload: oddPayload })
 
   const message = await b.next()
   if (message.type !== 'signal') throw new Error('zły typ')
-  expect(message.payload).toEqual(dziwnyPayload)
+  expect(message.payload).toEqual(oddPayload)
 })
 
 test('sygnał nie wycieka do pozostałych peerów w pokoju', async () => {
@@ -94,12 +94,12 @@ test('sygnał do nieznanego peera zwraca błąd nadawcy', async () => {
 test('sygnał do peera z innego pokoju jest odrzucany', async () => {
   const a = await connect()
   await join(a, ROOM_A)
-  const obcy = await connect()
-  const obcyId = await join(obcy, ROOM_B)
+  const stranger = await connect()
+  const strangerId = await join(stranger, ROOM_B)
 
-  a.send({ type: 'signal', to: obcyId, payload: { sdp: 'nie powinno dojść' } })
+  a.send({ type: 'signal', to: strangerId, payload: { sdp: 'nie powinno dojść' } })
 
   const message = await a.next()
   expect(message.type).toBe('error')
-  await obcy.expectSilence()
+  await stranger.expectSilence()
 })

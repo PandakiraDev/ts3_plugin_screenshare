@@ -59,10 +59,10 @@ test('dołączający w trakcie transmisji od razu wie, kto nadaje', async () => 
   streamer.send({ type: 'start-stream', kind: 'screen' })
   await streamer.next()
 
-  const pozny = await connect()
-  pozny.send({ type: 'join', roomId: ROOM_A })
+  const latecomer = await connect()
+  latecomer.send({ type: 'join', roomId: ROOM_A })
 
-  const message = await pozny.next()
+  const message = await latecomer.next()
   if (message.type !== 'joined') throw new Error('zły typ')
   expect(message.streams).toEqual([{ peerId: streamerId, kind: 'screen' }])
 })
@@ -82,14 +82,14 @@ test('obecni dostają powiadomienie o nowym peerze', async () => {
 })
 
 test('peery w różnych pokojach nie widzą się nawzajem', async () => {
-  const wPokojuA = await connect()
-  await join(wPokojuA, ROOM_A)
+  const inRoomA = await connect()
+  await join(inRoomA, ROOM_A)
 
-  const wPokojuB = await connect()
-  wPokojuB.send({ type: 'join', roomId: ROOM_B })
-  const message = await wPokojuB.next()
+  const inRoomB = await connect()
+  inRoomB.send({ type: 'join', roomId: ROOM_B })
+  const message = await inRoomB.next()
 
   if (message.type !== 'joined') throw new Error('zły typ')
   expect(message.peers).toEqual([])
-  await wPokojuA.expectSilence()
+  await inRoomA.expectSilence()
 })

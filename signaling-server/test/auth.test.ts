@@ -24,7 +24,7 @@ async function connect(): Promise<TestClient> {
   return client
 }
 
-const KLUCZ = 'a'.repeat(64)
+const KEY = 'a'.repeat(64)
 
 // --- same klucze ---------------------------------------------------------
 
@@ -38,12 +38,12 @@ test('wygenerowany klucz jest długi i losowy', () => {
 
 test('w bazie ląduje skrót, nie sam klucz', () => {
   // Wyciek zrzutu bazy nie moze dawac dzialajacych kluczy.
-  const klucz = generateApiKey()
+  const key = generateApiKey()
 
-  const skrot = hashApiKey(klucz)
+  const hash = hashApiKey(key)
 
-  expect(skrot).not.toBe(klucz)
-  expect(skrot).toMatch(/^[0-9a-f]{64}$/)
+  expect(hash).not.toBe(key)
+  expect(hash).toMatch(/^[0-9a-f]{64}$/)
 })
 
 test('białe znaki wokół klucza nie psują dopasowania', () => {
@@ -54,16 +54,16 @@ test('białe znaki wokół klucza nie psują dopasowania', () => {
 // --- serwer z autoryzacją ------------------------------------------------
 
 test('poprawny klucz wpuszcza do pokoju', async () => {
-  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KLUCZ]) })
+  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KEY]) })
   const client = await connect()
 
-  client.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  client.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
 
   expect((await client.next()).type).toBe('joined')
 })
 
 test('zły klucz odrzuca z czytelnym błędem', async () => {
-  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KLUCZ]) })
+  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KEY]) })
   const client = await connect()
 
   client.send({ type: 'join', roomId: ROOM_A, apiKey: 'b'.repeat(64) })
@@ -75,7 +75,7 @@ test('zły klucz odrzuca z czytelnym błędem', async () => {
 })
 
 test('brak klucza odrzuca', async () => {
-  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KLUCZ]) })
+  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KEY]) })
   const client = await connect()
 
   client.send({ type: 'join', roomId: ROOM_A })
@@ -85,17 +85,17 @@ test('brak klucza odrzuca', async () => {
 
 test('odrzucony peer nie trafia do pokoju', async () => {
   // Inaczej ktos bez klucza i tak widzialby, kto jest w kanale.
-  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KLUCZ]) })
-  const zKluczem = await connect()
-  zKluczem.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
-  await zKluczem.next()
+  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KEY]) })
+  const withKey = await connect()
+  withKey.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
+  await withKey.next()
 
-  const bezKlucza = await connect()
-  bezKlucza.send({ type: 'join', roomId: ROOM_A, apiKey: 'zly' })
-  await bezKlucza.next()
+  const withoutKey = await connect()
+  withoutKey.send({ type: 'join', roomId: ROOM_A, apiKey: 'zly' })
+  await withoutKey.next()
 
   // Peer z kluczem nie moze dostac powiadomienia o tamtym.
-  await zKluczem.expectSilence()
+  await withKey.expectSilence()
 })
 
 test('bez skonfigurowanej bazy serwer wpuszcza wszystkich', async () => {
@@ -131,11 +131,11 @@ test('puste linie i spacje nie tworzą pustych kluczy', async () => {
 
 test('klucze ze zmiennej realnie wpuszczają do serwera', async () => {
   const { parseKeyList, MemoryKeyStore } = await import('../src/keys.js')
-  const zmienna = `${KLUCZ}\n${'c'.repeat(64)}`
+  const envValue = `${KEY}\n${'c'.repeat(64)}`
 
   server = await startSignalingServer({
     port: 0,
-    keyStore: new MemoryKeyStore(parseKeyList(zmienna))
+    keyStore: new MemoryKeyStore(parseKeyList(envValue))
   })
   const client = await connect()
 

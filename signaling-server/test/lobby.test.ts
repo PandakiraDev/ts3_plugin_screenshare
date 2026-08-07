@@ -8,13 +8,13 @@ import { ROOM_A, TestClient } from './helpers.js'
  * pokoju — to test na regres, którego się boimy: zamknięcie jednego
  * strumienia nie może po cichu ubić drugiego.
  */
-const KLUCZ = 'a'.repeat(64)
+const KEY = 'a'.repeat(64)
 
 let server: SignalingServer
 const clients: TestClient[] = []
 
 beforeEach(async () => {
-  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KLUCZ]) })
+  server = await startSignalingServer({ port: 0, keyStore: new MemoryKeyStore([KEY]) })
 })
 
 afterEach(async () => {
@@ -30,10 +30,10 @@ async function connect(): Promise<TestClient> {
 
 test('ekran i kamera tej samej osoby to dwa niezalezne strumienie', async () => {
   const a = await connect()
-  a.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  a.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   await a.next()
   const b = await connect()
-  b.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  b.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   await b.next()
   await a.next() // peer-joined
 
@@ -47,7 +47,7 @@ test('ekran i kamera tej samej osoby to dwa niezalezne strumienie', async () => 
   expect((await a.next())).toMatchObject({ type: 'stream-stopped', kind: 'camera' })
 
   const c = await connect()
-  c.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  c.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   const joined = await c.next()
   if (joined.type !== 'joined') throw new Error('zly typ')
   expect(joined.streams).toEqual([{ peerId: expect.any(String), kind: 'screen' }])
@@ -55,10 +55,10 @@ test('ekran i kamera tej samej osoby to dwa niezalezne strumienie', async () => 
 
 test('rozlaczenie sprzata wszystkie strumienie peera', async () => {
   const a = await connect()
-  a.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  a.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   await a.next()
   const b = await connect()
-  b.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  b.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   await b.next()
   await a.next()
 
@@ -70,7 +70,7 @@ test('rozlaczenie sprzata wszystkie strumienie peera', async () => {
   await a.next() // peer-left
 
   const c = await connect()
-  c.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  c.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   const joined = await c.next()
   if (joined.type !== 'joined') throw new Error('zly typ')
   expect(joined.streams).toEqual([])
@@ -78,12 +78,12 @@ test('rozlaczenie sprzata wszystkie strumienie peera', async () => {
 
 test('stara wersja aplikacji dostaje instrukcje, nie ogolny blad', async () => {
   const a = await connect()
-  a.send({ type: 'join', roomId: ROOM_A, apiKey: KLUCZ })
+  a.send({ type: 'join', roomId: ROOM_A, apiKey: KEY })
   await a.next()
 
   a.sendRaw(JSON.stringify({ type: 'start-stream' }))
 
-  const wiadomosc = await a.next()
-  if (wiadomosc.type !== 'error') throw new Error('zly typ')
-  expect(wiadomosc.message).toMatch(/wersj/i)
+  const response = await a.next()
+  if (response.type !== 'error') throw new Error('zly typ')
+  expect(response.message).toMatch(/wersj/i)
 })

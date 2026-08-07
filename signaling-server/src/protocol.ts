@@ -164,14 +164,14 @@ export function parseClientMessage(raw: string): ParseResult {
       return { ok: true, message: { type: 'signal', to, payload: fields['payload'] } }
     }
     case 'start-stream': {
-      const wynik = parseStreamKind(fields)
-      if (!wynik.ok) return { ok: false, error: wynik.error }
-      return { ok: true, message: { type: 'start-stream', kind: wynik.kind } }
+      const result = parseStreamKind(fields)
+      if (!result.ok) return { ok: false, error: result.error }
+      return { ok: true, message: { type: 'start-stream', kind: result.kind } }
     }
     case 'stop-stream': {
-      const wynik = parseStreamKind(fields)
-      if (!wynik.ok) return { ok: false, error: wynik.error }
-      return { ok: true, message: { type: 'stop-stream', kind: wynik.kind } }
+      const result = parseStreamKind(fields)
+      if (!result.ok) return { ok: false, error: result.error }
+      return { ok: true, message: { type: 'stop-stream', kind: result.kind } }
     }
     default:
       return { ok: false, error: `Nieznany typ wiadomości: ${String(fields['type'])}` }

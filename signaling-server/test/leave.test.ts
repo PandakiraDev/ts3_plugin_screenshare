@@ -59,14 +59,14 @@ test('rozłączony peer znika z listy widzianej przez kolejnych dołączających
 })
 
 test('rozłączenie nie dotyka peerów z innych pokojów', async () => {
-  const inny = await connect()
-  await join(inny, ROOM_B)
-  const wychodzacy = await connect()
-  await join(wychodzacy, ROOM_A)
+  const other = await connect()
+  await join(other, ROOM_B)
+  const leaving = await connect()
+  await join(leaving, ROOM_A)
 
-  wychodzacy.close()
+  leaving.close()
 
-  await inny.expectSilence()
+  await other.expectSilence()
 })
 
 test('niepoprawny JSON zwraca błąd i nie zrywa połączenia', async () => {
@@ -80,8 +80,8 @@ test('niepoprawny JSON zwraca błąd i nie zrywa połączenia', async () => {
 
   // Połączenie ma dalej działać — kolejny poprawny sygnał przechodzi.
   client.send({ type: 'signal', to: 'ktokolwiek', payload: {} })
-  const kolejna = await client.next()
-  expect(kolejna.type).toBe('error')
+  const nextMessage = await client.next()
+  expect(nextMessage.type).toBe('error')
 })
 
 test('nieznany typ wiadomości zwraca błąd', async () => {

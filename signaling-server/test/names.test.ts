@@ -45,43 +45,43 @@ test('nick z TS3 wraca w odpowiedzi na join', async () => {
 
 test('bez nicku serwer nadaje kolejny numer w pokoju', async () => {
   // Numeruje serwer, nie klient — inaczej każdy widziałby inną listę.
-  const pierwszy = await connect()
-  const drugi = await connect()
+  const first = await connect()
+  const second = await connect()
 
-  expect((await join(pierwszy, ROOM_A)).displayName).toBe('Użytkownik 1')
-  expect((await join(drugi, ROOM_A)).displayName).toBe('Użytkownik 2')
+  expect((await join(first, ROOM_A)).displayName).toBe('Użytkownik 1')
+  expect((await join(second, ROOM_A)).displayName).toBe('Użytkownik 2')
 })
 
 test('numeracja jest osobna dla każdego pokoju', async () => {
-  const wA = await connect()
-  const wB = await connect()
+  const inRoomA = await connect()
+  const inRoomB = await connect()
 
-  await join(wA, ROOM_A)
-  expect((await join(wB, ROOM_B)).displayName).toBe('Użytkownik 1')
+  await join(inRoomA, ROOM_A)
+  expect((await join(inRoomB, ROOM_B)).displayName).toBe('Użytkownik 1')
 })
 
 test('lista peerów przy wejściu zawiera nazwy', async () => {
-  const pierwszy = await connect()
-  const pierwszyJoined = await join(pierwszy, ROOM_A, 'Ala')
+  const first = await connect()
+  const firstJoined = await join(first, ROOM_A, 'Ala')
 
-  const drugi = await connect()
-  const drugiJoined = await join(drugi, ROOM_A, 'Bartek')
+  const second = await connect()
+  const secondJoined = await join(second, ROOM_A, 'Bartek')
 
-  expect(drugiJoined.peers).toEqual([
-    { peerId: pierwszyJoined.peerId, displayName: 'Ala' }
+  expect(secondJoined.peers).toEqual([
+    { peerId: firstJoined.peerId, displayName: 'Ala' }
   ])
 })
 
 test('powiadomienie o nowym peerze niesie jego nazwę', async () => {
-  const pierwszy = await connect()
-  await join(pierwszy, ROOM_A, 'Ala')
+  const first = await connect()
+  await join(first, ROOM_A, 'Ala')
 
-  const drugi = await connect()
-  const drugiJoined = await join(drugi, ROOM_A, 'Bartek')
+  const second = await connect()
+  const secondJoined = await join(second, ROOM_A, 'Bartek')
 
-  expect(await pierwszy.next()).toEqual({
+  expect(await first.next()).toEqual({
     type: 'peer-joined',
-    peerId: drugiJoined.peerId,
+    peerId: secondJoined.peerId,
     displayName: 'Bartek'
   })
 })
@@ -94,10 +94,10 @@ test('wszyscy widzą te same nazwy', async () => {
   const bJoined = await join(b, ROOM_A)
   await join(c, ROOM_A)
 
-  const cJoined = await join(await connect(), ROOM_A, 'Ostatni')
+  const lastJoined = await join(await connect(), ROOM_A, 'Ostatni')
 
   // Czwarty widzi trzech poprzednich dokładnie tak, jak nazwał ich serwer.
-  expect(cJoined.peers.map((p) => p.displayName)).toEqual([
+  expect(lastJoined.peers.map((p) => p.displayName)).toEqual([
     'Użytkownik 1',
     'Użytkownik 2',
     'Użytkownik 3'

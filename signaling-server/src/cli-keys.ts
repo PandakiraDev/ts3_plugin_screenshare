@@ -9,13 +9,13 @@
  */
 import { generateApiKey } from './keys.js'
 
-const etykieta = process.argv[2] ?? 'nowy'
-const klucz = generateApiKey()
+const label = process.argv[2] ?? 'nowy'
+const key = generateApiKey()
 
 console.log('')
-console.log(`Klucz dla "${etykieta}":`)
+console.log(`Klucz dla "${label}":`)
 console.log('')
-console.log(`  ${klucz}`)
+console.log(`  ${key}`)
 console.log('')
 console.log('Co dalej:')
 console.log('  1. Render -> Twoja usluga -> Environment -> zmienna API_KEYS')

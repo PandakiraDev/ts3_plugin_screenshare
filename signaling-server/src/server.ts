@@ -34,12 +34,12 @@ function send(socket: WebSocket, message: ServerMessage): void {
  * Klucz strumienia w pokoju. Jedna osoba moze nadawac ekran i kamere naraz,
  * wiec sam peerId juz nie wystarcza za identyfikator wpisu w zbiorze.
  */
-function kluczStrumienia(peerId: string, kind: StreamKind): string {
+function streamKey(peerId: string, kind: StreamKind): string {
   return `${peerId}:${kind}`
 }
 
-function rozbijKlucz(klucz: string): StreamRef {
-  const [peerId, kind] = klucz.split(':')
+function splitKey(key: string): StreamRef {
+  const [peerId, kind] = key.split(':')
   return { peerId, kind: kind as StreamKind }
 }
 
@@ -99,10 +99,10 @@ export async function startSignalingServer(
 
   /** Zdejmuje jeden strumień (ekran albo kamerę) peera. Zwraca, czy faktycznie nadawał. */
   function releaseStream(peer: Peer, kind: StreamKind): boolean {
-    const wPokoju = streamers.get(peer.roomId)
-    if (!wPokoju || !wPokoju.delete(kluczStrumienia(peer.peerId, kind))) return false
+    const roomStreamers = streamers.get(peer.roomId)
+    if (!roomStreamers || !roomStreamers.delete(streamKey(peer.peerId, kind))) return false
     // Pusty zbiór usuwamy, żeby mapa nie rosła w nieskończoność po pokojach.
-    if (wPokoju.size === 0) streamers.delete(peer.roomId)
+    if (roomStreamers.size === 0) streamers.delete(peer.roomId)
     broadcastToRoom(peer.roomId, peer.peerId, {
       type: 'stream-stopped',
       peerId: peer.peerId,
@@ -118,32 +118,32 @@ export async function startSignalingServer(
    * strumień wiszący w pokoju na zawsze.
    */
   function releaseAllStreams(peer: Peer): void {
-    const wPokoju = streamers.get(peer.roomId)
-    if (!wPokoju) return
+    const roomStreamers = streamers.get(peer.roomId)
+    if (!roomStreamers) return
     const prefix = `${peer.peerId}:`
-    for (const klucz of [...wPokoju]) {
-      if (!klucz.startsWith(prefix)) continue
-      wPokoju.delete(klucz)
+    for (const entry of [...roomStreamers]) {
+      if (!entry.startsWith(prefix)) continue
+      roomStreamers.delete(entry)
       broadcastToRoom(peer.roomId, peer.peerId, {
         type: 'stream-stopped',
         peerId: peer.peerId,
-        kind: rozbijKlucz(klucz).kind
+        kind: splitKey(entry).kind
       })
     }
-    if (wPokoju.size === 0) streamers.delete(peer.roomId)
+    if (roomStreamers.size === 0) streamers.delete(peer.roomId)
   }
 
   wss.on('connection', (socket) => {
     let self: Peer | undefined
 
     /** Właściwe wejście do pokoju — wołane dopiero po sprawdzeniu klucza. */
-    function dolaczDoPokoju(roomId: string, zadanaNazwa: string | null): void {
+    function joinRoom(roomId: string, requestedName: string | null): void {
       const peerId = randomUUID()
       const roommates = [...peers.values()]
         .filter((peer) => peer.roomId === roomId)
         .map((peer) => ({ peerId: peer.peerId, displayName: peer.displayName }))
 
-      let displayName = zadanaNazwa
+      let displayName = requestedName
       if (displayName === null) {
         const next = (nameCounters.get(roomId) ?? 0) + 1
         nameCounters.set(roomId, next)
@@ -160,7 +160,7 @@ export async function startSignalingServer(
         peers: roommates,
         // Dołączający od razu wie, kogo jest co oglądać — bez tego musiałby
         // czekać na `stream-started`, które już dawno przeszło.
-        streams: [...(streamers.get(roomId) ?? [])].map(rozbijKlucz)
+        streams: [...(streamers.get(roomId) ?? [])].map(splitKey)
       })
       broadcastToRoom(roomId, peerId, { type: 'peer-joined', peerId, displayName })
     }
@@ -189,7 +189,7 @@ export async function startSignalingServer(
               })
               return
             }
-            dolaczDoPokoju(message.roomId, message.displayName)
+            joinRoom(message.roomId, message.displayName)
           })
           .catch(() => {
             send(socket, {
@@ -210,12 +210,12 @@ export async function startSignalingServer(
         // Bez limitu: w pokoju może nadawać dowolnie wiele osób naraz, a
         // każda osoba może nadawać ekran i kamerę naraz — to osobne klucze.
         // Set sam pilnuje, żeby ponowne zgłoszenie nie zdublowało wpisu.
-        let wPokoju = streamers.get(sender.roomId)
-        if (!wPokoju) {
-          wPokoju = new Set<string>()
-          streamers.set(sender.roomId, wPokoju)
+        let roomStreamers = streamers.get(sender.roomId)
+        if (!roomStreamers) {
+          roomStreamers = new Set<string>()
+          streamers.set(sender.roomId, roomStreamers)
         }
-        wPokoju.add(kluczStrumienia(sender.peerId, message.kind))
+        roomStreamers.add(streamKey(sender.peerId, message.kind))
         // Potwierdzenie leci też do nadawcy — to jego sygnał, że zgłoszenie
         // przeszło i może zacząć wysyłać oferty.
         send(socket, { type: 'stream-started', peerId: sender.peerId, kind: message.kind })
