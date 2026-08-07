@@ -257,6 +257,11 @@ export function registerUpdates(getWindow: () => BrowserWindow | null): void {
   autoUpdater.on('update-downloaded', (info) => {
     apply({ type: 'downloaded', version: info.version })
   })
+  // JEDYNE miejsce, w którym logujemy awarie. electron-updater przy nieudanym
+  // sprawdzeniu robi `emit("error", …)` ORAZ `throw` (AppUpdater.js), więc
+  // logowanie także w `.catch()` niżej dawałoby dwie linie na jedną awarię.
+  // Ten handler jest szerszy: lapie tez bledy, ktorych tamta obietnica nie
+  // widzi — np. nieudane pobieranie, ktore rusza samo po udanym sprawdzeniu.
   autoUpdater.on('error', (error: Error) => {
     // Cicho do konsoli. Brak sieci i brak wydań to normalny stan aplikacji,
     // nie awaria — komunikat o tym byłby szumem w oknie do udostępniania ekranu.
@@ -271,9 +276,10 @@ export function registerUpdates(getWindow: () => BrowserWindow | null): void {
 
   // Świadomie NIE checkForUpdatesAndNotify: to pokazuje powiadomienie systemowe,
   // które dublowałoby nasz własny pasek.
-  void autoUpdater.checkForUpdates().catch((error: unknown) => {
-    console.warn('[update] sprawdzenie aktualizacji nie powiodlo sie:', error)
-  })
+  // `.catch` jest tu WYLACZNIE po to, zeby odrzucona obietnica nie wyszla jako
+  // nieobsluzona. Celowo milczy: to nie jest polkniety blad — ta sama awaria
+  // przeszla juz przez handler `on('error')` wyzej, ktory ja zalogowal.
+  void autoUpdater.checkForUpdates().catch(() => {})
 }
 ```
 
