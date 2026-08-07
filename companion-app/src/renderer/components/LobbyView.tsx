@@ -7,6 +7,7 @@ import { useCapture } from '../hooks/useCapture'
 import { ulozKafelki, useLobby } from '../hooks/useLobby'
 import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
+import { SettingsPanel } from './SettingsPanel'
 import { StreamTile } from './StreamTile'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 
@@ -22,6 +23,10 @@ interface LobbyViewProps {
  */
 export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Jedyna droga do ustawień kamery podczas trwającego udostępniania ekranu —
+  // SourcePicker (a z nim SettingsPanel) jest wtedy niedostępny, bo przycisk
+  // "Udostępnij ekran" zamienia się w "Zakończ udostępnianie".
+  const [ustawieniaOtwarte, setUstawieniaOtwarte] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [powiekszony, setPowiekszony] = useState<string | null>(null)
   // Zmiana klucza musi przelaczyc widok od razu, bez restartu aplikacji.
@@ -124,7 +129,12 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   }
 
   const zakonczEkran = async (): Promise<void> => {
-    await stopStream('screen')
+    // Bez tego odrzucenie obietnicy byłoby nieobsłużone, a setSelected(null)
+    // nigdy by się nie wykonał — przechwytywanie pulpitu zostałoby żywe mimo
+    // przełączonego przycisku. Ten sam wzorzec co przy zatrzymaniu kamery.
+    await stopStream('screen').catch((err: unknown) => {
+      setStartError(err instanceof Error ? err.message : String(err))
+    })
     setSelected(null)
   }
 
@@ -201,6 +211,17 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
             {kameraWlaczona ? '📷 Wyłącz kamerę' : '📷 Włącz kamerę'}
           </button>
 
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => setUstawieniaOtwarte((otwarte) => !otwarte)}
+            aria-pressed={ustawieniaOtwarte}
+            aria-label="Ustawienia"
+            title="Ustawienia"
+          >
+            ⚙️
+          </button>
+
           {nadajeEkran ? (
             <button type="button" className="btn btn--danger" onClick={() => void zakonczEkran()}>
               Zakończ udostępnianie
@@ -273,6 +294,16 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
         />
+
+        {ustawieniaOtwarte && (
+          <SettingsPanel
+            quality={quality}
+            onChange={setQuality}
+            cameraSettings={cameraSettings}
+            onCameraSettingsChange={setCameraSettings}
+            cameraDevices={camera.devices}
+          />
+        )}
       </div>
     </div>
   )

@@ -297,10 +297,17 @@ export class LobbySession {
    * przy 1080p60: klatki szły poprawnie (58 fps, zero zgubionych), ale obraz
    * rozmywał się na ruchu — co odbiera się jako klatkowanie, choć nim nie jest.
    *
-   * `maintain-resolution`, a NIE `maintain-framerate`: zmierzone, że przy
-   * framerate-first koder zbija obraz do 480×270, żeby utrzymać 60 fps —
-   * przy udostępnianiu ekranu to nie do użytku. Lepiej stracić trochę
-   * płynności niż czytelność.
+   * Dla ekranu `maintain-resolution`, a NIE `maintain-framerate`: zmierzone,
+   * że przy framerate-first koder zbija obraz do 480×270, żeby utrzymać
+   * 60 fps — przy udostępnianiu ekranu to nie do użytku. Lepiej stracić
+   * trochę płynności niż czytelność.
+   *
+   * Dla kamery odwrotnie — `maintain-framerate`. `contentHint` kamery to
+   * `'motion'` (twarz, ruch), więc `maintain-resolution` kazałoby koderowi
+   * bronić rozdzielczości kosztem klatek: przy 1080p60 i stałym suficie
+   * `CAMERA_BITRATE_KBPS` skutkiem byłyby pojedyncze klatki na sekundę —
+   * pokaz slajdów zamiast obrazu z kamery. Dla ruchomego obrazu płynność
+   * liczy się bardziej niż ostrość pojedynczej klatki.
    *
    * Sufit płynności i zużycia CPU stawia koder: Chromium negocjuje VP8
    * kodowany PROGRAMOWO (`libvpx`), mimo że GPU jest sprawne
@@ -329,7 +336,7 @@ export class LobbySession {
       encoding.maxBitrate = jakosc.bitrateKbps * 1000
       encoding.maxFramerate = jakosc.maxFramerate
     }
-    parameters.degradationPreference = 'maintain-resolution'
+    parameters.degradationPreference = kind === 'screen' ? 'maintain-resolution' : 'maintain-framerate'
     try {
       await sender.setParameters(parameters)
     } catch (err: unknown) {
