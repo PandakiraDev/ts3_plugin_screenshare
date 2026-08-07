@@ -11,8 +11,8 @@ interface ApiKeyPromptProps {
  * ten sam — dlatego wpisuje się go raz w aplikacji, a nie wkompilowuje w paczkę.
  */
 export function ApiKeyPrompt({ error, onSave }: ApiKeyPromptProps): JSX.Element {
-  const [klucz, setKlucz] = useState('')
-  const poprawnyKsztalt = /^[0-9a-f]{64}$/.test(klucz.trim())
+  const [key, setKey] = useState('')
+  const validShape = /^[0-9a-f]{64}$/.test(key.trim())
 
   return (
     <div className="app">
@@ -38,17 +38,17 @@ export function ApiKeyPrompt({ error, onSave }: ApiKeyPromptProps): JSX.Element 
           <input
             type="text"
             className="settings__input klucz__input"
-            value={klucz}
-            onChange={(e) => setKlucz(e.target.value)}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && poprawnyKsztalt) onSave(klucz.trim())
+              if (e.key === 'Enter' && validShape) onSave(key.trim())
             }}
             placeholder="64 znaki, np. 3f9a1c…"
             spellCheck={false}
             autoFocus
           />
 
-          {klucz.trim().length > 0 && !poprawnyKsztalt && (
+          {key.trim().length > 0 && !validShape && (
             <p className="settings__hint">
               Klucz ma 64 znaki (cyfry i litery a–f). Sprawdź, czy skopiowałeś całość.
             </p>
@@ -57,8 +57,8 @@ export function ApiKeyPrompt({ error, onSave }: ApiKeyPromptProps): JSX.Element 
           <button
             type="button"
             className="btn btn--primary"
-            onClick={() => onSave(klucz.trim())}
-            disabled={!poprawnyKsztalt}
+            onClick={() => onSave(key.trim())}
+            disabled={!validShape}
           >
             Zapisz i połącz
           </button>

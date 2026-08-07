@@ -25,9 +25,9 @@ export function PeerPanel({
   collapsed,
   onToggle
 }: PeerPanelProps): JSX.Element {
-  const wszyscy: (PeerInfo & { toJa: boolean })[] = [
-    ...(me ? [{ ...me, toJa: true }] : []),
-    ...peers.map((peer) => ({ ...peer, toJa: false }))
+  const everyone: (PeerInfo & { isMe: boolean })[] = [
+    ...(me ? [{ ...me, isMe: true }] : []),
+    ...peers.map((peer) => ({ ...peer, isMe: false }))
   ]
 
   if (collapsed) {
@@ -41,7 +41,7 @@ export function PeerPanel({
           aria-expanded={false}
         >
           <span aria-hidden="true">‹</span>
-          <span className="peers__count-badge">{wszyscy.length}</span>
+          <span className="peers__count-badge">{everyone.length}</span>
         </button>
       </aside>
     )
@@ -51,7 +51,7 @@ export function PeerPanel({
     <aside className="peers">
       <header className="peers__header">
         <h2 className="peers__title">
-          W kanale <span className="source-grid__count">{wszyscy.length}</span>
+          W kanale <span className="source-grid__count">{everyone.length}</span>
         </h2>
         <button
           type="button"
@@ -65,34 +65,34 @@ export function PeerPanel({
       </header>
 
       <ul className="peers__list">
-        {wszyscy.map((peer) => {
-          const rodzaje = streams.filter((s) => s.peerId === peer.peerId)
-          const ekran = rodzaje.some((s) => s.kind === 'screen')
-          const kamera = rodzaje.some((s) => s.kind === 'camera')
-          const opisy: string[] = []
-          if (ekran) opisy.push('Udostępnia ekran')
-          if (kamera) opisy.push('Ma włączoną kamerę')
-          const opis = opisy.join(' · ') || undefined
+        {everyone.map((peer) => {
+          const kinds = streams.filter((s) => s.peerId === peer.peerId)
+          const hasScreen = kinds.some((s) => s.kind === 'screen')
+          const hasCamera = kinds.some((s) => s.kind === 'camera')
+          const labels: string[] = []
+          if (hasScreen) labels.push('Udostępnia ekran')
+          if (hasCamera) labels.push('Ma włączoną kamerę')
+          const label = labels.join(' · ') || undefined
           return (
             <li
               key={peer.peerId}
-              className={`peers__item${ekran || kamera ? ' peers__item--streaming' : ''}`}
+              className={`peers__item${hasScreen || hasCamera ? ' peers__item--streaming' : ''}`}
             >
-              <span className="peers__icon" title={opis} aria-label={opis}>
-                {ekran && '🖥'}
-                {kamera && '📷'}
-                {!ekran && !kamera && '•'}
+              <span className="peers__icon" title={label} aria-label={label}>
+                {hasScreen && '🖥'}
+                {hasCamera && '📷'}
+                {!hasScreen && !hasCamera && '•'}
               </span>
               <span className="peers__name">
                 {peer.displayName}
-                {peer.toJa && <span className="peers__you"> (Ty)</span>}
+                {peer.isMe && <span className="peers__you"> (Ty)</span>}
               </span>
             </li>
           )
         })}
       </ul>
 
-      {wszyscy.length <= 1 && (
+      {everyone.length <= 1 && (
         <p className="settings__hint">Nikt inny nie dołączył jeszcze do kanału.</p>
       )}
     </aside>

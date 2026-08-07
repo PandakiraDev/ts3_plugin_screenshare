@@ -66,10 +66,10 @@ export async function attach(port) {
               awaitPromise: true,
               returnByValue: true
             })
-            const wyjatek = m.result?.exceptionDetails
-            if (wyjatek) {
+            const exception = m.result?.exceptionDetails
+            if (exception) {
               throw new Error(
-                String(wyjatek.exception?.description ?? wyjatek.text).slice(0, 400)
+                String(exception.exception?.description ?? exception.text).slice(0, 400)
               )
             }
             return m.result?.result?.value

@@ -13,10 +13,10 @@ export function waitForAudioPort(timeoutMs = 5000): Promise<MessagePort> {
     const handler = (event: MessageEvent): void => {
       if (event.data !== IPC_AUDIO_PORT) return
       window.removeEventListener('message', handler)
-      clearTimeout(budzik)
+      clearTimeout(timer)
       resolve(event.ports[0])
     }
-    const budzik = setTimeout(() => {
+    const timer = setTimeout(() => {
       window.removeEventListener('message', handler)
       reject(new Error('Nie doczekałem się kanału dźwięku z aplikacji'))
     }, timeoutMs)

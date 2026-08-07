@@ -45,18 +45,18 @@ export function connectionKey(peerId: string, kind: StreamKind): string {
  * rozbierac go z powrotem na peerId — peerId pochodzi z serwera i nikt nam nie
  * obiecal, ze nie ma w nim dwukropka.
  */
-export function policzWidzow(
+export function countViewers(
   peerIds: Iterable<string>,
-  maPolaczenie: (klucz: string) => boolean
+  hasConnection: (key: string) => boolean
 ): number {
-  let ilu = 0
+  let count = 0
   for (const peerId of peerIds) {
-    if (STREAM_KINDS.some((kind) => maPolaczenie(connectionKey(peerId, kind)))) ilu += 1
+    if (STREAM_KINDS.some((kind) => hasConnection(connectionKey(peerId, kind)))) count += 1
   }
-  return ilu
+  return count
 }
 
-interface Jakosc {
+interface Quality {
   bitrateKbps: number
   maxFramerate: number
 }
@@ -67,7 +67,7 @@ interface Jakosc {
  * przewidziane na czytelny drobny druk, a panel ustawien kamery celowo nie ma
  * suwaka bitrate.
  */
-const DOMYSLNA_JAKOSC: Record<StreamKind, Jakosc> = {
+const DEFAULT_STREAM_QUALITY: Record<StreamKind, Quality> = {
   screen: { bitrateKbps: 8000, maxFramerate: 60 },
   camera: { bitrateKbps: CAMERA_BITRATE_KBPS, maxFramerate: DEFAULT_CAMERA_SETTINGS.fps }
 }
@@ -175,8 +175,8 @@ export class LobbySession {
    * ustawienia EKRANU takze na polaczenie z kamera, ktora ma wlasna
    * rozdzielczosc i wlasny limit klatek.
    */
-  private readonly jakosc = new Map<StreamKind, Jakosc>(
-    STREAM_KINDS.map((kind) => [kind, { ...DOMYSLNA_JAKOSC[kind] }])
+  private readonly quality = new Map<StreamKind, Quality>(
+    STREAM_KINDS.map((kind) => [kind, { ...DEFAULT_STREAM_QUALITY[kind] }])
   )
 
   constructor(
@@ -325,7 +325,7 @@ export class LobbySession {
    * na CPU to nizsza rozdzielczosc i FPS, a nie zmiana kodeka.
    */
   private async applyEncoding(sender: RTCRtpSender, kind: StreamKind): Promise<void> {
-    const jakosc = this.jakosc.get(kind) ?? DOMYSLNA_JAKOSC[kind]
+    const quality = this.quality.get(kind) ?? DEFAULT_STREAM_QUALITY[kind]
     const parameters = sender.getParameters()
     // Świeże połączenie potrafi nie mieć jeszcze `encodings` — wtedy
     // setParameters by rzuciło, więc uzupełniamy.
@@ -333,8 +333,8 @@ export class LobbySession {
       parameters.encodings = [{}]
     }
     for (const encoding of parameters.encodings) {
-      encoding.maxBitrate = jakosc.bitrateKbps * 1000
-      encoding.maxFramerate = jakosc.maxFramerate
+      encoding.maxBitrate = quality.bitrateKbps * 1000
+      encoding.maxFramerate = quality.maxFramerate
     }
     parameters.degradationPreference = kind === 'screen' ? 'maintain-resolution' : 'maintain-framerate'
     try {
@@ -355,7 +355,7 @@ export class LobbySession {
    * rozdzielczość i własny limit klatek.
    */
   async setQuality(kind: StreamKind, bitrateKbps: number, maxFramerate: number): Promise<void> {
-    this.jakosc.set(kind, { bitrateKbps, maxFramerate })
+    this.quality.set(kind, { bitrateKbps, maxFramerate })
     for (const peerId of this.peers.keys()) {
       const connection = this.outgoing.get(connectionKey(peerId, kind))
       const sender = connection?.getSenders().find((s) => s.track?.kind === 'video')
@@ -421,7 +421,7 @@ export class LobbySession {
 
   private emitViewerCount(): void {
     this.callbacks.onViewerCountChange(
-      policzWidzow(this.peers.keys(), (klucz) => this.outgoing.has(klucz))
+      countViewers(this.peers.keys(), (key) => this.outgoing.has(key))
     )
   }
 

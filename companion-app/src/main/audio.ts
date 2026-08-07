@@ -34,9 +34,9 @@ async function loadNative(): Promise<NativeModule> {
    * połowa modułu działała, a `pidForWindow` był `undefined` dopiero
    * w działającej aplikacji.
    */
-  const modul = await import('ts3-screenshare-audio')
-  const namespace = modul as unknown as { default?: NativeModule }
-  native = namespace.default ?? (modul as unknown as NativeModule)
+  const nativeModule = await import('ts3-screenshare-audio')
+  const namespace = nativeModule as unknown as { default?: NativeModule }
+  native = namespace.default ?? (nativeModule as unknown as NativeModule)
   return native
 }
 
@@ -58,29 +58,29 @@ export function registerAppAudio(): void {
     const { AudioCapture, FORMAT, pidForWindow } = await loadNative()
 
     // Renderer podaje id źródła, nie PID — mapowanie jest sprawą systemu.
-    const uchwyt = windowHandleFromSourceId(sourceId)
-    if (uchwyt === null) {
+    const handle = windowHandleFromSourceId(sourceId)
+    if (handle === null) {
       throw new Error('Dźwięk z jednej aplikacji działa dla okna, nie dla całego ekranu')
     }
-    const pid = pidForWindow(uchwyt)
+    const pid = pidForWindow(handle)
     // Zero znaczy "nie ma takiego okna". Nie wolno tego przepuścić: loopback
     // dla nieistniejącego PID-u nie zgłasza błędu, tylko podaje ciszę.
     if (pid === 0) {
       throw new Error('Nie znalazłem procesu tego okna — mogło się zamknąć')
     }
-    const kanal = new MessageChannelMain()
-    port = kanal.port1
+    const channel = new MessageChannelMain()
+    port = channel.port1
 
     // Port wędruje do renderera ZANIM ruszy przechwytywanie. Pakiety wysłane
     // przed podpięciem odbiorcy i tak czekają w kolejce portu.
-    event.sender.postMessage(IPC_AUDIO_PORT, null, [kanal.port2])
+    event.sender.postMessage(IPC_AUDIO_PORT, null, [channel.port2])
 
-    const nowy = new AudioCapture(pid)
-    nowy.start((chunk) => {
+    const newCapture = new AudioCapture(pid)
+    newCapture.start((chunk) => {
       // Bez listy transferu — Electron przenosi tą drogą tylko porty.
       port?.postMessage(toOwnBuffer(chunk))
     })
-    capture = nowy
+    capture = newCapture
 
     return { sampleRate: FORMAT.sampleRate, channels: FORMAT.channels }
   })

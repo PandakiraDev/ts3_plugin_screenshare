@@ -89,9 +89,9 @@ export function useCapture(
      * przerywamy udostępniania: bierzemy sam obraz i mówimy o tym wprost.
      * Bez tego zaznaczenie "udostępnij dźwięk" blokowało całą transmisję.
      */
-    const pobierz = async (): Promise<MediaStream> => {
+    const capture = async (): Promise<MediaStream> => {
       // Bitrate nie dotyczy capture — trafia dopiero do RTCRtpSender.
-      const jakosc = { resolution, fps, shareAudio, bitrateKbps: 0 }
+      const captureQuality = { resolution, fps, shareAudio, bitrateKbps: 0 }
 
       /*
        * Okno udostępniamy z dźwiękiem TYLKO tej aplikacji. To cała różnica
@@ -104,14 +104,14 @@ export function useCapture(
       if (shareAudio && windowHandleFromSourceId(sourceId) !== null) {
         await window.companion.setCaptureTarget({ sourceId, withAudio: false })
         const mediaStream = await navigator.mediaDevices.getDisplayMedia(
-          buildConstraints({ ...jakosc, shareAudio: false })
+          buildConstraints({ ...captureQuality, shareAudio: false })
         )
         try {
           // Nasłuch przed startAppAudio — port przychodzi w trakcie tamtego
           // wywołania.
-          const oczekiwanie = waitForAudioPort()
+          const portReady = waitForAudioPort()
           const format = await window.companion.startAppAudio(sourceId)
-          const audio = createAppAudioTrack(await oczekiwanie, format)
+          const audio = createAppAudioTrack(await portReady, format)
           mediaStream.addTrack(audio.track)
           stopAppAudio.current = () => {
             audio.stop()
@@ -136,14 +136,14 @@ export function useCapture(
       await window.companion.setCaptureTarget({ sourceId, withAudio: shareAudio })
 
       try {
-        return await navigator.mediaDevices.getDisplayMedia(buildConstraints(jakosc))
+        return await navigator.mediaDevices.getDisplayMedia(buildConstraints(captureQuality))
       } catch (err: unknown) {
         if (!shareAudio) throw err
         // Dzwiek systemowy potrafi paść na kartach z nietypowymi sterownikami
         // (sprawdzone: Sound Blaster -> NotReadableError). Bierzemy sam obraz.
         await window.companion.setCaptureTarget({ sourceId, withAudio: false })
         const stream = await navigator.mediaDevices.getDisplayMedia(
-          buildConstraints({ ...jakosc, shareAudio: false })
+          buildConstraints({ ...captureQuality, shareAudio: false })
         )
         if (!cancelled) {
           setAudioWarning(
@@ -155,7 +155,7 @@ export function useCapture(
       }
     }
 
-    pobierz()
+    capture()
       .then((mediaStream) => {
         if (cancelled) {
           mediaStream.getTracks().forEach((track) => track.stop())

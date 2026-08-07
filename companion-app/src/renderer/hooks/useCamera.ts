@@ -12,13 +12,13 @@ export interface CameraState {
  * Trzy błędy getUserMedia, które zdarzają się realnie przy kamerze —
  * komunikat ma mówić, co się stało, nie tylko że "się nie udało".
  */
-function opiszBlad(err: unknown): string {
-  const nazwa = err instanceof DOMException ? err.name : ''
-  if (nazwa === 'NotFoundError') return 'Nie znalazłem kamery.'
-  if (nazwa === 'NotReadableError') {
+function describeError(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : ''
+  if (name === 'NotFoundError') return 'Nie znalazłem kamery.'
+  if (name === 'NotReadableError') {
     return 'Kamera jest zajęta przez inną aplikację (np. Discord albo OBS).'
   }
-  if (nazwa === 'NotAllowedError') return 'Brak zgody na dostęp do kamery.'
+  if (name === 'NotAllowedError') return 'Brak zgody na dostęp do kamery.'
   return err instanceof Error ? err.message : String(err)
 }
 
@@ -28,9 +28,9 @@ function opiszBlad(err: unknown): string {
  * pozycje, czyli gorzej niż nic. Pusta lista jest czytelna: panel ustawień
  * pokazuje wtedy „lista pojawi się po pierwszym włączeniu kamery".
  */
-async function pobierzUrzadzenia(): Promise<{ deviceId: string; label: string }[]> {
-  const wszystkie = await navigator.mediaDevices.enumerateDevices()
-  return wszystkie
+async function listDevices(): Promise<{ deviceId: string; label: string }[]> {
+  const all = await navigator.mediaDevices.enumerateDevices()
+  return all
     .filter((d) => d.kind === 'videoinput' && d.label !== '')
     .map((d) => ({ deviceId: d.deviceId, label: d.label }))
 }
@@ -58,9 +58,9 @@ export function useCamera(enabled: boolean, settings: CameraSettings): CameraSta
     // w profilu, więc po pierwszym uruchomieniu etykiety są tu od razu; przy
     // pierwszym w życiu starcie lista jest pusta i uzupełnia się po zgodzie.
     let cancelled = false
-    pobierzUrzadzenia()
-      .then((lista) => {
-        if (!cancelled) setDevices(lista)
+    listDevices()
+      .then((list) => {
+        if (!cancelled) setDevices(list)
       })
       .catch(() => {
         // Brak zgody przed pierwszym getUserMedia zwykle daje puste etykiety,
@@ -100,15 +100,15 @@ export function useCamera(enabled: boolean, settings: CameraSettings): CameraSta
         // Przed pierwszą zgodą enumerateDevices zwraca puste etykiety —
         // dopiero po udanym starcie kamery przeglądarka je odsłania.
         try {
-          const lista = await pobierzUrzadzenia()
-          if (!cancelled) setDevices(lista)
+          const list = await listDevices()
+          if (!cancelled) setDevices(list)
         } catch {
           // Odświeżenie listy jest dodatkiem — brak etykiet nie unieważnia streamu.
         }
       })
       .catch((err: unknown) => {
         if (cancelled) return
-        setError(opiszBlad(err))
+        setError(describeError(err))
       })
 
     return () => {

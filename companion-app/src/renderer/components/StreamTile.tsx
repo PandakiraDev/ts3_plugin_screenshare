@@ -3,12 +3,12 @@ import type { StreamKind } from '@shared/types'
 
 interface StreamTileProps {
   stream: MediaStream
-  nazwa: string
+  name: string
   /** Rodzaj strumienia — kamera nie ma i nie będzie miała ścieżki audio. */
   kind: StreamKind
   /** Własny obraz nie ma sensu odtwarzać z dźwiękiem — słyszelibyśmy siebie. */
-  toJa: boolean
-  powiekszony: boolean
+  isMe: boolean
+  zoomed: boolean
   onToggleZoom: () => void
 }
 
@@ -18,20 +18,20 @@ interface StreamTileProps {
  */
 export function StreamTile({
   stream,
-  nazwa,
+  name,
   kind,
-  toJa,
-  powiekszony,
+  isMe,
+  zoomed,
   onToggleZoom
 }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [glosnosc, setGlosnosc] = useState(1)
-  const [wyciszony, setWyciszony] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [muted, setMuted] = useState(false)
 
   // Kamera nigdy nie niesie dźwięku, więc ani suwak, ani napis "bez dźwięku"
   // nie mają tu czego opisywać — to byłby stały, nieusuwalny komunikat.
-  const dotyczyDzwieku = kind === 'screen' && !toJa
-  const maDzwiek = stream.getAudioTracks().length > 0
+  const audioApplies = kind === 'screen' && !isMe
+  const hasAudio = stream.getAudioTracks().length > 0
 
   useEffect(() => {
     const video = videoRef.current
@@ -42,12 +42,12 @@ export function StreamTile({
     const video = videoRef.current
     if (!video) return
     // Własny obraz zawsze wyciszony: inaczej słyszelibyśmy echo swojego systemu.
-    video.muted = toJa || wyciszony
-    video.volume = glosnosc
-  }, [toJa, wyciszony, glosnosc])
+    video.muted = isMe || muted
+    video.volume = volume
+  }, [isMe, muted, volume])
 
   return (
-    <div className={`tile${powiekszony ? ' tile--zoom' : ''}`}>
+    <div className={`tile${zoomed ? ' tile--zoom' : ''}`}>
       {/*
         Powiększenie kliknięciem w sam obraz. Osobny element zamiast handlera na
         całym kafelku, bo pasek na dole ma własne kontrolki — suwak głośności
@@ -63,53 +63,53 @@ export function StreamTile({
         }}
         role="button"
         tabIndex={0}
-        aria-label={powiekszony ? `Wróć do siatki: ${nazwa}` : `Powiększ: ${nazwa}`}
+        aria-label={zoomed ? `Wróć do siatki: ${name}` : `Powiększ: ${name}`}
       >
         <video ref={videoRef} autoPlay playsInline className="tile__video" />
       </div>
 
       <div className="tile__bar">
-        <span className="tile__name" title={nazwa}>
-          {nazwa}
-          {toJa && <span className="peers__you"> (Ty)</span>}
+        <span className="tile__name" title={name}>
+          {name}
+          {isMe && <span className="peers__you"> (Ty)</span>}
         </span>
 
-        {dotyczyDzwieku && maDzwiek && (
+        {audioApplies && hasAudio && (
           <div className="tile__audio">
             <button
               type="button"
               className="tile__btn"
-              onClick={() => setWyciszony((w) => !w)}
-              title={wyciszony ? 'Włącz dźwięk' : 'Wycisz'}
+              onClick={() => setMuted((m) => !m)}
+              title={muted ? 'Włącz dźwięk' : 'Wycisz'}
             >
-              {wyciszony ? '🔇' : '🔊'}
+              {muted ? '🔇' : '🔊'}
             </button>
             <input
               type="range"
               min="0"
               max="1"
               step="0.05"
-              value={glosnosc}
+              value={volume}
               onChange={(e) => {
-                setGlosnosc(Number(e.target.value))
-                if (wyciszony) setWyciszony(false)
+                setVolume(Number(e.target.value))
+                if (muted) setMuted(false)
               }}
               className="tile__volume"
               title="Głośność"
-              aria-label={`Głośność: ${nazwa}`}
+              aria-label={`Głośność: ${name}`}
             />
           </div>
         )}
 
-        {dotyczyDzwieku && !maDzwiek && <span className="tile__cichy">bez dźwięku</span>}
+        {audioApplies && !hasAudio && <span className="tile__cichy">bez dźwięku</span>}
 
         <button
           type="button"
           className="tile__btn"
           onClick={onToggleZoom}
-          title={powiekszony ? 'Wróć do siatki' : 'Powiększ'}
+          title={zoomed ? 'Wróć do siatki' : 'Powiększ'}
         >
-          {powiekszony ? '⤡' : '⤢'}
+          {zoomed ? '⤡' : '⤢'}
         </button>
       </div>
     </div>

@@ -13,22 +13,22 @@ export interface RemoteStream {
 }
 
 /** Jeden kafelek siatki — gotowy do wyrenderowania, bez dalszych obliczeń w JSX. */
-export interface Kafelek {
+export interface Tile {
   /** `connectionKey`: jednoznaczny nawet wtedy, gdy jedna osoba nadaje oba rodzaje. */
-  klucz: string
+  tileKey: string
   peerId: string
   kind: StreamKind
   stream: MediaStream
-  podpis: string
-  toJa: boolean
+  label: string
+  isMe: boolean
 }
 
 /**
  * Kamera to domyślny widok osoby, więc nie potrzebuje dopisku — ekran tak,
  * bo inaczej dwa kafelki tej samej osoby byłyby nie do rozróżnienia.
  */
-export function podpisKafelka(nazwa: string, kind: StreamKind): string {
-  return kind === 'screen' ? `${nazwa} — ekran` : nazwa
+export function tileLabel(name: string, kind: StreamKind): string {
+  return kind === 'screen' ? `${name} — ekran` : name
 }
 
 /**
@@ -36,41 +36,41 @@ export function podpisKafelka(nazwa: string, kind: StreamKind): string {
  * napływania. Własny obraz bierzemy z lokalnego capture, a nie z sieci — do
  * samych siebie nic nie wysyłamy.
  */
-export function ulozKafelki(
-  wlasne: { kind: StreamKind; stream: MediaStream }[],
-  zdalne: Iterable<RemoteStream>,
+export function buildTiles(
+  own: { kind: StreamKind; stream: MediaStream }[],
+  remote: Iterable<RemoteStream>,
   me: PeerInfo | null,
   peers: PeerInfo[]
-): Kafelek[] {
-  const kafelki: Kafelek[] = []
+): Tile[] {
+  const tiles: Tile[] = []
 
   // Bez własnego wpisu nie ma czym podpisać kafelka ani czym go zakluczować.
   if (me) {
-    for (const { kind, stream } of wlasne) {
-      kafelki.push({
-        klucz: connectionKey(me.peerId, kind),
+    for (const { kind, stream } of own) {
+      tiles.push({
+        tileKey: connectionKey(me.peerId, kind),
         peerId: me.peerId,
         kind,
         stream,
-        podpis: podpisKafelka(me.displayName, kind),
-        toJa: true
+        label: tileLabel(me.displayName, kind),
+        isMe: true
       })
     }
   }
 
-  for (const { peerId, kind, stream } of zdalne) {
-    const nazwa = peers.find((p) => p.peerId === peerId)?.displayName ?? 'Uczestnik'
-    kafelki.push({
-      klucz: connectionKey(peerId, kind),
+  for (const { peerId, kind, stream } of remote) {
+    const name = peers.find((p) => p.peerId === peerId)?.displayName ?? 'Uczestnik'
+    tiles.push({
+      tileKey: connectionKey(peerId, kind),
       peerId,
       kind,
       stream,
-      podpis: podpisKafelka(nazwa, kind),
-      toJa: false
+      label: tileLabel(name, kind),
+      isMe: false
     })
   }
 
-  return kafelki
+  return tiles
 }
 
 /**
@@ -81,20 +81,20 @@ export function ulozKafelki(
  * Bez zmian zwraca tę samą mapę: nowa referencja przy każdym zdarzeniu
  * o uczestnikach przerysowywałaby całą siatkę, więc wideo by mrugało.
  */
-export function odsiejNieobecnych(
-  strumienie: Map<string, RemoteStream>,
-  obecni: Iterable<string>
+export function pruneAbsent(
+  streams: Map<string, RemoteStream>,
+  present: Iterable<string>
 ): Map<string, RemoteStream> {
-  const zbior = new Set(obecni)
-  const zostaje = [...strumienie].filter(([, wpis]) => zbior.has(wpis.peerId))
-  if (zostaje.length === strumienie.size) return strumienie
-  return new Map(zostaje)
+  const presentSet = new Set(present)
+  const kept = [...streams].filter(([, entry]) => presentSet.has(entry.peerId))
+  if (kept.length === streams.size) return streams
+  return new Map(kept)
 }
 
 export interface LobbyState {
-  connection: 'connecting' | 'ready' | 'error' | 'zly-klucz'
+  connection: 'connecting' | 'ready' | 'error' | 'bad-key'
   /** Rodzaje, które nadajemy MY. Ekran i kamera są niezależne — mogą być oba. */
-  mojeRodzaje: StreamKind[]
+  myStreamKinds: StreamKind[]
   /** Wszystkie nadawane strumienie w pokoju, łącznie z naszymi. */
   streams: StreamRef[]
   /** connectionKey(peerId, kind) -> odebrany obraz. Jedna osoba może mieć dwa wpisy. */
@@ -109,7 +109,7 @@ export interface LobbyState {
 
 const INITIAL: LobbyState = {
   connection: 'connecting',
-  mojeRodzaje: [],
+  myStreamKinds: [],
   streams: [],
   remoteStreams: new Map(),
   viewers: 0,
@@ -133,7 +133,7 @@ export interface Lobby {
  * uczestnik: od razu widzi cudzy obraz, jeśli ktoś nadaje, i w każdej chwili
  * może sam zacząć — bez restartu aplikacji i bez wyboru trybu na starcie.
  */
-export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
+export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
   const [state, setState] = useState<LobbyState>(INITIAL)
   const signalingRef = useRef<SignalingClient | null>(null)
   const sessionRef = useRef<LobbySession | null>(null)
@@ -157,10 +157,10 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
             setState((current) => {
               // Nowa mapa, nie mutacja: React porownuje referencje.
               const remoteStreams = new Map(current.remoteStreams)
-              const klucz = connectionKey(peerId, kind)
+              const key = connectionKey(peerId, kind)
               // null = koniec TEGO strumienia; drugi strumien tej samej osoby zostaje.
-              if (stream) remoteStreams.set(klucz, { peerId, kind, stream })
-              else remoteStreams.delete(klucz)
+              if (stream) remoteStreams.set(key, { peerId, kind, stream })
+              else remoteStreams.delete(key)
               return { ...current, remoteStreams }
             })
           },
@@ -169,7 +169,7 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
               ...current,
               streams,
               // Serwer rozglasza tez nasze wlasne start/stop-stream.
-              mojeRodzaje: streams
+              myStreamKinds: streams
                 .filter((s) => s.peerId === myPeerIdRef.current)
                 .map((s) => s.kind)
             }))
@@ -180,7 +180,7 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
               peers,
               // Lista uczestnikow jest jedynym miejscem, w ktorym widac odejscie
               // osoby w calosci — po niej sprzatamy oba jej strumienie naraz.
-              remoteStreams: odsiejNieobecnych(
+              remoteStreams: pruneAbsent(
                 current.remoteStreams,
                 peers.map((p) => p.peerId)
               )
@@ -207,13 +207,13 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
         session.begin(joined)
       } catch (err: unknown) {
         if (cancelled) return
-        const komunikat = err instanceof Error ? err.message : String(err)
+        const errorMessage = err instanceof Error ? err.message : String(err)
         // Odrzucony klucz to nie awaria — użytkownik ma go poprawić, a nie
         // patrzeć na ogólny błąd połączenia.
         setState((current) => ({
           ...current,
-          connection: /klucz/i.test(komunikat) ? 'zly-klucz' : 'error',
-          error: komunikat
+          connection: /klucz/i.test(errorMessage) ? 'bad-key' : 'error',
+          error: errorMessage
         }))
       }
     })()
@@ -225,9 +225,9 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
       signalingRef.current?.close()
       signalingRef.current = null
     }
-    // kluczVersion w zaleznosciach: zapisanie nowego klucza ma ponowic
+    // apiKeyVersion w zaleznosciach: zapisanie nowego klucza ma ponowic
     // polaczenie, a nie czekac na restart aplikacji.
-  }, [options.roomId, options.signalingUrl, options.displayName, kluczVersion])
+  }, [options.roomId, options.signalingUrl, options.displayName, apiKeyVersion])
 
   const startStream = useCallback(
     async (stream: MediaStream, kind: StreamKind): Promise<void> => {
@@ -236,7 +236,7 @@ export function useLobby(options: LaunchOptions, kluczVersion = 0): Lobby {
 
       // Zgloszenie u serwera i start wysylania siedza razem w
       // LobbySession.startStream — patrz jej komentarz co do kolejnosci.
-      // Stan `mojeRodzaje` przyjdzie z rozgloszenia stream-started, wiec nie
+      // Stan `myStreamKinds` przyjdzie z rozgloszenia stream-started, wiec nie
       // ustawiamy go tu na zapas: serwer moze zgloszenie odrzucic.
       await session.startStream(stream, kind)
       setState((current) => ({ ...current, error: null }))

@@ -114,10 +114,10 @@ export const DEFAULT_CAMERA_SETTINGS: CameraSettings = {
  * rodzaju, jakie naprawialiśmy przy przechwytywaniu dźwięku aplikacji.
  */
 export function cameraConstraints(settings: CameraSettings): MediaStreamConstraints {
-  const rozmiar = CAMERA_DIMENSIONS[settings.resolution]
+  const dimensions = CAMERA_DIMENSIONS[settings.resolution]
   const video: MediaTrackConstraints = {
-    width: { ideal: rozmiar.width },
-    height: { ideal: rozmiar.height },
+    width: { ideal: dimensions.width },
+    height: { ideal: dimensions.height },
     frameRate: { ideal: settings.fps, max: settings.fps }
   }
   // deviceId: null wywala getUserMedia — brak wyboru to brak pola, nie null.

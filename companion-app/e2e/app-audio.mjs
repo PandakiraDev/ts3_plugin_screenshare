@@ -18,14 +18,14 @@ let cdp
 try {
   cdp = await attach(PORT_CDP)
 
-  const wynik = await cdp.evaluate(`(async () => {
-    const zrodla = await window.companion.getSources()
-    const okno = zrodla.find((s) => s.type === 'window')
-    if (!okno) throw new Error('nie znalazlem zadnego okna do przechwycenia')
+  const result = await cdp.evaluate(`(async () => {
+    const sources = await window.companion.getSources()
+    const win = sources.find((s) => s.type === 'window')
+    if (!win) throw new Error('nie znalazlem zadnego okna do przechwycenia')
 
     // Nasluch MUSI ruszyc przed startAppAudio() — port przychodzi w trakcie
     // tamtego wywolania.
-    const oczekiwanie = new Promise((resolve, reject) => {
+    const portReady = new Promise((resolve, reject) => {
       const h = (e) => {
         if (e.data !== 'audio:port') return
         window.removeEventListener('message', h)
@@ -35,31 +35,31 @@ try {
       setTimeout(() => reject(new Error('port nie dotarl do renderera')), 5000)
     })
 
-    const format = await window.companion.startAppAudio(okno.id)
-    const port = await oczekiwanie
+    const format = await window.companion.startAppAudio(win.id)
+    const port = await portReady
 
     const generator = new MediaStreamTrackGenerator({ kind: 'audio' })
     const writer = generator.writable.getWriter()
-    let ramekWyslanych = 0
-    let pakietow = 0
+    let framesSent = 0
+    let packets = 0
 
     port.onmessage = (e) => {
-      const probki = new Float32Array(e.data)
-      const ramek = probki.length / format.channels
+      const samples = new Float32Array(e.data)
+      const frames = samples.length / format.channels
       writer
         .write(
           new AudioData({
             format: 'f32',
             sampleRate: format.sampleRate,
-            numberOfFrames: ramek,
+            numberOfFrames: frames,
             numberOfChannels: format.channels,
-            timestamp: Math.round((ramekWyslanych / format.sampleRate) * 1e6),
-            data: probki
+            timestamp: Math.round((framesSent / format.sampleRate) * 1e6),
+            data: samples
           })
         )
         .catch(() => {})
-      ramekWyslanych += ramek
-      pakietow += 1
+      framesSent += frames
+      packets += 1
     }
     port.start()
 
@@ -70,18 +70,18 @@ try {
     pc2.onicecandidate = (e) => e.candidate && pc1.addIceCandidate(e.candidate)
     pc1.addTrack(generator, new MediaStream([generator]))
 
-    const oferta = await pc1.createOffer()
-    await pc1.setLocalDescription(oferta)
-    await pc2.setRemoteDescription(oferta)
-    const odpowiedz = await pc2.createAnswer()
-    await pc2.setLocalDescription(odpowiedz)
-    await pc1.setRemoteDescription(odpowiedz)
+    const offer = await pc1.createOffer()
+    await pc1.setLocalDescription(offer)
+    await pc2.setRemoteDescription(offer)
+    const answer = await pc2.createAnswer()
+    await pc2.setLocalDescription(answer)
+    await pc1.setRemoteDescription(answer)
 
     await new Promise((r) => setTimeout(r, 2000))
 
-    let we = null
+    let inbound = null
     ;(await pc2.getStats()).forEach((s) => {
-      if (s.type === 'inbound-rtp' && s.kind === 'audio') we = s
+      if (s.type === 'inbound-rtp' && s.kind === 'audio') inbound = s
     })
 
     await window.companion.stopAppAudio()
@@ -89,35 +89,35 @@ try {
     pc2.close()
 
     return {
-      okno: okno.name,
+      source: win.name,
       format,
-      pakietow,
-      ramekWyslanych,
-      pakietyOdebrane: we ? we.packetsReceived : 0,
-      probkiOdebrane: we ? we.totalSamplesReceived ?? 0 : 0
+      packets,
+      framesSent,
+      packetsReceived: inbound ? inbound.packetsReceived : 0,
+      samplesReceived: inbound ? inbound.totalSamplesReceived ?? 0 : 0
     }
   })()`)
 
-  const oczekiwaneRamki = wynik.format.sampleRate * 2 * 0.7
-  const pcmLeci = wynik.ramekWyslanych > oczekiwaneRamki
-  const webrtcLeci = wynik.pakietyOdebrane > 0
+  const expectedFrames = result.format.sampleRate * 2 * 0.7
+  const pcmFlowing = result.framesSent > expectedFrames
+  const webrtcFlowing = result.packetsReceived > 0
 
   console.log(
-    `zrodlo: ${wynik.okno}\n` +
-      `format: ${wynik.format.sampleRate} Hz, ${wynik.format.channels} kanaly\n` +
-      `pakiety PCM: ${wynik.pakietow}, ramek: ${wynik.ramekWyslanych}\n` +
-      `przez WebRTC odebrano: ${wynik.pakietyOdebrane} pakietow RTP\n` +
-      `(probki oddane do odtwarzania: ${wynik.probkiOdebrane} — zero jest tu ` +
+    `zrodlo: ${result.source}\n` +
+      `format: ${result.format.sampleRate} Hz, ${result.format.channels} kanaly\n` +
+      `pakiety PCM: ${result.packets}, ramek: ${result.framesSent}\n` +
+      `przez WebRTC odebrano: ${result.packetsReceived} pakietow RTP\n` +
+      `(probki oddane do odtwarzania: ${result.samplesReceived} — zero jest tu ` +
       `normalne, bo w petli testowej nikt tego nie odtwarza)`
   )
 
-  if (!pcmLeci) console.log('\nZLE — za malo PCM z modulu natywnego')
-  else if (!webrtcLeci) console.log('\nZLE — sciezka powstala, ale nic nie przeszlo przez WebRTC')
+  if (!pcmFlowing) console.log('\nZLE — za malo PCM z modulu natywnego')
+  else if (!webrtcFlowing) console.log('\nZLE — sciezka powstala, ale nic nie przeszlo przez WebRTC')
   else console.log('\nOK — dzwiek wybranej aplikacji przechodzi przez WebRTC')
 
-  if (!pcmLeci || !webrtcLeci) process.exitCode = 1
-} catch (blad) {
-  console.error(`ZLE — ${blad.message}`)
+  if (!pcmFlowing || !webrtcFlowing) process.exitCode = 1
+} catch (err) {
+  console.error(`ZLE — ${err.message}`)
   process.exitCode = 1
 } finally {
   cdp?.close()

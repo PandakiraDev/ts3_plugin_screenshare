@@ -14,31 +14,31 @@ test('klucz ma format wymagany przez signaling server', () => {
 })
 
 test('inny kanał na tym samym serwerze daje inny klucz', () => {
-  const kanal1 = deriveRoomId('ts.przyklad.pl:9987', '1')
-  const kanal2 = deriveRoomId('ts.przyklad.pl:9987', '2')
-  expect(kanal1).not.toBe(kanal2)
+  const channel1 = deriveRoomId('ts.przyklad.pl:9987', '1')
+  const channel2 = deriveRoomId('ts.przyklad.pl:9987', '2')
+  expect(channel1).not.toBe(channel2)
 })
 
 test('ten sam numer kanału na innym serwerze daje inny klucz', () => {
   // Sedno zmiany: kanał 42 na dwóch różnych serwerach TS3 to dwa różne pokoje.
-  const serwerA = deriveRoomId('ts.przyklad.pl:9987', '42')
-  const serwerB = deriveRoomId('inny.serwer.pl:9987', '42')
-  expect(serwerA).not.toBe(serwerB)
+  const serverA = deriveRoomId('ts.przyklad.pl:9987', '42')
+  const serverB = deriveRoomId('inny.serwer.pl:9987', '42')
+  expect(serverA).not.toBe(serverB)
 })
 
 test('długość klucza nie zależy od długości danych wejściowych', () => {
   // Skrót o stałej długości nie może w sobie nieść oryginalnych danych.
-  const krotkie = deriveRoomId('a.pl', '1')
-  const dlugie = deriveRoomId('bardzo-dlugi-adres-serwera.przyklad.pl:9987', '9'.repeat(200))
-  expect(krotkie).toHaveLength(64)
-  expect(dlugie).toHaveLength(64)
+  const short = deriveRoomId('a.pl', '1')
+  const long = deriveRoomId('bardzo-dlugi-adres-serwera.przyklad.pl:9987', '9'.repeat(200))
+  expect(short).toHaveLength(64)
+  expect(long).toHaveLength(64)
 })
 
 test('adres serwera jest normalizowany — wielkość liter i spacje nie robią różnicy', () => {
   // Adres bywa wpisany ręcznie; drobna różnica w zapisie nie może rozdzielić pokoju.
-  const kanoniczny = deriveRoomId('ts.przyklad.pl:9987', '42')
-  expect(deriveRoomId('TS.Przyklad.PL:9987', '42')).toBe(kanoniczny)
-  expect(deriveRoomId('  ts.przyklad.pl:9987  ', '42')).toBe(kanoniczny)
+  const canonical = deriveRoomId('ts.przyklad.pl:9987', '42')
+  expect(deriveRoomId('TS.Przyklad.PL:9987', '42')).toBe(canonical)
+  expect(deriveRoomId('  ts.przyklad.pl:9987  ', '42')).toBe(canonical)
 })
 
 test('granica między polami nie daje się podrobić', () => {

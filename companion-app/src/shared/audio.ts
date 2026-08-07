@@ -43,10 +43,10 @@ export function toOwnBuffer(chunk: Uint8Array): ArrayBuffer {
  * `NaN` byłoby tu groźne — trafiłoby do WinAPI jako przypadkowy uchwyt.
  */
 export function windowHandleFromSourceId(sourceId: string): number | null {
-  const dopasowanie = /^window:(\d+):/.exec(sourceId)
-  if (!dopasowanie) return null
-  const uchwyt = Number(dopasowanie[1])
-  return Number.isSafeInteger(uchwyt) && uchwyt > 0 ? uchwyt : null
+  const match = /^window:(\d+):/.exec(sourceId)
+  if (!match) return null
+  const handle = Number(match[1])
+  return Number.isSafeInteger(handle) && handle > 0 ? handle : null
 }
 
 /**

@@ -4,7 +4,7 @@ import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@
 import type { LaunchOptions } from '../../shared/cli'
 import { useCamera } from '../hooks/useCamera'
 import { useCapture } from '../hooks/useCapture'
-import { ulozKafelki, useLobby } from '../hooks/useLobby'
+import { buildTiles, useLobby } from '../hooks/useLobby'
 import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
 import { SettingsPanel } from './SettingsPanel'
@@ -26,36 +26,36 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   // Jedyna droga do ustawień kamery podczas trwającego udostępniania ekranu —
   // SourcePicker (a z nim SettingsPanel) jest wtedy niedostępny, bo przycisk
   // "Udostępnij ekran" zamienia się w "Zakończ udostępnianie".
-  const [ustawieniaOtwarte, setUstawieniaOtwarte] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
-  const [powiekszony, setPowiekszony] = useState<string | null>(null)
+  const [zoomed, setZoomed] = useState<string | null>(null)
   // Zmiana klucza musi przelaczyc widok od razu, bez restartu aplikacji.
-  const [kluczZapisany, setKluczZapisany] = useState(0)
+  const [apiKeyVersion, setApiKeyVersion] = useState(0)
   const [selected, setSelected] = useState<CaptureSource | null>(null)
   const [quality, setQuality] = useState<QualitySettings>(DEFAULT_QUALITY)
   const [cameraSettings, setCameraSettings] = useState<CameraSettings>(DEFAULT_CAMERA_SETTINGS)
-  const [kameraWlaczona, setKameraWlaczona] = useState(false)
+  const [cameraEnabled, setCameraEnabled] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
-  const [kameraBlad, setKameraBlad] = useState<string | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
 
   const capture = useCapture(selected, quality)
-  const camera = useCamera(kameraWlaczona, cameraSettings)
-  const lobby = useLobby(options, kluczZapisany)
+  const camera = useCamera(cameraEnabled, cameraSettings)
+  const lobby = useLobby(options, apiKeyVersion)
   const { startStream, stopStream, replaceStream, applyQuality } = lobby
 
-  const nadajeEkran = lobby.state.mojeRodzaje.includes('screen')
-  const nadajeKamere = lobby.state.mojeRodzaje.includes('camera')
+  const sharingScreen = lobby.state.myStreamKinds.includes('screen')
+  const sharingCamera = lobby.state.myStreamKinds.includes('camera')
 
   /**
    * Kafelki: cudze strumienie plus nasze wlasne podglady. Wlasne bierzemy
    * z lokalnego capture, a nie z sieci — nie wysylamy obrazu do samych siebie.
    */
-  const wlasne: { kind: StreamKind; stream: MediaStream }[] = []
-  if (nadajeEkran && capture.stream) wlasne.push({ kind: 'screen', stream: capture.stream })
-  if (nadajeKamere && camera.stream) wlasne.push({ kind: 'camera', stream: camera.stream })
+  const own: { kind: StreamKind; stream: MediaStream }[] = []
+  if (sharingScreen && capture.stream) own.push({ kind: 'screen', stream: capture.stream })
+  if (sharingCamera && camera.stream) own.push({ kind: 'camera', stream: camera.stream })
 
-  const kafelki = ulozKafelki(
-    wlasne,
+  const tiles = buildTiles(
+    own,
     lobby.state.remoteStreams.values(),
     lobby.state.me,
     lobby.state.peers
@@ -64,12 +64,12 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
   useEffect(() => {
-    if (nadajeEkran && capture.stream) replaceStream(capture.stream, 'screen')
-  }, [nadajeEkran, capture.stream, replaceStream])
+    if (sharingScreen && capture.stream) replaceStream(capture.stream, 'screen')
+  }, [sharingScreen, capture.stream, replaceStream])
 
   useEffect(() => {
-    if (nadajeKamere && camera.stream) replaceStream(camera.stream, 'camera')
-  }, [nadajeKamere, camera.stream, replaceStream])
+    if (sharingCamera && camera.stream) replaceStream(camera.stream, 'camera')
+  }, [sharingCamera, camera.stream, replaceStream])
 
   // Bitrate i limit FPS idą przez setParameters — bez dotykania strumienia.
   // Osobno dla każdego rodzaju: kamera ma własny sufit i własny limit klatek,
@@ -87,37 +87,37 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
    * `useCamera` oddaje strumień dopiero po starcie urządzenia, więc w chwili
    * kliknięcia nie ma jeszcze czego wysłać.
    */
-  const startKameryWToku = useRef(false)
+  const cameraStartInProgress = useRef(false)
   useEffect(() => {
-    if (!kameraWlaczona || !camera.stream || nadajeKamere || startKameryWToku.current) return
-    startKameryWToku.current = true
+    if (!cameraEnabled || !camera.stream || sharingCamera || cameraStartInProgress.current) return
+    cameraStartInProgress.current = true
     void startStream(camera.stream, 'camera')
       .catch((err: unknown) => {
-        setKameraBlad(err instanceof Error ? err.message : String(err))
-        setKameraWlaczona(false)
+        setCameraError(err instanceof Error ? err.message : String(err))
+        setCameraEnabled(false)
       })
       .finally(() => {
-        startKameryWToku.current = false
+        cameraStartInProgress.current = false
       })
-  }, [kameraWlaczona, camera.stream, nadajeKamere, startStream])
+  }, [cameraEnabled, camera.stream, sharingCamera, startStream])
 
   // Zdjęcie transmisji też efektem: przycisk może zgasnąć zanim serwer w ogóle
   // potwierdzi start, a wtedy zatrzymywanie z handlera nie miałoby czego zdjąć.
   useEffect(() => {
-    if (kameraWlaczona || !nadajeKamere) return
+    if (cameraEnabled || !sharingCamera) return
     // Serwer może odmówić (np. przy zerwanym łączu). Bez tego byłoby to ciche
     // odrzucenie obietnicy, a kafelek kamery zostałby u wszystkich widzów.
     void stopStream('camera').catch((err: unknown) => {
-      setKameraBlad(err instanceof Error ? err.message : String(err))
+      setCameraError(err instanceof Error ? err.message : String(err))
     })
-  }, [kameraWlaczona, nadajeKamere, stopStream])
+  }, [cameraEnabled, sharingCamera, stopStream])
 
   // Powiekszony kafelek moze zniknac (nadajacy skonczyl) — wtedy wracamy do siatki.
   useEffect(() => {
-    if (powiekszony && !kafelki.some((k) => k.klucz === powiekszony)) setPowiekszony(null)
+    if (zoomed && !tiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
   })
 
-  const potwierdzWybor = async (): Promise<void> => {
+  const confirmSelection = async (): Promise<void> => {
     if (!capture.stream) return
     setStartError(null)
     try {
@@ -128,7 +128,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
     }
   }
 
-  const zakonczEkran = async (): Promise<void> => {
+  const endScreenShare = async (): Promise<void> => {
     // Bez tego odrzucenie obietnicy byłoby nieobsłużone, a setSelected(null)
     // nigdy by się nie wykonał — przechwytywanie pulpitu zostałoby żywe mimo
     // przełączonego przycisku. Ten sam wzorzec co przy zatrzymaniu kamery.
@@ -138,17 +138,17 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
     setSelected(null)
   }
 
-  const przelaczKamere = (): void => {
-    setKameraBlad(null)
-    setKameraWlaczona((wlaczona) => !wlaczona)
+  const toggleCamera = (): void => {
+    setCameraError(null)
+    setCameraEnabled((enabled) => !enabled)
   }
 
-  if (lobby.state.connection === 'zly-klucz') {
+  if (lobby.state.connection === 'bad-key') {
     return (
       <ApiKeyPrompt
         error={lobby.state.error}
-        onSave={(klucz) => {
-          void window.companion.setApiKey(klucz).then(() => setKluczZapisany((n) => n + 1))
+        onSave={(key) => {
+          void window.companion.setApiKey(key).then(() => setApiKeyVersion((n) => n + 1))
         }}
       />
     )
@@ -166,7 +166,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
         cameraDevices={camera.devices}
         capture={capture}
         error={startError}
-        onConfirm={() => void potwierdzWybor()}
+        onConfirm={() => void confirmSelection()}
         onCancel={() => {
           setPickerOpen(false)
           setSelected(null)
@@ -178,7 +178,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
 
   // Kamera potrafi nie wstać (zajęta przez Discorda, brak zgody) albo zostać
   // odrzucona przez serwer. Bez tego paska jedynym śladem byłaby konsola.
-  const bladKamery = kameraBlad ?? camera.error
+  const cameraErrorText = cameraError ?? camera.error
 
   return (
     <div className="app">
@@ -188,10 +188,10 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
           {lobby.state.connection === 'connecting' && 'Łączenie z kanałem…'}
           {lobby.state.connection === 'error' && 'Brak połączenia'}
           {lobby.state.connection === 'ready' &&
-            (kafelki.length === 0
+            (tiles.length === 0
               ? 'Nikt nie nadaje obrazu'
-              : `${kafelki.length} ${kafelki.length === 1 ? 'transmisja' : 'transmisje'}` +
-                (nadajeEkran || nadajeKamere
+              : `${tiles.length} ${tiles.length === 1 ? 'transmisja' : 'transmisje'}` +
+                (sharingScreen || sharingCamera
                   ? ` · Ty: ${
                       lobby.state.viewers === 0
                         ? 'nikt nie ogląda'
@@ -203,27 +203,27 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
         <div className="app__actions">
           <button
             type="button"
-            className={`btn ${kameraWlaczona ? 'btn--danger' : 'btn--ghost'}`}
-            onClick={przelaczKamere}
+            className={`btn ${cameraEnabled ? 'btn--danger' : 'btn--ghost'}`}
+            onClick={toggleCamera}
             disabled={lobby.state.connection !== 'ready'}
-            aria-pressed={kameraWlaczona}
+            aria-pressed={cameraEnabled}
           >
-            {kameraWlaczona ? '📷 Wyłącz kamerę' : '📷 Włącz kamerę'}
+            {cameraEnabled ? '📷 Wyłącz kamerę' : '📷 Włącz kamerę'}
           </button>
 
           <button
             type="button"
             className="btn btn--ghost"
-            onClick={() => setUstawieniaOtwarte((otwarte) => !otwarte)}
-            aria-pressed={ustawieniaOtwarte}
+            onClick={() => setSettingsOpen((open) => !open)}
+            aria-pressed={settingsOpen}
             aria-label="Ustawienia"
             title="Ustawienia"
           >
             ⚙️
           </button>
 
-          {nadajeEkran ? (
-            <button type="button" className="btn btn--danger" onClick={() => void zakonczEkran()}>
+          {sharingScreen ? (
+            <button type="button" className="btn btn--danger" onClick={() => void endScreenShare()}>
               Zakończ udostępnianie
             </button>
           ) : (
@@ -239,11 +239,11 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
         </div>
       </header>
 
-      {bladKamery && (
+      {cameraErrorText && (
         <div className="sharebar">
           <div className="notice notice--error sharebar__error">
             <strong>Kamera</strong>
-            <span>{bladKamery}</span>
+            <span>{cameraErrorText}</span>
           </div>
         </div>
       )}
@@ -255,7 +255,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
               <strong>Nie udało się połączyć z kanałem.</strong>
               <span>{lobby.state.error}</span>
             </div>
-          ) : kafelki.length === 0 ? (
+          ) : tiles.length === 0 ? (
             <div className="viewer__stage">
               <div className="viewer__waiting">
                 {lobby.state.streams.length > 0
@@ -265,21 +265,21 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
             </div>
           ) : (
             <div
-              className={`siatka${powiekszony ? ' siatka--zoom' : ''}`}
-              data-ile={Math.min(kafelki.length, 4)}
+              className={`siatka${zoomed ? ' siatka--zoom' : ''}`}
+              data-ile={Math.min(tiles.length, 4)}
             >
-              {kafelki
-                .filter((k) => !powiekszony || k.klucz === powiekszony)
-                .map((k) => (
+              {tiles
+                .filter((t) => !zoomed || t.tileKey === zoomed)
+                .map((t) => (
                   <StreamTile
-                    key={k.klucz}
-                    stream={k.stream}
-                    nazwa={k.podpis}
-                    kind={k.kind}
-                    toJa={k.toJa}
-                    powiekszony={powiekszony === k.klucz}
+                    key={t.tileKey}
+                    stream={t.stream}
+                    name={t.label}
+                    kind={t.kind}
+                    isMe={t.isMe}
+                    zoomed={zoomed === t.tileKey}
                     onToggleZoom={() =>
-                      setPowiekszony((c) => (c === k.klucz ? null : k.klucz))
+                      setZoomed((c) => (c === t.tileKey ? null : t.tileKey))
                     }
                   />
                 ))}
@@ -295,7 +295,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
           onToggle={() => setPanelCollapsed((current) => !current)}
         />
 
-        {ustawieniaOtwarte && (
+        {settingsOpen && (
           <SettingsPanel
             quality={quality}
             onChange={setQuality}

@@ -9,14 +9,14 @@ import { WebSocket } from 'ws'
 import electronPath from 'electron'
 
 const FPS = process.env.FPS ?? '60'
-const KANAL = `fps-diag-${FPS}`
+const CHANNEL = `fps-diag-${FPS}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-function launch(nazwa, port) {
+function launch(name, port) {
   return spawn(electronPath, [
     '.', `--remote-debugging-port=${port}`,
-    `--user-data-dir=${mkdtempSync(join(tmpdir(), `ts3f-${nazwa}-`))}`,
-    '--ts3-server=ts.test.pl:9987', `--channel=${KANAL}`,
+    `--user-data-dir=${mkdtempSync(join(tmpdir(), `ts3f-${name}-`))}`,
+    '--ts3-server=ts.test.pl:9987', `--channel=${CHANNEL}`,
     '--signaling=ws://127.0.0.1:8080'
   ], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] })
 }
@@ -73,51 +73,51 @@ const SHIM = `
   })();
 `
 
-async function zeStatystykami(cdp) {
+async function withStats(cdp) {
   await cdp.call('Page.enable')
   await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: SHIM })
   await cdp.call('Page.reload')
   await sleep(3500)
 }
 
-const STATY_NADAWCY = `(async () => {
+const SENDER_STATS = `(async () => {
   const out = [];
   for (const pc of window.__pcs || []) {
     const stats = await pc.getStats();
-    const kodeki = new Map();
-    stats.forEach(s => { if (s.type === 'codec') kodeki.set(s.id, s.mimeType); });
+    const codecs = new Map();
+    stats.forEach(s => { if (s.type === 'codec') codecs.set(s.id, s.mimeType); });
     stats.forEach(s => {
       if (s.type === 'outbound-rtp' && s.kind === 'video') {
-        s.__kodek = kodeki.get(s.codecId) || 'nieznany';
-        out.push({ fpsWysylane: s.framesPerSecond, klatekWyslanych: s.framesSent,
-          klatekZakodowanych: s.framesEncoded, rozmiar: s.frameWidth + 'x' + s.frameHeight,
-          powodOgraniczenia: s.qualityLimitationReason,
+        s.__codec = codecs.get(s.codecId) || 'nieznany';
+        out.push({ fpsSent: s.framesPerSecond, framesSent: s.framesSent,
+          framesEncoded: s.framesEncoded, size: s.frameWidth + 'x' + s.frameHeight,
+          limitationReason: s.qualityLimitationReason,
           bitrateKbps: s.targetBitrate ? Math.round(s.targetBitrate/1000) : null,
-          kodek: s.__kodek, koder: s.encoderImplementation });
+          codec: s.__codec, encoder: s.encoderImplementation });
       }
     });
   }
   const t = document.querySelector('.viewer__video')?.srcObject?.getVideoTracks?.()[0];
-  return JSON.stringify({ nadawca: out,
+  return JSON.stringify({ sender: out,
     trackCapture: t ? { ...t.getSettings(), contentHint: t.contentHint } : null });
 })()`
 
-const STATY_ODBIORCY = `(async () => {
+const RECEIVER_STATS = `(async () => {
   const out = [];
   for (const pc of window.__pcs || []) {
     const stats = await pc.getStats();
     stats.forEach(s => {
       if (s.type === 'inbound-rtp' && s.kind === 'video') {
-        out.push({ fpsOdbierane: s.framesPerSecond, klatekOdebranych: s.framesReceived,
-          klatekWyswietlonych: s.framesDecoded, zgubionych: s.framesDropped,
-          rozmiar: s.frameWidth + 'x' + s.frameHeight });
+        out.push({ fpsReceived: s.framesPerSecond, framesReceived: s.framesReceived,
+          framesDecoded: s.framesDecoded, dropped: s.framesDropped,
+          size: s.frameWidth + 'x' + s.frameHeight });
       }
     });
   }
   return JSON.stringify(out);
 })()`
 
-async function udostepnij(cdp) {
+async function share(cdp) {
   await cdp.evaluate(`[...document.querySelectorAll('button')].find(b=>/Udostępnij ekran/.test(b.textContent)).click()`)
   await sleep(2500)
   await cdp.evaluate(`[...document.querySelectorAll('.source-card')].find(c=>/Ekran/.test(c.textContent)).click()`)
@@ -134,24 +134,24 @@ async function udostepnij(cdp) {
   })()`)
 }
 
-const a = launch('nadawca', 9262)
-const b = launch('odbiorca', 9263)
+const a = launch('sender', 9262)
+const b = launch('receiver', 9263)
 
 try {
   const A = await attach(9262); const B = await attach(9263)
-  await zeStatystykami(A); await zeStatystykami(B)
+  await withStats(A); await withStats(B)
 
-  console.log('FPS zadany:', FPS, '| udostepnianie:', await udostepnij(A))
+  console.log('FPS zadany:', FPS, '| udostepnianie:', await share(A))
   await sleep(12000)
   console.log('--- PO 12s (rozbieg) ---')
-  console.log(await A.evaluate(STATY_NADAWCY))
+  console.log(await A.evaluate(SENDER_STATS))
   await sleep(20000)
   console.log('--- PO 32s (stan ustalony) ---')
 
   console.log('--- NADAWCA ---')
-  console.log(await A.evaluate(STATY_NADAWCY))
+  console.log(await A.evaluate(SENDER_STATS))
   console.log('--- ODBIORCA ---')
-  console.log(await B.evaluate(STATY_ODBIORCY))
+  console.log(await B.evaluate(RECEIVER_STATS))
 
   A.close(); B.close()
 } catch (e) {

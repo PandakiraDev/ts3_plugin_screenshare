@@ -55,14 +55,14 @@ const WARMUP_MS = Number(process.env.WARMUP_MS ?? 20000)
 // szum pojedynczych probek CPU sie usrednil.
 const WINDOW_MS = Number(process.env.WINDOW_MS ?? 20000)
 
-const KANAL = process.env.KANAL ?? `obciazenie-e2e-${Date.now()}`
+const CHANNEL = process.env.KANAL ?? `obciazenie-e2e-${Date.now()}`
 const PORT_A = 9361
 const PORT_B = 9362
 
-function argsInstancji(extra) {
+function instanceArgs(extra) {
   return [
     '--ts3-server=ts.test.pl:9987',
-    `--channel=${KANAL}`,
+    `--channel=${CHANNEL}`,
     '--signaling=ws://127.0.0.1:8080',
     '--use-fake-device-for-media-stream',
     ...extra
@@ -73,8 +73,8 @@ function argsInstancji(extra) {
  * BFS po ParentProcessId, zaczynajac od PID-u glownego procesu jednej
  * instancji Electrona. Zwraca liste PID-ow (stringi) calego jej drzewa.
  */
-async function drzewoPid(rootPid) {
-  const skrypt = `
+async function pidTree(rootPid) {
+  const script = `
     $wszystkie = Get-CimInstance Win32_Process -Filter "Name='electron.exe'" |
       Select-Object ProcessId, ParentProcessId
     $wynik = New-Object 'System.Collections.Generic.HashSet[int]'
@@ -89,7 +89,7 @@ async function drzewoPid(rootPid) {
     }
     ($wynik -join ',')
   `
-  const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', skrypt])
+  const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
   return stdout.trim()
 }
 
@@ -102,27 +102,27 @@ async function drzewoPid(rootPid) {
  * czesci calkowitej bez ostrzezenia (sprawdzone: `Get-Culture` -> pl-PL).
  * `.ToString(InvariantCulture)` wymusza kropke, niezaleznie od locale hosta.
  */
-async function cpuSekundDlaPidow(pidCsv) {
+async function cpuSecondsForPids(pidCsv) {
   if (!pidCsv) return 0
-  const skrypt = `
+  const script = `
     $suma = (Get-Process -Id ${pidCsv} -ErrorAction SilentlyContinue |
       Measure-Object -Property CPU -Sum).Sum
     if ($null -eq $suma) { Write-Output '0' } else {
       Write-Output $suma.ToString([System.Globalization.CultureInfo]::InvariantCulture)
     }
   `
-  const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', skrypt])
-  const wartosc = parseFloat(stdout.trim())
-  return Number.isFinite(wartosc) ? wartosc : 0
+  const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
+  const value = parseFloat(stdout.trim())
+  return Number.isFinite(value) ? value : 0
 }
 
 /** Ile procesow w podanym PID-csv istnieje w tej chwili — do logu diagnostycznego. */
-async function liczbaPidow(pidCsv) {
+async function pidCount(pidCsv) {
   return pidCsv ? pidCsv.split(',').length : 0
 }
 
 /** Hak na RTCPeerConnection — TYM RAZEM na nadawcy (A), bo to jego getStats() nas interesuje. */
-const HAK_PC = `
+const PC_HOOK = `
   (() => {
     const Original = window.RTCPeerConnection
     window.__pcs = []
@@ -135,44 +135,44 @@ const HAK_PC = `
   })()
 `
 
-async function zHakiem(cdp) {
+async function withHook(cdp) {
   await cdp.call('Page.enable')
-  await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: HAK_PC })
+  await cdp.call('Page.addScriptToEvaluateOnNewDocument', { source: PC_HOOK })
   await cdp.call('Page.reload')
 }
 
-const PRZYCISK_UDOSTEPNIJ = `(() => {
+const SHARE_BUTTON = `(() => {
   const b = [...document.querySelectorAll('button')].find(x => /Udostępnij ekran/.test(x.textContent))
   return b ? (b.disabled ? 'NIEAKTYWNY' : 'AKTYWNY') : 'BRAK'
 })()`
 
-const SIATKA = `(() => {
-  const kafelki = [...document.querySelectorAll('.tile')].map(el => {
+const GRID = `(() => {
+  const tiles = [...document.querySelectorAll('.tile')].map(el => {
     const v = el.querySelector('.tile__video')
-    return { obraz: v && v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'BRAK' }
+    return { image: v && v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'BRAK' }
   })
-  return JSON.stringify({ ile: kafelki.length, kafelki })
+  return JSON.stringify({ count: tiles.length, tiles })
 })()`
 
-async function czekajNaGotowosc(cdp, etykieta) {
+async function waitReady(cdp, label) {
   for (let i = 0; i < 40; i++) {
-    if ((await cdp.evaluate(PRZYCISK_UDOSTEPNIJ)) === 'AKTYWNY') return
+    if ((await cdp.evaluate(SHARE_BUTTON)) === 'AKTYWNY') return
     await sleep(500)
   }
-  throw new Error(`${etykieta}: nie doczekalem sie polaczenia z serwerem sygnalizacyjnym`)
+  throw new Error(`${label}: nie doczekalem sie polaczenia z serwerem sygnalizacyjnym`)
 }
 
-async function czekajNaSiatke(cdp, ile, prob = 30) {
-  let stan = null
-  for (let i = 0; i < prob; i++) {
-    stan = JSON.parse(await cdp.evaluate(SIATKA))
-    if (stan.ile === ile) return stan
+async function waitForGrid(cdp, count, attempts = 30) {
+  let state = null
+  for (let i = 0; i < attempts; i++) {
+    state = JSON.parse(await cdp.evaluate(GRID))
+    if (state.count === count) return state
     await sleep(500)
   }
-  return stan
+  return state
 }
 
-async function udostepnijEkran(cdp) {
+async function shareScreen(cdp) {
   await cdp.evaluate(
     `[...document.querySelectorAll('button')].find(b=>/Udostępnij ekran/.test(b.textContent)).click()`
   )
@@ -189,7 +189,7 @@ async function udostepnijEkran(cdp) {
   })()`)
 }
 
-function przyciskKamery(regex) {
+function cameraButton(regex) {
   return `(() => {
     const b = [...document.querySelectorAll('button')].find(x=>${regex}.test(x.textContent))
     if (!b) return 'BRAK PRZYCISKU'
@@ -197,7 +197,7 @@ function przyciskKamery(regex) {
     b.click(); return 'ok'
   })()`
 }
-const wlaczKamere = (cdp) => cdp.evaluate(przyciskKamery('/Włącz kamerę/'))
+const enableCamera = (cdp) => cdp.evaluate(cameraButton('/Włącz kamerę/'))
 
 /**
  * Ustawia <select> kontrolowany przez React. Samo `el.value = x` nie
@@ -207,19 +207,19 @@ const wlaczKamere = (cdp) => cdp.evaluate(przyciskKamery('/Włącz kamerę/'))
  * 'change'. Ten sam wzorzec dziala w testach RTL/Selenium na kontrolowanych
  * polach React.
  */
-function ustawSelect(id, wartosc) {
+function setSelect(id, value) {
   return `(() => {
     const el = document.getElementById('${id}')
     if (!el) return 'BRAK ELEMENTU ${id}'
     const proto = Object.getPrototypeOf(el)
     const setter = Object.getOwnPropertyDescriptor(proto, 'value').set
-    setter.call(el, '${wartosc}')
+    setter.call(el, '${value}')
     el.dispatchEvent(new Event('change', { bubbles: true }))
     return el.value
   })()`
 }
 
-function klikSegmentu(regex) {
+function clickSegment(regex) {
   return `(() => {
     const b = [...document.querySelectorAll('.segmented__option')].find(x => ${regex}.test(x.textContent))
     if (!b) return 'BRAK'
@@ -230,19 +230,19 @@ function klikSegmentu(regex) {
 /**
  * Panel ustawien (ekran + kamera) jest zawsze dostepny spod zebatki w
  * naglowku, niezaleznie od tego, czy ekran juz leci — LobbyView renderuje go
- * warunkiem `ustawieniaOtwarte`, nie stanem picker'a. Ustawiamy WSZYSTKO
+ * warunkiem `settingsOpen`, nie stanem picker'a. Ustawiamy WSZYSTKO
  * jawnie (nawet to, co juz jest domyslne) — zeby wynik pomiaru nie zalezal od
  * cichego zalozenia, ze defaulty sie nie zmienia.
  */
-async function skonfigurujJakosc(cdp) {
+async function configureQuality(cdp) {
   await cdp.evaluate(`document.querySelector('button[aria-label="Ustawienia"]').click()`)
   await sleep(500)
-  const wynikRozEkranu = await cdp.evaluate(ustawSelect('resolution', '1080p'))
-  const wynikFpsEkranu = await cdp.evaluate(klikSegmentu('/60 FPS/'))
-  const wynikRozKamery = await cdp.evaluate(ustawSelect('camera-resolution', CAM_RES))
-  const wynikFpsKamery = await cdp.evaluate(ustawSelect('camera-fps', CAM_FPS))
+  const screenResolutionResult = await cdp.evaluate(setSelect('resolution', '1080p'))
+  const screenFpsResult = await cdp.evaluate(clickSegment('/60 FPS/'))
+  const cameraResolutionResult = await cdp.evaluate(setSelect('camera-resolution', CAM_RES))
+  const cameraFpsResult = await cdp.evaluate(setSelect('camera-fps', CAM_FPS))
   await sleep(300)
-  return { wynikRozEkranu, wynikFpsEkranu, wynikRozKamery, wynikFpsKamery }
+  return { screenResolutionResult, screenFpsResult, cameraResolutionResult, cameraFpsResult }
 }
 
 /**
@@ -250,38 +250,38 @@ async function skonfigurujJakosc(cdp) {
  * `contentHint` sendera — patrz komentarz na gorze pliku. Brak polegania na
  * frameWidth/frameHeight, bo przy kamerze=1080p oba sa identyczne.
  */
-const STATY_NADAWCY_WG_RODZAJU = `(async () => {
-  const wynik = {}
+const SENDER_STATS_BY_KIND = `(async () => {
+  const result = {}
   for (const pc of window.__pcs || []) {
-    const senderWideo = pc.getSenders().find(s => s.track && s.track.kind === 'video')
-    if (!senderWideo) continue
-    const rodzaj = senderWideo.track.contentHint === 'detail' ? 'ekran' : 'kamera'
+    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video')
+    if (!videoSender) continue
+    const streamKind = videoSender.track.contentHint === 'detail' ? 'screen' : 'camera'
     const stats = await pc.getStats()
-    const kodeki = new Map()
-    stats.forEach(s => { if (s.type === 'codec') kodeki.set(s.id, s.mimeType) })
+    const codecs = new Map()
+    stats.forEach(s => { if (s.type === 'codec') codecs.set(s.id, s.mimeType) })
     stats.forEach(s => {
       if (s.type === 'outbound-rtp' && s.kind === 'video') {
-        wynik[rodzaj] = {
+        result[streamKind] = {
           encoderImplementation: s.encoderImplementation ?? null,
           framesPerSecond: s.framesPerSecond ?? null,
           qualityLimitationReason: s.qualityLimitationReason ?? null,
-          rozmiar: (s.frameWidth ?? '?') + 'x' + (s.frameHeight ?? '?'),
+          size: (s.frameWidth ?? '?') + 'x' + (s.frameHeight ?? '?'),
           framesEncoded: s.framesEncoded ?? null,
           targetBitrateKbps: s.targetBitrate ? Math.round(s.targetBitrate / 1000) : null,
-          kodek: kodeki.get(s.codecId) ?? null
+          codec: codecs.get(s.codecId) ?? null
         }
       }
     })
   }
-  return JSON.stringify(wynik)
+  return JSON.stringify(result)
 })()`
 
 async function main() {
   console.log(`=== Pomiar obciazenia: kamera ${CAM_RES}@${CAM_FPS}fps + ekran 1080p60 ===`)
-  console.log(`kanal: ${KANAL}`)
+  console.log(`kanal: ${CHANNEL}`)
 
-  const a = launchApp(PORT_A, argsInstancji([]))
-  const b = launchApp(PORT_B, argsInstancji([]))
+  const a = launchApp(PORT_A, instanceArgs([]))
+  const b = launchApp(PORT_B, instanceArgs([]))
 
   let A
   let B
@@ -289,28 +289,28 @@ async function main() {
     A = await attach(PORT_A)
     B = await attach(PORT_B)
 
-    await zHakiem(A)
+    await withHook(A)
     await sleep(1000)
-    await czekajNaGotowosc(A, 'A')
-    await czekajNaGotowosc(B, 'B')
+    await waitReady(A, 'A')
+    await waitReady(B, 'B')
     console.log('oboje polaczeni z kanalem')
 
-    const jakosc = await skonfigurujJakosc(A)
-    console.log('ustawienia jakosci:', JSON.stringify(jakosc))
+    const quality = await configureQuality(A)
+    console.log('ustawienia jakosci:', JSON.stringify(quality))
 
-    console.log('start ekranu:', await udostepnijEkran(A))
-    const poEkranie = await czekajNaSiatke(B, 1)
-    if (poEkranie.ile !== 1) {
-      throw new Error(`po starcie ekranu B widzi ${poEkranie.ile} kafelkow, oczekiwano 1`)
+    console.log('start ekranu:', await shareScreen(A))
+    const afterScreen = await waitForGrid(B, 1)
+    if (afterScreen.count !== 1) {
+      throw new Error(`po starcie ekranu B widzi ${afterScreen.count} kafelkow, oczekiwano 1`)
     }
     console.log('B widzi ekran')
 
-    console.log('start kamery:', await wlaczKamere(A))
-    const poKamerze = await czekajNaSiatke(B, 2)
-    if (poKamerze.ile !== 2) {
-      throw new Error(`po wlaczeniu kamery B widzi ${poKamerze.ile} kafelkow, oczekiwano 2`)
+    console.log('start kamery:', await enableCamera(A))
+    const afterCamera = await waitForGrid(B, 2)
+    if (afterCamera.count !== 2) {
+      throw new Error(`po wlaczeniu kamery B widzi ${afterCamera.count} kafelkow, oczekiwano 2`)
     }
-    console.log('B widzi ekran + kamere:', JSON.stringify(poKamerze.kafelki))
+    console.log('B widzi ekran + kamere:', JSON.stringify(afterCamera.tiles))
 
     console.log(`rozbieg ${WARMUP_MS}ms...`)
     await sleep(WARMUP_MS)
@@ -319,54 +319,54 @@ async function main() {
     // powinien tworzyc/zamykac procesow w trakcie, wiec to samo drzewo
     // uzywamy do obu odczytow CPU (odejmowanie tych samych procesow od
     // samych siebie). Rozmiar drzewa logujemy na obu koncach jako kontrole.
-    const drzewoA = await drzewoPid(a.pid)
-    const drzewoB = await drzewoPid(b.pid)
-    console.log(`drzewo procesow A (nadawca, root pid ${a.pid}): ${await liczbaPidow(drzewoA)} proc.`)
-    console.log(`drzewo procesow B (odbiorca, root pid ${b.pid}): ${await liczbaPidow(drzewoB)} proc.`)
+    const treeA = await pidTree(a.pid)
+    const treeB = await pidTree(b.pid)
+    console.log(`drzewo procesow A (nadawca, root pid ${a.pid}): ${await pidCount(treeA)} proc.`)
+    console.log(`drzewo procesow B (odbiorca, root pid ${b.pid}): ${await pidCount(treeB)} proc.`)
 
-    const cpuAPrzed = await cpuSekundDlaPidow(drzewoA)
-    const cpuBPrzed = await cpuSekundDlaPidow(drzewoB)
-    const czasPrzed = Date.now()
-    const statyPoczatkowe = JSON.parse(await A.evaluate(STATY_NADAWCY_WG_RODZAJU))
-    console.log('staty na poczatku okna:', JSON.stringify(statyPoczatkowe))
+    const cpuABefore = await cpuSecondsForPids(treeA)
+    const cpuBBefore = await cpuSecondsForPids(treeB)
+    const timeBefore = Date.now()
+    const statsStart = JSON.parse(await A.evaluate(SENDER_STATS_BY_KIND))
+    console.log('staty na poczatku okna:', JSON.stringify(statsStart))
 
     console.log(`okno pomiaru CPU: ${WINDOW_MS}ms...`)
     await sleep(WINDOW_MS)
 
-    const drzewoAKoniec = await drzewoPid(a.pid)
-    const cpuAPo = await cpuSekundDlaPidow(drzewoA)
-    const cpuBPo = await cpuSekundDlaPidow(drzewoB)
-    const czasPo = Date.now()
-    const statyKoncowe = JSON.parse(await A.evaluate(STATY_NADAWCY_WG_RODZAJU))
+    const treeAEnd = await pidTree(a.pid)
+    const cpuAAfter = await cpuSecondsForPids(treeA)
+    const cpuBAfter = await cpuSecondsForPids(treeB)
+    const timeAfter = Date.now()
+    const statsEnd = JSON.parse(await A.evaluate(SENDER_STATS_BY_KIND))
 
-    if (await liczbaPidow(drzewoAKoniec) !== await liczbaPidow(drzewoA)) {
+    if (await pidCount(treeAEnd) !== await pidCount(treeA)) {
       console.log(
         `UWAGA: drzewo procesow A zmienilo rozmiar w trakcie okna ` +
-          `(${await liczbaPidow(drzewoA)} -> ${await liczbaPidow(drzewoAKoniec)}) — ` +
+          `(${await pidCount(treeA)} -> ${await pidCount(treeAEnd)}) — ` +
           `delta CPU moze nie objac procesu, ktory powstal/zniknal w trakcie.`
       )
     }
 
-    const oknoSekund = (czasPo - czasPrzed) / 1000
-    const deltaCpuA = cpuAPo - cpuAPrzed
-    const deltaCpuB = cpuBPo - cpuBPrzed
-    const rdzenieA = deltaCpuA / oknoSekund
-    const rdzenieB = deltaCpuB / oknoSekund
+    const windowSeconds = (timeAfter - timeBefore) / 1000
+    const cpuDeltaA = cpuAAfter - cpuABefore
+    const cpuDeltaB = cpuBAfter - cpuBBefore
+    const coresA = cpuDeltaA / windowSeconds
+    const coresB = cpuDeltaB / windowSeconds
 
     console.log('\n=== WYNIK ===')
     console.log(`wariant: kamera ${CAM_RES}@${CAM_FPS}fps + ekran 1080p60`)
-    console.log(`okno pomiaru CPU: ${oknoSekund.toFixed(1)} s`)
+    console.log(`okno pomiaru CPU: ${windowSeconds.toFixed(1)} s`)
     console.log(
-      `CPU NADAWCY (A, ekran+kamera razem, ${await liczbaPidow(drzewoA)} proc.): ` +
-        `${cpuAPrzed.toFixed(2)}s -> ${cpuAPo.toFixed(2)}s, delta ${deltaCpuA.toFixed(2)}s ` +
-        `= ${rdzenieA.toFixed(2)} rdzenia-rownowaznika`
+      `CPU NADAWCY (A, ekran+kamera razem, ${await pidCount(treeA)} proc.): ` +
+        `${cpuABefore.toFixed(2)}s -> ${cpuAAfter.toFixed(2)}s, delta ${cpuDeltaA.toFixed(2)}s ` +
+        `= ${coresA.toFixed(2)} rdzenia-rownowaznika`
     )
     console.log(
-      `CPU ODBIORCY (B, dekodowanie+render obu strumieni, ${await liczbaPidow(drzewoB)} proc.): ` +
-        `${cpuBPrzed.toFixed(2)}s -> ${cpuBPo.toFixed(2)}s, delta ${deltaCpuB.toFixed(2)}s ` +
-        `= ${rdzenieB.toFixed(2)} rdzenia-rownowaznika`
+      `CPU ODBIORCY (B, dekodowanie+render obu strumieni, ${await pidCount(treeB)} proc.): ` +
+        `${cpuBBefore.toFixed(2)}s -> ${cpuBAfter.toFixed(2)}s, delta ${cpuDeltaB.toFixed(2)}s ` +
+        `= ${coresB.toFixed(2)} rdzenia-rownowaznika`
     )
-    console.log('staty na koncu okna:', JSON.stringify(statyKoncowe, null, 2))
+    console.log('staty na koncu okna:', JSON.stringify(statsEnd, null, 2))
   } catch (err) {
     console.log('BLAD:', err instanceof Error ? err.message : String(err))
     process.exitCode = 1
