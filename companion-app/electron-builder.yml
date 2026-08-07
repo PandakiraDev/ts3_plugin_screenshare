@@ -48,3 +48,14 @@ nsis:
   # Aplikacja jest uruchamiana przez plugin z TS3, nie recznie z menu Start.
   createStartMenuShortcut: false
   artifactName: TS3-Screen-Share-Setup-${version}.${ext}
+
+# Zrodlo aktualizacji dla electron-updater. Repozytorium jest publiczne, wiec
+# uzytkownik koncowy nie potrzebuje zadnego tokenu — token jest potrzebny
+# WYLACZNIE przy publikowaniu (patrz scripts/publish.mjs).
+#
+# electron-builder tworzy SZKIC wydania. To celowe: electron-updater szkicow nie
+# widzi, wiec nikt nie dostanie aktualizacji, zanim recznie jej nie opublikujesz.
+publish:
+  provider: github
+  owner: PandakiraDev
+  repo: ts3_plugin_screenshare
