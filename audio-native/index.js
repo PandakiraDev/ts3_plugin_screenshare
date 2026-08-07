@@ -25,7 +25,7 @@ try {
  */
 class AudioCapture {
   #native
-  #aktywne = false
+  #active = false
 
   constructor(pid) {
     this.#native = new native.AudioCapture(pid)
@@ -33,17 +33,17 @@ class AudioCapture {
 
   start(onChunk) {
     this.#native.start((chunk) => {
-      if (this.#aktywne) onChunk(chunk)
+      if (this.#active) onChunk(chunk)
     })
     // Dopiero po udanym start(): jesli aktywacja rzuci, stan sie nie zmienia.
     // Kolejka nie ruszy wczesniej, bo watek JS stoi w start().
-    this.#aktywne = true
+    this.#active = true
   }
 
   stop() {
     // Kolejnosc jest istotna — flaga gasnie PRZED zatrzymaniem, zeby resztki
     // z kolejki trafily w pustke.
-    this.#aktywne = false
+    this.#active = false
     this.#native.stop()
   }
 }

@@ -60,34 +60,34 @@ test('modul podaje format, w ktorym oddaje probki', () => {
 
 test('kazdy pakiet zawiera cale ramki, nie ucieta probke', async () => {
   const capture = new AudioCapture(process.pid)
-  const dlugosci: number[] = []
+  const lengths: number[] = []
 
   capture.start((chunk: Buffer) => {
-    dlugosci.push(chunk.length)
+    lengths.push(chunk.length)
   })
   await sleep(500)
   capture.stop()
 
-  const ramka = FORMAT.channels * FORMAT.bytesPerSample
-  expect(dlugosci.every((n) => n % ramka === 0)).toBe(true)
+  const frameSize = FORMAT.channels * FORMAT.bytesPerSample
+  expect(lengths.every((n) => n % frameSize === 0)).toBe(true)
 })
 
 test('tempo strumienia zgadza sie z deklarowanym formatem', async () => {
   const capture = new AudioCapture(process.pid)
-  let bajtow = 0
+  let bytes = 0
 
   capture.start((chunk: Buffer) => {
-    bajtow += chunk.length
+    bytes += chunk.length
   })
   await sleep(1000)
   capture.stop()
 
-  const ramek = bajtow / (FORMAT.channels * FORMAT.bytesPerSample)
+  const frames = bytes / (FORMAT.channels * FORMAT.bytesPerSample)
   // Szeroki margines: pierwsze pakiety potrafia sie spoznic, a timer testu
   // nie jest zegarem audio. Chodzi o wykrycie zlego formatu (mono albo
   // 44,1 kHz dalyby polowe albo 92% tej wartosci), nie o precyzje.
-  expect(ramek).toBeGreaterThan(FORMAT.sampleRate * 0.7)
-  expect(ramek).toBeLessThan(FORMAT.sampleRate * 1.3)
+  expect(frames).toBeGreaterThan(FORMAT.sampleRate * 0.7)
+  expect(frames).toBeLessThan(FORMAT.sampleRate * 1.3)
 })
 
 // Bez tej blokady drugi start() nadpisalby zyjacy std::thread, a to w C++
@@ -110,28 +110,28 @@ test('po stop() da sie wystartowac ponownie', async () => {
   await sleep(200)
   capture.stop()
 
-  let poWznowieniu = 0
+  let afterResume = 0
   capture.start(() => {
-    poWznowieniu += 1
+    afterResume += 1
   })
   await sleep(300)
   capture.stop()
 
-  expect(poWznowieniu).toBeGreaterThan(0)
+  expect(afterResume).toBeGreaterThan(0)
 })
 
 test('stop() zatrzymuje naplyw ramek', async () => {
   const capture = new AudioCapture(process.pid)
-  let pakietow = 0
+  let packets = 0
 
   capture.start(() => {
-    pakietow += 1
+    packets += 1
   })
   await sleep(300)
   capture.stop()
-  const poStopie = pakietow
+  const afterStop = packets
 
   await sleep(300)
 
-  expect(pakietow).toBe(poStopie)
+  expect(packets).toBe(afterStop)
 })

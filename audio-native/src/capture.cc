@@ -32,19 +32,19 @@ using Microsoft::WRL::RuntimeClassFlags;
 namespace {
 
 // Process loopback NIE wspiera GetMixFormat — format trzeba podac wprost.
-constexpr WORD KANALY = 2;
-constexpr DWORD CZESTOTLIWOSC = 48000;
-constexpr WORD BITY = 32;  // float32
-constexpr WORD BLOK = KANALY * BITY / 8;
+constexpr WORD CHANNELS = 2;
+constexpr DWORD SAMPLE_RATE = 48000;
+constexpr WORD BITS = 32;  // float32
+constexpr WORD BLOCK_ALIGN = CHANNELS * BITS / 8;
 
 WAVEFORMATEX FormatPcm() {
     WAVEFORMATEX fmt = {};
     fmt.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-    fmt.nChannels = KANALY;
-    fmt.nSamplesPerSec = CZESTOTLIWOSC;
-    fmt.wBitsPerSample = BITY;
-    fmt.nBlockAlign = BLOK;
-    fmt.nAvgBytesPerSec = CZESTOTLIWOSC * BLOK;
+    fmt.nChannels = CHANNELS;
+    fmt.nSamplesPerSec = SAMPLE_RATE;
+    fmt.wBitsPerSample = BITS;
+    fmt.nBlockAlign = BLOCK_ALIGN;
+    fmt.nAvgBytesPerSec = SAMPLE_RATE * BLOCK_ALIGN;
     return fmt;
 }
 
@@ -85,9 +85,9 @@ private:
     Napi::Value Start(const Napi::CallbackInfo& info);
     Napi::Value Stop(const Napi::CallbackInfo& info);
 
-    void Petla();
-    HRESULT Otworz(IAudioClient** client, IAudioCaptureClient** capture, HANDLE* audioEvent);
-    void Zatrzymaj();
+    void CaptureLoop();
+    HRESULT Open(IAudioClient** client, IAudioCaptureClient** capture, HANDLE* audioEvent);
+    void StopWorker();
 
     DWORD pid_ = 0;
     std::thread worker_;
@@ -114,27 +114,27 @@ AudioCapture::AudioCapture(const Napi::CallbackInfo& info)
     // Windows aktywuje loopback dla nieistniejacego procesu BEZ bledu i podaje
     // cisze w nieskonczonosc. Sprawdzamy wiec sami, zeby zle mapowanie okna na
     // PID bylo glosnym wyjatkiem, a nie niemym streamem.
-    HANDLE proces = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid_);
-    if (proces) {
-        CloseHandle(proces);
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid_);
+    if (process) {
+        CloseHandle(process);
     } else if (GetLastError() == ERROR_INVALID_PARAMETER) {
         // Tylko ten kod oznacza "nie ma takiego PID-u". ACCESS_DENIED znaczy,
         // ze proces istnieje, ale nalezy do kogos innego — to nie jest powod
         // do odmowy, bo loopback i tak zadziala.
-        char komunikat[96];
-        snprintf(komunikat, sizeof(komunikat), "Proces %lu nie istnieje",
+        char message[96];
+        snprintf(message, sizeof(message), "Proces %lu nie istnieje",
                  (unsigned long)pid_);
-        Napi::Error::New(env, komunikat).ThrowAsJavaScriptException();
+        Napi::Error::New(env, message).ThrowAsJavaScriptException();
         return;
     }
 }
 
 AudioCapture::~AudioCapture() {
-    Zatrzymaj();
+    StopWorker();
 }
 
-HRESULT AudioCapture::Otworz(IAudioClient** client, IAudioCaptureClient** capture,
-                             HANDLE* audioEvent) {
+HRESULT AudioCapture::Open(IAudioClient** client, IAudioCaptureClient** capture,
+                           HANDLE* audioEvent) {
     AUDIOCLIENT_ACTIVATION_PARAMS params = {};
     params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
     params.ProcessLoopbackParams.TargetProcessId = pid_;
@@ -181,15 +181,15 @@ HRESULT AudioCapture::Otworz(IAudioClient** client, IAudioCaptureClient** captur
     return (*client)->Start();
 }
 
-void AudioCapture::Petla() {
+void AudioCapture::CaptureLoop() {
     HRESULT hrCom = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    const bool comNasze = SUCCEEDED(hrCom);
+    const bool ownsCom = SUCCEEDED(hrCom);
 
     IAudioClient* client = nullptr;
     IAudioCaptureClient* capture = nullptr;
     HANDLE audioEvent = nullptr;
 
-    HRESULT hr = Otworz(&client, &capture, &audioEvent);
+    HRESULT hr = Open(&client, &capture, &audioEvent);
 
     {
         std::lock_guard<std::mutex> lock(startMutex_);
@@ -199,29 +199,29 @@ void AudioCapture::Petla() {
     startCv_.notify_one();
 
     if (SUCCEEDED(hr)) {
-        HANDLE czekaj[2] = {stopEvent_, audioEvent};
+        HANDLE waitHandles[2] = {stopEvent_, audioEvent};
         for (;;) {
-            DWORD w = WaitForMultipleObjects(2, czekaj, FALSE, 200);
+            DWORD w = WaitForMultipleObjects(2, waitHandles, FALSE, 200);
             if (w == WAIT_OBJECT_0) break;  // stopEvent_
 
-            UINT32 dostepne = 0;
-            while (SUCCEEDED(capture->GetNextPacketSize(&dostepne)) && dostepne > 0) {
-                BYTE* dane = nullptr;
-                UINT32 ramek = 0;
-                DWORD flagi = 0;
-                if (FAILED(capture->GetBuffer(&dane, &ramek, &flagi, nullptr, nullptr))) break;
+            UINT32 available = 0;
+            while (SUCCEEDED(capture->GetNextPacketSize(&available)) && available > 0) {
+                BYTE* data = nullptr;
+                UINT32 frameCount = 0;
+                DWORD flags = 0;
+                if (FAILED(capture->GetBuffer(&data, &frameCount, &flags, nullptr, nullptr))) break;
 
-                const size_t bajtow = (size_t)ramek * BLOK;
-                auto* kopia = new std::vector<uint8_t>(bajtow);
+                const size_t byteCount = (size_t)frameCount * BLOCK_ALIGN;
+                auto* copy = new std::vector<uint8_t>(byteCount);
                 // Bufor WASAPI przestaje byc nasz po ReleaseBuffer, wiec kopiujemy.
                 // Przy fladze SILENT sterownik nie wypelnia bufora — sami dajemy zera.
-                if (!(flagi & AUDCLNT_BUFFERFLAGS_SILENT) && dane) {
-                    memcpy(kopia->data(), dane, bajtow);
+                if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+                    memcpy(copy->data(), data, byteCount);
                 }
-                capture->ReleaseBuffer(ramek);
+                capture->ReleaseBuffer(frameCount);
 
                 tsfn_.BlockingCall(
-                    kopia, [](Napi::Env env, Napi::Function cb, std::vector<uint8_t>* buf) {
+                    copy, [](Napi::Env env, Napi::Function cb, std::vector<uint8_t>* buf) {
                         // Buffer::Copy, a NIE Buffer::New ze wskaznikiem zewnetrznym.
                         // Electron ma wlaczona klatke pamieci V8 i odrzuca zewnetrzne
                         // bufory ("External buffers are not allowed") — callback rzucal
@@ -239,7 +239,7 @@ void AudioCapture::Petla() {
     if (capture) capture->Release();
     if (client) client->Release();
     if (audioEvent) CloseHandle(audioEvent);
-    if (comNasze) CoUninitialize();
+    if (ownsCom) CoUninitialize();
 
     tsfn_.Release();
 }
@@ -267,7 +267,7 @@ Napi::Value AudioCapture::Start(const Napi::CallbackInfo& info) {
 
     tsfn_ = Napi::ThreadSafeFunction::New(env, info[0].As<Napi::Function>(),
                                           "ts3-audio-capture", 0, 1);
-    worker_ = std::thread(&AudioCapture::Petla, this);
+    worker_ = std::thread(&AudioCapture::CaptureLoop, this);
 
     HRESULT hr;
     {
@@ -277,19 +277,19 @@ Napi::Value AudioCapture::Start(const Napi::CallbackInfo& info) {
     }
 
     if (FAILED(hr)) {
-        Zatrzymaj();
-        char komunikat[192];
-        snprintf(komunikat, sizeof(komunikat),
+        StopWorker();
+        char message[192];
+        snprintf(message, sizeof(message),
                  "Nie udalo sie otworzyc dzwieku procesu %lu (HRESULT 0x%08lX)",
                  (unsigned long)pid_, (unsigned long)hr);
-        Napi::Error::New(env, komunikat).ThrowAsJavaScriptException();
+        Napi::Error::New(env, message).ThrowAsJavaScriptException();
         return env.Undefined();
     }
 
     return env.Undefined();
 }
 
-void AudioCapture::Zatrzymaj() {
+void AudioCapture::StopWorker() {
     if (stopEvent_) SetEvent(stopEvent_);
     if (worker_.joinable()) worker_.join();
     if (stopEvent_) {
@@ -299,7 +299,7 @@ void AudioCapture::Zatrzymaj() {
 }
 
 Napi::Value AudioCapture::Stop(const Napi::CallbackInfo& info) {
-    Zatrzymaj();
+    StopWorker();
     return info.Env().Undefined();
 }
 
@@ -314,9 +314,9 @@ Napi::Object AudioCapture::Init(Napi::Env env, Napi::Object exports) {
     // Format podajemy z C++, zeby byl jedno zrodlo prawdy. Renderer buduje
     // z tego AudioBuffer i nie moze zgadywac czestotliwosci.
     Napi::Object format = Napi::Object::New(env);
-    format.Set("sampleRate", Napi::Number::New(env, CZESTOTLIWOSC));
-    format.Set("channels", Napi::Number::New(env, KANALY));
-    format.Set("bytesPerSample", Napi::Number::New(env, BITY / 8));
+    format.Set("sampleRate", Napi::Number::New(env, SAMPLE_RATE));
+    format.Set("channels", Napi::Number::New(env, CHANNELS));
+    format.Set("bytesPerSample", Napi::Number::New(env, BITS / 8));
     format.Set("encoding", Napi::String::New(env, "float32"));
     exports.Set("FORMAT", format);
 
@@ -342,11 +342,11 @@ static Napi::Value PidForWindow(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
 
-    HWND okno = (HWND)(uintptr_t)info[0].As<Napi::Number>().Int64Value();
-    if (!IsWindow(okno)) return Napi::Number::New(env, 0);
+    HWND windowHandle = (HWND)(uintptr_t)info[0].As<Napi::Number>().Int64Value();
+    if (!IsWindow(windowHandle)) return Napi::Number::New(env, 0);
 
     DWORD pid = 0;
-    GetWindowThreadProcessId(okno, &pid);
+    GetWindowThreadProcessId(windowHandle, &pid);
     return Napi::Number::New(env, pid);
 }
 

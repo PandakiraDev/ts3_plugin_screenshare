@@ -13,34 +13,34 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const electronPakiet = path.join(__dirname, '..', '..', 'companion-app', 'node_modules', 'electron')
+const electronPackage = path.join(__dirname, '..', '..', 'companion-app', 'node_modules', 'electron')
 
 let electronExe
 try {
-  electronExe = require(electronPakiet)
+  electronExe = require(electronPackage)
 } catch {
   console.error('Nie znalazlem Electrona. Uruchom najpierw: cd ../companion-app && npm install')
   process.exit(1)
 }
 
-const wynikPlik = path.join(os.tmpdir(), `audio-check-${process.pid}.json`)
+const resultFile = path.join(os.tmpdir(), `audio-check-${process.pid}.json`)
 
 spawnSync(electronExe, [path.join(__dirname, 'electron-main.js')], {
-  env: { ...process.env, AUDIO_CHECK_WYNIK: wynikPlik },
+  env: { ...process.env, AUDIO_CHECK_RESULT: resultFile },
   stdio: 'ignore'
 })
 
-if (!fs.existsSync(wynikPlik)) {
+if (!fs.existsSync(resultFile)) {
   console.error('Electron zakonczyl sie bez wyniku — modul prawdopodobnie wywalil proces.')
   process.exit(1)
 }
 
-const wynik = JSON.parse(fs.readFileSync(wynikPlik, 'utf8'))
-fs.unlinkSync(wynikPlik)
+const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'))
+fs.unlinkSync(resultFile)
 
-if (!wynik.ok) {
-  console.error(`NIE DZIALA w Electronie: ${wynik.blad ?? `tylko ${wynik.ramek} ramek`}`)
+if (!result.ok) {
+  console.error(`NIE DZIALA w Electronie: ${result.error ?? `tylko ${result.frames} ramek`}`)
   process.exit(1)
 }
 
-console.log(`OK — Electron ${wynik.electron}, ${wynik.ramek} ramek w 1 s`)
+console.log(`OK — Electron ${result.electron}, ${result.frames} ramek w 1 s`)

@@ -41,7 +41,7 @@ public:
 int wmain(int argc, wchar_t** argv) {
     if (argc < 2) { wprintf(L"PROBE uzycie: probe.exe <PID> [sekundy]\n"); return 2; }
     DWORD pid = _wtoi(argv[1]);
-    int sekundy = (argc > 2) ? _wtoi(argv[2]) : 5;
+    int seconds = (argc > 2) ? _wtoi(argv[2]) : 5;
 
     CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
@@ -93,37 +93,37 @@ int wmain(int argc, wchar_t** argv) {
     if (FAILED(hr)) { wprintf(L"PROBE GetService -> 0x%08X\n", hr); return 1; }
 
     handler->client->Start();
-    wprintf(L"PROBE nasluchuje %d s...\n", sekundy);
+    wprintf(L"PROBE nasluchuje %d s...\n", seconds);
 
-    UINT64 ramek = 0, niezerowych = 0;
-    double szczyt = 0.0;
-    ULONGLONG koniec = GetTickCount64() + (ULONGLONG)sekundy * 1000;
+    UINT64 frames = 0, nonZero = 0;
+    double peak = 0.0;
+    ULONGLONG end = GetTickCount64() + (ULONGLONG)seconds * 1000;
 
-    while (GetTickCount64() < koniec) {
+    while (GetTickCount64() < end) {
         if (WaitForSingleObject(ev, 500) != WAIT_OBJECT_0) continue;
-        UINT32 dostepne = 0;
-        while (SUCCEEDED(capture->GetNextPacketSize(&dostepne)) && dostepne > 0) {
-            BYTE* dane = nullptr; UINT32 ile = 0; DWORD flagi = 0;
-            if (FAILED(capture->GetBuffer(&dane, &ile, &flagi, nullptr, nullptr))) break;
-            if (!(flagi & AUDCLNT_BUFFERFLAGS_SILENT) && dane) {
-                float* probki = (float*)dane;
-                for (UINT32 i = 0; i < ile * fmt.nChannels; i++) {
-                    double v = fabs(probki[i]);
-                    if (v > 0.0001) niezerowych++;
-                    if (v > szczyt) szczyt = v;
+        UINT32 available = 0;
+        while (SUCCEEDED(capture->GetNextPacketSize(&available)) && available > 0) {
+            BYTE* data = nullptr; UINT32 count = 0; DWORD flags = 0;
+            if (FAILED(capture->GetBuffer(&data, &count, &flags, nullptr, nullptr))) break;
+            if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data) {
+                float* samples = (float*)data;
+                for (UINT32 i = 0; i < count * fmt.nChannels; i++) {
+                    double v = fabs(samples[i]);
+                    if (v > 0.0001) nonZero++;
+                    if (v > peak) peak = v;
                 }
             }
-            ramek += ile;
-            capture->ReleaseBuffer(ile);
+            frames += count;
+            capture->ReleaseBuffer(count);
         }
     }
 
     handler->client->Stop();
-    wprintf(L"PROBE ramek=%llu niezerowych_probek=%llu szczyt=%.4f\n", ramek, niezerowych, szczyt);
+    wprintf(L"PROBE ramek=%llu niezerowych_probek=%llu szczyt=%.4f\n", frames, nonZero, peak);
     wprintf(L"PROBE WYNIK: %s\n",
-            (ramek > 0 && niezerowych > 0) ? L"DZWIEK PRZECHWYCONY"
-            : (ramek > 0 ? L"strumien dziala, ale cisza (czy ta aplikacja gra?)"
-                         : L"brak danych"));
+            (frames > 0 && nonZero > 0) ? L"DZWIEK PRZECHWYCONY"
+            : (frames > 0 ? L"strumien dziala, ale cisza (czy ta aplikacja gra?)"
+                          : L"brak danych"));
 
     capture->Release();
     handler->client->Release();

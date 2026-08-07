@@ -4,10 +4,10 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { app } = require('electron')
 
-const wynikPlik = process.env.AUDIO_CHECK_WYNIK
+const resultFile = process.env.AUDIO_CHECK_RESULT
 
-function koniec(wynik) {
-  fs.writeFileSync(wynikPlik, JSON.stringify(wynik), 'utf8')
+function finish(result) {
+  fs.writeFileSync(resultFile, JSON.stringify(result), 'utf8')
   app.quit()
 }
 
@@ -15,22 +15,22 @@ app.whenReady().then(() => {
   try {
     const { AudioCapture, FORMAT } = require(path.join(__dirname, '..', 'index.js'))
     const capture = new AudioCapture(process.pid)
-    let bajtow = 0
+    let bytes = 0
 
     capture.start((chunk) => {
-      bajtow += chunk.length
+      bytes += chunk.length
     })
 
     setTimeout(() => {
       capture.stop()
-      const ramek = bajtow / (FORMAT.channels * FORMAT.bytesPerSample)
-      koniec({
-        ok: ramek > FORMAT.sampleRate * 0.5,
-        ramek,
+      const frames = bytes / (FORMAT.channels * FORMAT.bytesPerSample)
+      finish({
+        ok: frames > FORMAT.sampleRate * 0.5,
+        frames,
         electron: process.versions.electron
       })
     }, 1000)
-  } catch (blad) {
-    koniec({ ok: false, blad: blad.message })
+  } catch (err) {
+    finish({ ok: false, error: err.message })
   }
 })
