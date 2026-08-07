@@ -39,17 +39,53 @@
 !macroend
 
 !macro customInit
-  !insertmacro SprawdzTS3 "init"
+  ; Autoaktualizacja leci z /S i NIE MA PRAWA pokazac zadnego dialogu — nikt by
+  ; go nie kliknal, a instalator wisialby w nieskonczonosc. Przy cichym
+  ; przebiegu zablokowany DLL nie jest bledem, tylko normalnym stanem:
+  ; TeamSpeak dziala, bo to on uruchomil aplikacje. Obsluga jest w customInstall.
+  ;
+  ; ETYKIETA, nie skok wzgledny: !insertmacro rozwija sie do wielu instrukcji,
+  ; wiec "IfSilent +2" wladowaloby sie w srodek makra.
+  IfSilent pomin_sprawdzenie_ts3 0
+    !insertmacro SprawdzTS3 "init"
+  pomin_sprawdzenie_ts3:
 !macroend
 
 !macro customInstall
   SetOutPath "${TS3_PLUGINS}"
+
+  ; $0 jest rejestrem WSPOLDZIELONYM - electron-builder sam z niego korzysta.
+  Push $0
+
+  ; Zostalosc po poprzedniej cichej podmianie. Windows zwalnia ten plik dopiero
+  ; po restarcie TeamSpeaka, wiec kasujemy "jak sie uda" i nie sprawdzamy wyniku.
+  Delete "${TS3_DLL}.old"
+
+  ; Zaladowanego DLL nie da sie NADPISAC, ale MOZNA go PRZEMIANOWAC — sprawdzone,
+  ; patrz e2e/dll-swap.mjs. Rozgalezienie idzie po tym, co FAKTYCZNIE blokuje
+  ; plik, a nie po trybie instalatora: przy zamknietym TS3 (instalacja reczna)
+  ; leci zwykle nadpisanie i wtyczka dziala od razu, a przy zablokowanym pliku
+  ; (autoaktualizacja) stary plik idzie na bok i TeamSpeak przelaczy sie na nowy
+  ; przy nastepnym starcie.
+  IfFileExists "${TS3_DLL}" 0 wpisz_dll
+    ClearErrors
+    FileOpen $0 "${TS3_DLL}" a
+    IfErrors odsun_stary 0
+      FileClose $0
+      Goto wpisz_dll
+    odsun_stary:
+      Rename "${TS3_DLL}" "${TS3_DLL}.old"
+  wpisz_dll:
+
   File "${BUILD_RESOURCES_DIR}\ts3_screenshare.dll"
 
-  ; Pelna sciezka do .exe — po niej plugin znajduje aplikacje.
+  ; Pelna sciezka do .exe — po niej plugin znajduje aplikacje. Tego pliku nikt
+  ; nie trzyma otwartego, wiec zwykly zapis wystarczy.
   FileOpen $0 "${TS3_PATHFILE}" w
   FileWrite $0 "$INSTDIR\${PRODUCT_FILENAME}.exe"
   FileClose $0
+
+  Pop $0
 
   DetailPrint "Plugin TS3: ${TS3_PLUGINS}"
   DetailPrint "Aplikacja: $INSTDIR"
@@ -61,5 +97,6 @@
 
 !macro customUnInstall
   Delete "${TS3_DLL}"
+  Delete "${TS3_DLL}.old"
   Delete "${TS3_PATHFILE}"
 !macroend
