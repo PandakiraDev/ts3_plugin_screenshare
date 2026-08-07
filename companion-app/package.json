@@ -20,6 +20,7 @@
     "e2e:obciazenie": "node e2e/obciazenie.mjs",
     "e2e:audio": "npm run sync:native && npm run build && node e2e/app-audio.mjs",
     "e2e:dll-swap": "node e2e/dll-swap.mjs",
+    "e2e:silent-install": "node e2e/silent-install.mjs",
     "lobby:2": "electron . --user-data-dir=.tmp/profil-2 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
     "sync:native": "node -e \"require('node:fs').rmSync('node_modules/ts3-screenshare-audio',{recursive:true,force:true})\" && npm install --no-audit --no-fund",
     "package": "npm run sync:native && npm run build && electron-builder --win --dir",
