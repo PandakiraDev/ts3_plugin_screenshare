@@ -2,6 +2,7 @@ import { app, ipcMain, type BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import { IPC_GET_UPDATE_STATE, IPC_GET_VERSION, IPC_UPDATE_STATE } from '@shared/ipc'
 import { NO_UPDATE, reduceUpdate, type UpdateEvent, type UpdateState } from '@shared/update'
+import { createUpdateLogger } from './updateLogger'
 
 /**
  * Jedyne miejsce w projekcie, które dotyka `electron-updater`. Granica jest tu
@@ -27,6 +28,11 @@ export function registerUpdates(getWindow: () => BrowserWindow | null): void {
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
+
+  // Domyślnie electron-updater loguje do `console` — w spakowanej aplikacji
+  // Windows bez konsoli to log donikąd. Plik w userData przechwytuje też
+  // wewnętrzne logi biblioteki, nie tylko nasz handler 'error' niżej.
+  autoUpdater.logger = createUpdateLogger(app.getPath('userData'))
 
   autoUpdater.on('checking-for-update', () => apply({ type: 'checking' }))
   autoUpdater.on('update-not-available', () => apply({ type: 'not-available' }))
