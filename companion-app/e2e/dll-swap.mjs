@@ -14,12 +14,33 @@
 // tymczasowym, nigdy na pliku zainstalowanym w %APPDATA%.
 //
 // Uruchomienie: npm run e2e:dll-swap
-import { copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { lockDll } from './dll-lock.mjs'
 
 const SOURCE_DLL = join(import.meta.dirname, '..', 'build', 'ts3_screenshare.dll')
+
+// DLL wtyczki jest ignorowany przez git (patrz .gitignore) i nie ma go w
+// swiezym klonie repo. Bez tej sprawdzki copyFileSync rzucalby golym ENOENT
+// ze stosem, nie wyjasniajac skad wziac plik.
+if (!existsSync(SOURCE_DLL)) {
+  console.error(
+    `Brak ${SOURCE_DLL}.\n` +
+      'Ten plik nie jest w repo — trzeba go zbudowac i skopiowac recznie:\n' +
+      '  1) plugin/build.bat\n' +
+      '  2) skopiuj plugin/build/ts3_screenshare.dll do companion-app/build/ts3_screenshare.dll'
+  )
+  process.exit(1)
+}
 
 const workDir = mkdtempSync(join(tmpdir(), 'dll-swap-'))
 const dllPath = join(workDir, 'ts3_screenshare.dll')

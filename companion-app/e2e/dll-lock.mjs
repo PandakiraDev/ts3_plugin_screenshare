@@ -15,8 +15,16 @@ const LOAD_TIMEOUT_MS = 30_000
 /**
  * Laduje DLL w osobnym procesie i trzyma go, dopoki nie zawolasz release().
  *
- * Rzuca, gdy LoadLibraryW odmowi — sprawdzian bez PRAWDZIWEJ blokady niczego
- * nie dowodzi, wiec lepiej przerwac niz zaraportowac falszywy sukces.
+ * Rzuca, gdy:
+ * - nie da sie uruchomic procesu pomocniczego PowerShell (`error` na `spawn`);
+ * - proces pomocniczy zakonczy sie (padnie) zanim wypisze `LOADED` — np.
+ *   `Add-Type` nie znajdzie kompilatora C# — komunikat bledu niesie zebrany
+ *   stderr, zeby prawdziwa przyczyna nie zniknela w nieczytanym strumieniu;
+ * - `LoadLibraryW` jawnie odmowi (`LOAD-FAILED`);
+ * - minie `LOAD_TIMEOUT_MS` bez zadnego z powyzszych.
+ *
+ * Sprawdzian bez PRAWDZIWEJ blokady niczego nie dowodzi, wiec we wszystkich
+ * tych przypadkach lepiej przerwac niz zaraportowac falszywy sukces.
  */
 export async function lockDll(dllPath) {
   // Apostrofy w sciezce podwajamy — PowerShell tak escapuje w napisach
@@ -30,6 +38,14 @@ while ($true) { Start-Sleep -Seconds 3600 }
 `
 
   const holder = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script])
+
+  // Zbieramy stderr od poczatku, nie tylko po awarii — inaczej tresc
+  // wypisana PRZED wyjsciem procesu bylaby juz utracona w momencie, gdy
+  // dopiero zaczynamy jej sluchac.
+  let stderr = ''
+  holder.stderr.on('data', (chunk) => {
+    stderr += String(chunk)
+  })
 
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -45,14 +61,30 @@ while ($true) { Start-Sleep -Seconds 3600 }
       reject(new Error(`nie udalo sie uruchomic procesu pomocniczego PowerShell: ${err.message}`))
     })
 
+    // Proces moze wystartowac, a mimo to paresc PRZED wypisaniem LOADED/
+    // LOAD-FAILED (np. Add-Type nie znajdzie kompilatora C#). Bez tego
+    // nasluchu skrypt czekalby pelen LOAD_TIMEOUT_MS i zaraportowal mylacy
+    // komunikat "nie zaladowal DLL", milczac o prawdziwym powodzie.
+    holder.on('exit', (code) => {
+      clearTimeout(timer)
+      reject(
+        new Error(
+          `proces pomocniczy PowerShell zakonczyl sie przedwczesnie (kod ${code}), ` +
+            `zanim zaladowal DLL. stderr: ${stderr.trim() || '(puste)'}`
+        )
+      )
+    })
+
     holder.stdout.on('data', (chunk) => {
       const text = String(chunk)
       if (text.includes('LOADED')) {
         clearTimeout(timer)
+        holder.removeAllListeners('exit')
         resolve()
       }
       if (text.includes('LOAD-FAILED')) {
         clearTimeout(timer)
+        holder.removeAllListeners('exit')
         holder.kill()
         reject(new Error('LoadLibraryW odmowil zaladowania DLL — sprawdzian bylby bezwartosciowy'))
       }
