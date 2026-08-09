@@ -31,12 +31,15 @@ wchodzi razem z nią, ale dopiero przy następnym uruchomieniu TeamSpeaka —
 załadowanego DLL nie da się podmienić w locie.
 
 Nowe wydanie: podbij `version` w `companion-app/package.json`, potem
-`npm run release` w `companion-app`. Powstaje **szkic** wydania na GitHubie;
+`npm run release` w `companion-app`. DLL wtyczki (`ts3_screenshare.dll`) nie
+jest w repo — przed wydaniem trzeba go zbudować (`plugin/build.bat`) i
+skopiować do `companion-app/build/`, inaczej `npm run release` przerwie z
+komunikatem o brakującym pliku. Powstaje **szkic** wydania na GitHubie;
 sprawdź, że są w nim `.exe` **oraz `latest.yml`**, i opublikuj ręcznie. Do czasu
 publikacji nikt aktualizacji nie dostanie.
 
-Wersję 0.1.0 trzeba raz zainstalować ręcznie — stara aplikacja nie ma skąd
-wiedzieć o nowej.
+Przejście z wersji 0.1.0 wymaga jednej ręcznej instalacji 0.2.0 — starsza
+aplikacja nie ma skąd wiedzieć o nowej.
 
 Czego świadomie nie ma:
 - **TURN** — bez niego połączenie nie wstanie u osób za symetrycznym NAT-em.

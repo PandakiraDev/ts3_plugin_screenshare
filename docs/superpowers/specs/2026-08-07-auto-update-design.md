@@ -15,8 +15,9 @@ zamknięciu okna. Następne kliknięcie „Udostępnij ekran" w TS3 uruchamia ju
 wersję.
 
 **Ograniczenie nie do obejścia:** autoaktualizacja działa dopiero *od* pierwszego
-wydania, które ją zawiera. Wersję 0.1.0, którą wszyscy mają teraz, trzeba raz
-zainstalować ręcznie — stara aplikacja nie ma jak dowiedzieć się o nowej.
+wydania, które ją zawiera. Przejście z wersji 0.1.0, którą wszyscy mają teraz,
+na 0.2.0 trzeba wykonać raz ręcznie — stara aplikacja nie ma jak dowiedzieć się
+o nowej.
 
 ## Warunki brzegowe wynikające z tego projektu
 
@@ -58,7 +59,20 @@ instalacji-po-wyjściu w ogóle nie ma.
 Odrzucone: blokowanie udostępniania do czasu aktualizacji. Wywala użytkownika
 z kanału na czas pobierania — gorsze niż dzisiejszy komunikat „wersja za stara".
 
-Skutek uboczny wybranego wariantu: sesja udostępniania nigdy nie jest przerywana.
+Skutek uboczny wybranego wariantu: sesja udostępniania **w toku** nie jest
+przerywana — instalacja czeka aż użytkownik sam zamknie okno.
+
+**Znane ograniczenie, niesprawdzone empirycznie:** instalator odpalony po
+zamknięciu okna przechodzi przez `allowOnlyOneInstallerInstance.nsh`, który
+przy fladze `--updated` po sekundzie ubija znaleziony proces aplikacji bez
+dialogu. Aplikacja nie ma `requestSingleInstanceLock()`, a wtyczka odpala nową
+instancję przy każdym kliknięciu w menu — teoretycznie użytkownik mógłby
+zamknąć lobby, a chwilę później kliknąć „Udostępnij ekran" ponownie i zobaczyć
+nowe okno znikające bez wyjaśnienia, bo cicha instalacja właśnie ubiła proces.
+Zastrzeżenie: ta gałąź NSIS jest poprzedzona sprawdzeniem, czy rodzicem
+instalatora nie jest sama aplikacja — jeśli proces rodzica jeszcze żyje, może
+się w ogóle nie wykonać. **Tego nie zweryfikowano empirycznie**, więc scenariusz
+zostaje jako znane ograniczenie, nie jako potwierdzony błąd.
 
 ### Podmiana wtyczki przez przemianowanie, nie przez nadpisanie
 
@@ -105,8 +119,10 @@ Odrzucone: `IfSilent` jako warunek podmiany. Wtedy o wyborze decydowałby tryb
 uruchomienia instalatora, a nie stan pliku — czyli dokładnie to, przed czym
 ostrzega komentarz przy `SprawdzTS3`.
 
-`IfSilent` zostaje użyte w **jednym** miejscu: do wyciszenia nagu „zamknij
-TeamSpeaka" w `customInit`. Autoaktualizacja nie ma prawa pokazać żadnego dialogu.
+`IfSilent` zostaje użyte w **dwóch** miejscach: do wyciszenia nagu „zamknij
+TeamSpeaka" w `customInit` i w `customUnInit` (patrz sekcja „Instalator" niżej —
+bez drugiego miejsca cała reszta jest bezużyteczna, patrz „Dlaczego punkt 4 jest
+konieczny"). Autoaktualizacja nie ma prawa pokazać żadnego dialogu.
 
 ### Cisza przy niepowodzeniu
 

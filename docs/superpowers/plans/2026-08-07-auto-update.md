@@ -1328,3 +1328,11 @@ punkty istnieją, żeby nikt nie odtworzył błędu z planu.
 5. **Zadanie 7: `--publish never` nie wykrywa literówki w `owner`/`repo`.**
    Tylko `provider` jest ograniczony schematem (`scheme.json`). Krok
    weryfikacyjny w planie obiecywał więcej, niż daje.
+6. **Zadanie 4: sekcja Interfaces zakładała, że `companion-app/build/ts3_screenshare.dll`
+   „istnieje w repo" — nieprawda.** Plik jest w `.gitignore`
+   (`companion-app/build/*.dll`) i nieśledzony przez gita; `git ls-files` tego
+   katalogu pokazuje wyłącznie `installer.nsh`. Błędne założenie przeszło
+   nietknięte przez Zadania 4, 5 i 7 — żadne z nich nie sprawdza, czy DLL w
+   ogóle tam jest, zanim go użyje albo spakuje. Naprawione osobno w
+   `scripts/publish.mjs` (strażnik świeżości DLL przed wydaniem) i w
+   `e2e/dll-swap.mjs` (czytelny komunikat zamiast gołego `ENOENT`).

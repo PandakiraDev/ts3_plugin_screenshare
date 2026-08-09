@@ -240,7 +240,8 @@ usprawnienia. Świadomie odrzucone przez właściciela projektu: kodowanie na GP
 
 `electron-updater` + GitHub Releases. Sprawdzanie przy starcie, pobieranie w
 tle, instalacja po zamknięciu okna (`autoInstallOnAppQuit`). Sesja
-udostępniania nigdy nie jest przerywana. Spec:
+udostępniania **w toku** nie jest przerywana (patrz zastrzeżenie o instalacji
+tuż po zamknięciu okna niżej, w „Czego nie zrobiono"). Spec:
 `docs/superpowers/specs/2026-08-07-auto-update-design.md`.
 
 **Rzecz, której nie było w planie, a okazała się sednem zadania:** podczas
@@ -285,6 +286,27 @@ poprawkę już ma.
   Nie sprawdzone: **cały instalator** przy zablokowanym DLL
   (`npm run e2e:silent-install`) i przebieg 0.2.0 → 0.3.0 z prawdziwym
   GitHubem — oba czekają na uruchomienie przez właściciela projektu.
+- **Nowa dziura po wyciszeniu nagu w cichej deinstalacji.** Zanim wyciszono
+  `customUnInit` (poprzedni fix z tej samej serii), `Uninstall.exe /S` przy
+  działającym TeamSpeaku pokazywał `MessageBox` i się zatrzymywał — teraz nie
+  pokazuje niczego i leci dalej: kasuje `ts3-screenshare.path` (uda się) i
+  **nie kasuje zablokowanego DLL** (nie uda się, TS3 go trzyma). Zostaje
+  osierocona wtyczka, którą TS3 dalej ładuje, mimo że aplikacji już nie ma.
+  Świadoma wymiana jednego zachowania na drugie, nie przeoczenie. Ryzyko jest
+  małe: Windows Settings woła `UninstallString` **bez** `/S`, więc zwykła
+  deinstalacja z Panelu sterowania dalej pokazuje nag — `/S` z ręki to
+  scenariusz skryptowy.
+- **Instalacja tuż po zamknięciu okna a nowa sesja w tym samym momencie.**
+  Instalator odpalony po wyjściu z aplikacji przechodzi przez
+  `allowOnlyOneInstallerInstance.nsh`, który przy fladze `--updated` po
+  sekundzie ubija znaleziony proces aplikacji bez dialogu. Aplikacja nie ma
+  `requestSingleInstanceLock()`, a wtyczka odpala nową instancję przy każdym
+  kliknięciu w menu — teoretyczny scenariusz: zamknięcie lobby → cicha
+  instalacja rusza → w ciągu paru sekund klik „Udostępnij ekran" → nowe okno
+  znika bez wyjaśnienia. Zastrzeżenie: ta gałąź NSIS jest poprzedzona
+  sprawdzeniem, czy rodzicem instalatora nie jest sama aplikacja — jeśli
+  proces rodzica jeszcze żyje, może się w ogóle nie wykonać. **Tego nie
+  zweryfikowano empirycznie.**
 
 ### 3.2 Widoczna informacja, że łącze nie wyrabia
 
