@@ -65,7 +65,14 @@ while ($true) { Start-Sleep -Seconds 3600 }
     // LOAD-FAILED (np. Add-Type nie znajdzie kompilatora C#). Bez tego
     // nasluchu skrypt czekalby pelen LOAD_TIMEOUT_MS i zaraportowal mylacy
     // komunikat "nie zaladowal DLL", milczac o prawdziwym powodzie.
-    holder.on('exit', (code) => {
+    //
+    // Uzywamy 'close' zamiast 'exit': zdarzenie 'exit' emituje sie PRZED
+    // zamknieciem strumieni, co powoduje wyścig z nasłuchem stdout. Jesli
+    // stdout nie zdazy wypisac LOADED/LOAD-FAILED do bufora, nasłuch 'exit'
+    // wygruje i przesłania konkretny komunikat ogólnym "proces zakonczyl sie
+    // przedwczesnie". Zdarzenie 'close' emituje sie dopiero PO zamknięciu
+    // wszystkich strumieni, gwarantujac, ze wszystkie dane są dostępne.
+    holder.on('close', (code) => {
       clearTimeout(timer)
       reject(
         new Error(
