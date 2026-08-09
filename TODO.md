@@ -280,12 +280,21 @@ poprawkę już ma.
 - **Wersjonowania wtyczki.** Obie części jadą w jednym instalatorze, więc nie
   mają jak się rozjechać.
 - **Podpisu kodu.** SmartScreen dalej ostrzega przy instalacji (patrz § 4).
-- **Sprawdzenia na prawdziwej aktualizacji między dwoma wydaniami.** Sam
-  mechanizm podmiany zablokowanego DLL jest **potwierdzony empirycznie**:
-  `npm run e2e:dll-swap` przechodzi, 5/5 asercji, na prawdziwym pliku wtyczki.
-  Nie sprawdzone: **cały instalator** przy zablokowanym DLL
-  (`npm run e2e:silent-install`) i przebieg 0.2.0 → 0.3.0 z prawdziwym
-  GitHubem — oba czekają na uruchomienie przez właściciela projektu.
+- **Sprawdzenia na prawdziwej aktualizacji między dwoma wydaniami.** Przebieg
+  0.2.0 → 0.3.0 z prawdziwym GitHubem czeka na pierwsze wydanie. Zamknięte
+  natomiast (2026-08-09, pełny cykl RED→GREEN na maszynie deweloperskiej):
+  - `npm run e2e:dll-swap` — 5/5 asercji na prawdziwym pliku wtyczki;
+  - `npm run e2e:silent-install` na instalatorze **sprzed** poprawki: wisiał
+    pełne 180 s i został ubity, nic nie zapisał (**RED**);
+  - ten sam sprawdzian na instalatorze **po** poprawce: oba przebiegi kod
+    wyjścia 0, `.old` ze starą zawartością, drugi przebieg bez zwalniania
+    blokady też przeszedł (**GREEN**).
+
+  Po drodze potwierdziło się empirycznie ograniczenie opisane wyżej:
+  **zarejestrowany deinstalator 0.1.0 nie ma poprawki**, więc do stanu GREEN
+  trzeba było raz zainstalować 0.2.0 przy zamkniętym TeamSpeaku. To jest ta
+  sama ręczna instalacja, którą i tak muszą przejść wszyscy — instalator sam
+  mówi „zamknij TeamSpeaka", więc nie wymaga niczego ponad zwykłą uwagę.
 - **Nowa dziura po wyciszeniu nagu w cichej deinstalacji.** Zanim wyciszono
   `customUnInit` (poprzedni fix z tej samej serii), `Uninstall.exe /S` przy
   działającym TeamSpeaku pokazywał `MessageBox` i się zatrzymywał — teraz nie
