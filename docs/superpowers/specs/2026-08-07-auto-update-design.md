@@ -198,7 +198,8 @@ sygnalizacji.
 
 ## Instalator — `build/installer.nsh`
 
-Trzy zmiany:
+Cztery zmiany. **Uwaga: pierwotna wersja tego specu wymieniała trzy i była
+błędna** — patrz punkt 4, wykryty dopiero przy przeglądzie zadania 6.
 
 1. **`customInit`** — nag „zamknij TeamSpeaka" tylko gdy nie `IfSilent`.
 2. **`customInstall`** — `Delete "${TS3_DLL}.old"` (sprzątanie po poprzedniej
@@ -217,9 +218,41 @@ wpisz_dll:
 ```
 
 3. **`customUnInstall`** — kasuje też `${TS3_DLL}.old`.
+4. **`customUnInit`** — to samo wyciszenie co w punkcie 1, tylko dla
+   deinstalatora. **Bez tego cała reszta jest bezużyteczna.**
 
 Rejestr `$0` jest współdzielony z electron-builderem, więc obowiązuje `Push`/`Pop`
-jak w istniejącym makrze.
+jak w istniejącym makrze — i musi obejmować **oba** użycia w `customInstall`,
+także zapis pliku ze ścieżką, który dziś jest niezabezpieczony.
+
+### Dlaczego punkt 4 jest konieczny — pułapka, której spec nie przewidział
+
+Wyciszenie samego `customInit` **nie zatrzymuje dialogu**. Przy każdej instalacji
+electron-builder uruchamia deinstalator poprzedniej wersji i **czeka na niego**:
+
+```
+installSection.nsh:52   !insertmacro uninstallOldVersion    (bezwarunkowo)
+installUtil.nsh:224     ExecWait '"$uninstallerFileNameTemp" /S ...'
+uninstaller.nsh:26-27   !insertmacro customUnInit           (w un.onInit)
+```
+
+Stary deinstalator leci pod `/S`, wchodzi w `customUnInit`, tam napotyka
+`SprawdzTS3` z `MessageBox` bez `/SD` — i dialog wyskakuje mimo `/S`, a instalator
+rodzic wisi w `ExecWait` w nieskończoność. Do `customInstall` nigdy nie dochodzi.
+
+Że to znana pułapka, widać po samym electron-builderze: swój własny `MessageBox`
+w sąsiedniej linii (`installUtil.nsh:219`) zabezpiecza przez `/SD IDCANCEL`.
+
+Wariant `/SD IDCANCEL` u nas odrzucony: daje niezerowy kod wyjścia deinstalatora
+i pętlę pięciu ponowień (`installUtil.nsh:215-239`). `IfSilent` jest u nas
+bezpieczne, bo `SetSilent silent` z `uninstaller.nsh:20` siedzi w `!ifdef
+ONE_CLICK`, a mamy `oneClick: false` — ręczna deinstalacja pozostaje niecicha
+i nag dalej się pokazuje.
+
+**Konsekwencja, o której trzeba wiedzieć:** poprawka chroni tylko deinstalatory
+zbudowane po niej. Cicha aktualizacja *z* wersji sprzed poprawki uruchomiłaby
+stary, niezabezpieczony deinstalator. Nas to nie dotyczy — 0.1.0 nie ma
+`electron-updatera`, więc pierwsza autoaktualizacja to dopiero 0.2.0 → 0.3.0.
 
 **Podwójny cichy update bez restartu TS3 jest bezpieczny.** Po pierwszej
 podmianie `ts3_screenshare.dll` to nowy plik, którego nikt nie trzyma — drugi

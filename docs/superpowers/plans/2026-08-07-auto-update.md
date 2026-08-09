@@ -1301,3 +1301,30 @@ Rzeczy, których żaden krok powyżej nie załatwia i które wymagają decyzji w
 1. **Pierwsza publikacja** (`npm run release` + ręczne opublikowanie szkicu na GitHubie). To działanie na zewnątrz — wymaga osobnej zgody.
 2. **Rozesłanie 0.2.0 ręcznie.** Ostatnia ręczna instalacja w historii tego projektu.
 3. **Prawdziwy sprawdzian mechanizmu** przy przejściu 0.2.0 → 0.3.0: czy pasek się pokazuje, czy aplikacja podmienia się po zamknięciu, czy wtyczka wchodzi po restarcie TS3.
+
+---
+
+## Po wykonaniu — w czym plan się mylił
+
+Zapisane po zamknięciu wszystkich zadań. Kod w repo jest źródłem prawdy; te
+punkty istnieją, żeby nikt nie odtworzył błędu z planu.
+
+1. **Zadanie 6 było niekompletne i to był błąd krytyczny.** Plan wymieniał trzy
+   makra do zmiany; potrzebne były cztery. Bez wyciszenia `customUnInit` cicha
+   aktualizacja dalej wieszała się na `MessageBox`, tylko wychodzącym drugą
+   drogą — przez stary deinstalator uruchamiany przez electron-buildera z
+   `ExecWait … /S`. Pełny opis w specu, sekcja „Dlaczego punkt 4 jest
+   konieczny".
+2. **Zadanie 2 logowało ten sam błąd dwa razy.** `electron-updater` przy
+   nieudanym sprawdzeniu robi `emit("error", …)` **i** `throw`
+   (`AppUpdater.js:269-272`), a plan podpinał się do obu. Logowanie zostało
+   tylko w `on('error')`.
+3. **Zadanie 4: `dll-lock.mjs` w planie nie ma nasłuchu `'error'` na `spawn`.**
+   Kod w repo ma. Bez tego niemożność uruchomienia PowerShella dawała
+   nieobsłużony wyjątek i osierocony katalog tymczasowy.
+4. **Zadanie 5: kod wyjścia instalatora był logowany, ale nie sprawdzany.**
+   Instalator, który wystartował i padł, przeszedłby jako sukces. Dodane
+   asercje na obu przebiegach.
+5. **Zadanie 7: `--publish never` nie wykrywa literówki w `owner`/`repo`.**
+   Tylko `provider` jest ograniczony schematem (`scheme.json`). Krok
+   weryfikacyjny w planie obiecywał więcej, niż daje.
