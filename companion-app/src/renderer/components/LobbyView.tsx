@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
+import type { UpdateState } from '@shared/update'
 import type { LaunchOptions } from '../../shared/cli'
 import { useCamera } from '../hooks/useCamera'
 import { useCapture } from '../hooks/useCapture'
@@ -10,9 +11,12 @@ import { PeerPanel } from './PeerPanel'
 import { SettingsPanel } from './SettingsPanel'
 import { StreamTile } from './StreamTile'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
+import { AppVersion, UpdateNotice } from './UpdateNotice'
 
 interface LobbyViewProps {
   options: LaunchOptions
+  version: string
+  update: UpdateState
 }
 
 /**
@@ -21,7 +25,7 @@ interface LobbyViewProps {
  * zostało czyste. Kamera jest niezależna od ekranu — można mieć jedno, drugie
  * albo oba naraz, każde jako osobny kafelek.
  */
-export function LobbyView({ options }: LobbyViewProps): JSX.Element {
+export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false)
   // Jedyna droga do ustawień kamery podczas trwającego udostępniania ekranu —
   // SourcePicker (a z nim SettingsPanel) jest wtedy niedostępny, bo przycisk
@@ -184,6 +188,7 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
     <div className="app">
       <header className="app__titlebar">
         <h1 className="app__title">TS3 Screen Share</h1>
+        <AppVersion version={version} />
         <span className="app__stage-tag">
           {lobby.state.connection === 'connecting' && 'Łączenie z kanałem…'}
           {lobby.state.connection === 'error' && 'Brak połączenia'}
@@ -238,6 +243,8 @@ export function LobbyView({ options }: LobbyViewProps): JSX.Element {
           )}
         </div>
       </header>
+
+      <UpdateNotice update={update} />
 
       {cameraErrorText && (
         <div className="sharebar">

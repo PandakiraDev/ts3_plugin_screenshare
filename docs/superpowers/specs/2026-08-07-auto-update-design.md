@@ -15,8 +15,9 @@ zamknięciu okna. Następne kliknięcie „Udostępnij ekran" w TS3 uruchamia ju
 wersję.
 
 **Ograniczenie nie do obejścia:** autoaktualizacja działa dopiero *od* pierwszego
-wydania, które ją zawiera. Wersję 0.1.0, którą wszyscy mają teraz, trzeba raz
-zainstalować ręcznie — stara aplikacja nie ma jak dowiedzieć się o nowej.
+wydania, które ją zawiera. Przejście z wersji 0.1.0, którą wszyscy mają teraz,
+na 0.2.0 trzeba wykonać raz ręcznie — stara aplikacja nie ma jak dowiedzieć się
+o nowej.
 
 ## Warunki brzegowe wynikające z tego projektu
 
@@ -58,7 +59,20 @@ instalacji-po-wyjściu w ogóle nie ma.
 Odrzucone: blokowanie udostępniania do czasu aktualizacji. Wywala użytkownika
 z kanału na czas pobierania — gorsze niż dzisiejszy komunikat „wersja za stara".
 
-Skutek uboczny wybranego wariantu: sesja udostępniania nigdy nie jest przerywana.
+Skutek uboczny wybranego wariantu: sesja udostępniania **w toku** nie jest
+przerywana — instalacja czeka aż użytkownik sam zamknie okno.
+
+**Znane ograniczenie, niesprawdzone empirycznie:** instalator odpalony po
+zamknięciu okna przechodzi przez `allowOnlyOneInstallerInstance.nsh`, który
+przy fladze `--updated` po sekundzie ubija znaleziony proces aplikacji bez
+dialogu. Aplikacja nie ma `requestSingleInstanceLock()`, a wtyczka odpala nową
+instancję przy każdym kliknięciu w menu — teoretycznie użytkownik mógłby
+zamknąć lobby, a chwilę później kliknąć „Udostępnij ekran" ponownie i zobaczyć
+nowe okno znikające bez wyjaśnienia, bo cicha instalacja właśnie ubiła proces.
+Zastrzeżenie: ta gałąź NSIS jest poprzedzona sprawdzeniem, czy rodzicem
+instalatora nie jest sama aplikacja — jeśli proces rodzica jeszcze żyje, może
+się w ogóle nie wykonać. **Tego nie zweryfikowano empirycznie**, więc scenariusz
+zostaje jako znane ograniczenie, nie jako potwierdzony błąd.
 
 ### Podmiana wtyczki przez przemianowanie, nie przez nadpisanie
 
@@ -105,8 +119,10 @@ Odrzucone: `IfSilent` jako warunek podmiany. Wtedy o wyborze decydowałby tryb
 uruchomienia instalatora, a nie stan pliku — czyli dokładnie to, przed czym
 ostrzega komentarz przy `SprawdzTS3`.
 
-`IfSilent` zostaje użyte w **jednym** miejscu: do wyciszenia nagu „zamknij
-TeamSpeaka" w `customInit`. Autoaktualizacja nie ma prawa pokazać żadnego dialogu.
+`IfSilent` zostaje użyte w **dwóch** miejscach: do wyciszenia nagu „zamknij
+TeamSpeaka" w `customInit` i w `customUnInit` (patrz sekcja „Instalator" niżej —
+bez drugiego miejsca cała reszta jest bezużyteczna, patrz „Dlaczego punkt 4 jest
+konieczny"). Autoaktualizacja nie ma prawa pokazać żadnego dialogu.
 
 ### Cisza przy niepowodzeniu
 
@@ -198,7 +214,8 @@ sygnalizacji.
 
 ## Instalator — `build/installer.nsh`
 
-Trzy zmiany:
+Cztery zmiany. **Uwaga: pierwotna wersja tego specu wymieniała trzy i była
+błędna** — patrz punkt 4, wykryty dopiero przy przeglądzie zadania 6.
 
 1. **`customInit`** — nag „zamknij TeamSpeaka" tylko gdy nie `IfSilent`.
 2. **`customInstall`** — `Delete "${TS3_DLL}.old"` (sprzątanie po poprzedniej
@@ -217,9 +234,41 @@ wpisz_dll:
 ```
 
 3. **`customUnInstall`** — kasuje też `${TS3_DLL}.old`.
+4. **`customUnInit`** — to samo wyciszenie co w punkcie 1, tylko dla
+   deinstalatora. **Bez tego cała reszta jest bezużyteczna.**
 
 Rejestr `$0` jest współdzielony z electron-builderem, więc obowiązuje `Push`/`Pop`
-jak w istniejącym makrze.
+jak w istniejącym makrze — i musi obejmować **oba** użycia w `customInstall`,
+także zapis pliku ze ścieżką, który dziś jest niezabezpieczony.
+
+### Dlaczego punkt 4 jest konieczny — pułapka, której spec nie przewidział
+
+Wyciszenie samego `customInit` **nie zatrzymuje dialogu**. Przy każdej instalacji
+electron-builder uruchamia deinstalator poprzedniej wersji i **czeka na niego**:
+
+```
+installSection.nsh:52   !insertmacro uninstallOldVersion    (bezwarunkowo)
+installUtil.nsh:224     ExecWait '"$uninstallerFileNameTemp" /S ...'
+uninstaller.nsh:26-27   !insertmacro customUnInit           (w un.onInit)
+```
+
+Stary deinstalator leci pod `/S`, wchodzi w `customUnInit`, tam napotyka
+`SprawdzTS3` z `MessageBox` bez `/SD` — i dialog wyskakuje mimo `/S`, a instalator
+rodzic wisi w `ExecWait` w nieskończoność. Do `customInstall` nigdy nie dochodzi.
+
+Że to znana pułapka, widać po samym electron-builderze: swój własny `MessageBox`
+w sąsiedniej linii (`installUtil.nsh:219`) zabezpiecza przez `/SD IDCANCEL`.
+
+Wariant `/SD IDCANCEL` u nas odrzucony: daje niezerowy kod wyjścia deinstalatora
+i pętlę pięciu ponowień (`installUtil.nsh:215-239`). `IfSilent` jest u nas
+bezpieczne, bo `SetSilent silent` z `uninstaller.nsh:20` siedzi w `!ifdef
+ONE_CLICK`, a mamy `oneClick: false` — ręczna deinstalacja pozostaje niecicha
+i nag dalej się pokazuje.
+
+**Konsekwencja, o której trzeba wiedzieć:** poprawka chroni tylko deinstalatory
+zbudowane po niej. Cicha aktualizacja *z* wersji sprzed poprawki uruchomiłaby
+stary, niezabezpieczony deinstalator. Nas to nie dotyczy — 0.1.0 nie ma
+`electron-updatera`, więc pierwsza autoaktualizacja to dopiero 0.2.0 → 0.3.0.
 
 **Podwójny cichy update bez restartu TS3 jest bezpieczny.** Po pierwszej
 podmianie `ts3_screenshare.dll` to nowy plik, którego nikt nie trzyma — drugi

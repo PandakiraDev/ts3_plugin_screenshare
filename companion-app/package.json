@@ -1,6 +1,6 @@
 {
   "name": "ts3-screenshare-companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Companion app for TS3 screen sharing: source picker + capture",
   "main": "./out/main/index.js",
   "author": "Konrad",
@@ -19,10 +19,13 @@
     "e2e:kamera": "node e2e/kamera.mjs",
     "e2e:obciazenie": "node e2e/obciazenie.mjs",
     "e2e:audio": "npm run sync:native && npm run build && node e2e/app-audio.mjs",
+    "e2e:dll-swap": "node e2e/dll-swap.mjs",
+    "e2e:silent-install": "node e2e/silent-install.mjs",
     "lobby:2": "electron . --user-data-dir=.tmp/profil-2 --ts3-server=ts.test.pl:9987 --channel=42 --signaling=ws://127.0.0.1:8080",
     "sync:native": "node -e \"require('node:fs').rmSync('node_modules/ts3-screenshare-audio',{recursive:true,force:true})\" && npm install --no-audit --no-fund",
     "package": "npm run sync:native && npm run build && electron-builder --win --dir",
-    "installer": "npm run sync:native && npm run build && electron-builder --win"
+    "installer": "npm run sync:native && npm run build && electron-builder --win",
+    "release": "node scripts/publish.mjs"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
@@ -38,6 +41,7 @@
     "ws": "^8.21.2"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ts3-screenshare-audio": "file:../audio-native"

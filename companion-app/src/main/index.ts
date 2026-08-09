@@ -11,6 +11,7 @@ import {
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 import { registerAppAudio } from './audio'
+import { registerUpdates } from './update'
 
 /**
  * Argumenty czytamy raz przy starcie. W trybie deweloperskim electron-vite
@@ -163,6 +164,9 @@ app.whenReady().then(() => {
     writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
   registerAppAudio()
+  // Getter, a nie referencja do okna: `activate` na macOS potrafi utworzyć nowe
+  // okno, a rejestracja uchwytów IPC może się odbyć tylko raz.
+  registerUpdates(() => BrowserWindow.getAllWindows()[0] ?? null)
 
   /*
    * Jedyna droga do dźwięku systemowego na Windows. Stare constrainty

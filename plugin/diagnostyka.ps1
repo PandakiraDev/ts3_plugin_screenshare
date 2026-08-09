@@ -170,5 +170,21 @@ try {
 }
 Write-Output "    UWAGA: sprawdz tez recznie kwarantanne swojego antywirusa."
 
+
+# --- 9. Log autoaktualizacji companion app --------------------------------
+# Spakowana companion app nie ma konsoli, wiec awarie autoaktualizacji
+# (electron-updater) laduja wylacznie tutaj - patrz companion-app/src/main/updateLogger.ts.
+Write-Output ""
+Write-Output "[9] Log autoaktualizacji (companion app):"
+$logAktualizacji = "$env:APPDATA\ts3-screenshare-companion\update.log"
+if (Test-Path $logAktualizacji) {
+    $i = Get-Item $logAktualizacji
+    Write-Output "    $logAktualizacji  [ISTNIEJE] ($([math]::Round($i.Length/1KB,1)) KB, $($i.LastWriteTime))"
+    Write-Output "    Ostatnie wpisy:"
+    Get-Content $logAktualizacji -Tail 15 | ForEach-Object { Write-Output "      $_" }
+} else {
+    Write-Output "    $logAktualizacji  [BRAK] - albo aplikacja jeszcze nie startowala, albo nic nie zapisala"
+}
+
 Write-Output ""
 Write-Output "=== koniec ==="

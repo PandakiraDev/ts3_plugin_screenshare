@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings } from '@shared/types'
 import { DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
+import type { UpdateState } from '@shared/update'
 import type { LaunchParseResult } from '../shared/cli'
 import { SourceGrid } from './components/SourceGrid'
 import { PreviewPane } from './components/PreviewPane'
 import { SettingsPanel } from './components/SettingsPanel'
 import { LobbyView } from './components/LobbyView'
+import { AppVersion, UpdateNotice } from './components/UpdateNotice'
 import { useCamera } from './hooks/useCamera'
 import { useCapture } from './hooks/useCapture'
+import { useAppUpdate } from './hooks/useAppUpdate'
 
 export default function App(): JSX.Element {
   const [launch, setLaunch] = useState<LaunchParseResult | null>(null)
+  const { version, update } = useAppUpdate()
 
   useEffect(() => {
     void window.companion.getLaunch().then(setLaunch)
@@ -31,6 +35,7 @@ export default function App(): JSX.Element {
       <div className="app">
         <header className="app__titlebar">
           <h1 className="app__title">TS3 Screen Share</h1>
+          <AppVersion version={version} />
         </header>
         <div className="app__main">
           <div className="notice notice--error">
@@ -42,12 +47,20 @@ export default function App(): JSX.Element {
     )
   }
 
-  if (launch.options.mode === 'lobby') return <LobbyView options={launch.options} />
-  return <StandaloneApp />
+  if (launch.options.mode === 'lobby') {
+    return <LobbyView options={launch.options} version={version} update={update} />
+  }
+  return <StandaloneApp version={version} update={update} />
 }
 
 /** Uruchomienie bez pluginu: sam picker i lokalny podgląd, bez sieci. */
-function StandaloneApp(): JSX.Element {
+function StandaloneApp({
+  version,
+  update
+}: {
+  version: string
+  update: UpdateState
+}): JSX.Element {
   const [sources, setSources] = useState<CaptureSource[]>([])
   const [isLoadingSources, setIsLoadingSources] = useState(true)
   const [sourcesError, setSourcesError] = useState<string | null>(null)
@@ -86,8 +99,11 @@ function StandaloneApp(): JSX.Element {
     <div className="app">
       <header className="app__titlebar">
         <h1 className="app__title">TS3 Screen Share</h1>
+        <AppVersion version={version} />
         <span className="app__stage-tag">tryb samodzielny · lokalny podgląd</span>
       </header>
+
+      <UpdateNotice update={update} />
 
       <div className="app__body">
         <main className="app__main">
