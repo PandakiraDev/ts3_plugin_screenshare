@@ -317,44 +317,68 @@ poprawkę już ma.
   proces rodzica jeszcze żyje, może się w ogóle nie wykonać. **Tego nie
   zweryfikowano empirycznie.**
 
-### 3.2 Widoczna informacja, że łącze nie wyrabia
+### 3.2 / 3.3 / 3.4 Uczciwa informacja o kłopotach z połączeniem — ZROBIONE (2026-08-09)
 
-**Po co:** architektura to pełna siatka — nadawca wysyła osobną kopię do każdego
-widza. Przy ekranie i kamerze do trzech osób to około 21 Mb/s wysyłania, a
-typowe łącze domowe ma 10–20. Gdy się zatka, obraz się sypie i użytkownik nie ma
-żadnej wskazówki, że to jego łącze, a nie zepsuta aplikacja.
+Trzy zadania okazały się jednym problemem: **komunikaty o kłopotach z
+połączeniem nie miały gdzie się pokazać**. Spec:
+`docs/superpowers/specs/2026-08-09-diagnostyka-polaczenia-design.md`.
 
-**Jak:** dane już mamy — `qualityLimitationReason` z `getStats()` czytamy w
-`companion-app/e2e/obciazenie.mjs`. Wystarczy odpytywać to cyklicznie w
-rendererze i przy wartości `bandwidth` pokazać zdanie w rodzaju „Twoje łącze nie
-nadąża — zmniejsz rozdzielczość albo FPS".
+Jeden pasek pod nagłówkiem pokazuje najważniejszy aktywny problem i gaśnie sam,
+gdy przyczyna ustaje. Priorytet: budzenie serwera → nieosiągalna osoba →
+zatkane łącze.
 
-### 3.3 Zachowanie przy zaśnięciu serwera
+**Co się okazało przy sprawdzaniu stanu zastanego:**
 
-**Po co:** darmowy plan Rendera usypia usługę po 15 minutach bezczynności, a
-pierwsze połączenie po przebudzeniu trwa kilkadziesiąt sekund. Dotyczy to
-**codziennego** pierwszego wejścia wieczorem.
+- **3.4 było już w połowie zrobione, ale niewidoczne.** `session.ts` wykrywał
+  `connectionState === 'failed'` i wołał `onError`, ale `LobbyView` renderował
+  `state.error` wyłącznie przy `connection === 'error'` — przy awarii
+  pojedynczego połączenia komunikat powstawał i przepadał.
+- **3.3 wypadło lepiej, niż zakładaliśmy.** Nagłówek pokazywał „Łączenie
+  z kanałem…", więc to nie był niemy spinner. Ale `SignalingClient.connect` nie
+  miał limitu czasu — przy serwerze, który nigdy nie odpowie, aplikacja czekała
+  bez końca. Doszedł limit 90 s.
+- **Rozbieg przed oceną łącza to 45 s, nie 30 s.** Pomiar z § 1 pokazał, że
+  `qualityLimitationReason` wraca do `none` dopiero koło 41 s od startu
+  strumienia. Przy 30 s rozbiegu i 10 s debounce'u pasek mignąłby przy każdym
+  starcie kamery 1080p60.
 
-**Czego nie wiadomo:** co aplikacja wtedy pokazuje. Jeśli nic, wygląda to jak
-zawieszenie. **Najpierw sprawdzić**, potem ewentualnie dodać komunikat
-„łączę się, serwer się budzi…" z licznikiem.
+**Dwie pułapki złapane w przeglądzie, nie w planie** — obie pouczające, bo
+następna osoba wpadnie w nie tak samo:
 
-### 3.4 Uczciwa diagnoza nieudanego połączenia (i ewentualnie TURN)
+- **`RTCPeerConnection.close()` nie emituje `connectionstatechange`.** Plan
+  zakładał, że zamknięcie połączenia samo wyczyści wpis o awarii z rejestru
+  przez ten sam nasłuch, który go tam wstawił. Specyfikacja WebRTC 1.0 mówi
+  wprost: ustawienie stanu na `'closed'` **nie** wywołuje zdarzenia. Bez
+  jawnego czyszczenia w `closeIncoming` i `dropOutgoing` (`session.ts`)
+  komunikat „nie udało się połączyć z X" wisiałby długo po tym, jak X po
+  prostu przestał nadawać — czyli dokładnie ta klasa błędu, którą zadanie
+  miało usunąć.
+- **Rozbieg musi się restartować przy zmianie zestawu strumieni, nie tylko
+  przy starcie nadawania.** Pierwsza wersja `useConnectionHealth` sprowadzała
+  rodzaje strumieni do wartości logicznej „nadajemy / nie nadajemy". Skutek:
+  włączenie kamery po 45 s nadawania ekranu nie zerowało rozbiegu, więc własny
+  ramp-up kamery był brany za zatkane łącze. Przyjęty koszt poprawki:
+  włączenie albo wyłączenie kamery ucisza ostrzeżenie o łączu na kolejne 45 s.
+  Wybrano chwilową ciszę zamiast fałszywego oskarżenia.
 
-**Po co:** mamy tylko STUN. Jeśli któryś użytkownik siedzi za symetrycznym
-NAT-em, połączenie nie wstanie **nigdy**, a on zobaczy wieczny spinner bez
-żadnego wyjaśnienia.
+**Czego nie zrobiono:**
 
-**Jak, po kolei:** najpierw wykryć `iceConnectionState === 'failed'` i powiedzieć
-wprost, że nie udało się zestawić połączenia bezpośredniego — to godzina roboty
-i koniec zgadywania. Dopiero gdy okaże się, że problem realnie występuje u
-kogoś, rozważyć płatny TURN.
+- **`qualityLimitationReason: 'cpu'`** — inny problem i inna rada.
+- **TURN.** Ta zmiana ma dopiero dostarczyć informacji, czy problem realnie
+  u kogoś występuje. Do czasu zgłoszeń zostaje sam STUN.
+- **Sprawdzenia na realnie zatkanym łączu.** Logika ma testy jednostkowe, ale
+  nikt nie widział tego paska przy prawdziwie przeciążonym uploadzie — do
+  potwierdzenia przy pierwszej sesji we trzech.
+- **Nikt nie widział tego paska na ekranie.** Cała funkcja jest zweryfikowana
+  testami jednostkowymi czystej logiki (12 przypadków), przeglądem kodu
+  i budową — ale komponentów Reacta nie da się w tym repo przetestować
+  jednostkowo (brak jsdom), a aplikacji świadomie nie uruchamiano. Wygląd,
+  kolor i umiejscowienie paska czekają na pierwsze uruchomienie przez
+  właściciela projektu. Najłatwiej wywołać stan „serwer się budzi": nie
+  używać aplikacji przez 15 minut, potem wejść do kanału.
 
 ## 4. Drobne
 
-- **TURN** — bez niego połączenie nie wstanie u osób za symetrycznym NAT-em.
-  Warto sprawdzić na realnych użytkownikach, czy problem występuje, zanim
-  zaczniemy płacić za serwer.
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset
   złotych rocznie.
 - **Dźwięk nie działa na Sound Blaster AE-5** (`NotReadableError`), a u innych
