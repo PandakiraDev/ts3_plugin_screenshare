@@ -12,6 +12,8 @@ import { SettingsPanel } from './SettingsPanel'
 import { StreamTile } from './StreamTile'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 import { AppVersion, UpdateNotice } from './UpdateNotice'
+import { useConnectionHealth } from '../hooks/useConnectionHealth'
+import { ConnectionNotice } from './ConnectionNotice'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -45,6 +47,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
   const lobby = useLobby(options, apiKeyVersion)
+  const connectionProblem = useConnectionHealth(lobby)
   const { startStream, stopStream, replaceStream, applyQuality } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
@@ -245,6 +248,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
       </header>
 
       <UpdateNotice update={update} />
+      <ConnectionNotice problem={connectionProblem} />
 
       {cameraErrorText && (
         <div className="sharebar">

@@ -86,6 +86,17 @@ h3 {
   flex-shrink: 0;
 }
 
+/* Pasek kłopotów z połączeniem: ostrzeżenie, nie błąd — coś nie działa dobrze,
+   ale aplikacja pracuje dalej. Stąd bursztyn zamiast czerwieni z .notice--error. */
+.app__connection {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(240, 178, 50, 0.12);
+  color: #f0c674;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
 .app__body {
   display: flex;
   flex: 1;
