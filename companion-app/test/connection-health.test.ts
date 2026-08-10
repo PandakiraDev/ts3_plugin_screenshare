@@ -65,9 +65,9 @@ test('komunikat o nieosiągalnym peerze nie przypisuje kierunku', () => {
   expect(problemText({ kind: 'peer-unreachable', names: ['Michał'] })).not.toContain(
     'od tej osoby'
   )
-  expect(
-    problemText({ kind: 'peer-unreachable', names: ['Michał', 'Ala', 'Bartek'] })
-  ).not.toContain('od tej osoby')
+  const textMulti = problemText({ kind: 'peer-unreachable', names: ['Michał', 'Ala', 'Bartek'] })
+  expect(textMulti).not.toContain('od tej osoby')
+  expect(textMulti).not.toContain('od nich')
 })
 
 test('zatkane łącze ma radę, co zrobić', () => {
@@ -129,10 +129,13 @@ test('zmiana zestawu nadawanych strumieni zeruje rozbieg', () => {
   })
   // Mimo że od pierwszego strumienia minęło dużo ponad 45 s, nowy klucz
   // zaczyna nowe okno rozbiegu — ograniczenie w nim jeszcze nie jest problemem.
-  expect(isUplinkSlow(watch, znaczniePoRozbiegu)).toBe(false)
+  // Asercja jest przesunięta po debounce, aby rozróżnić wariant z regułą restartującą
+  // rozbieg (limitedSince jest null → false) od wariantu bez reguły (limitedSince
+  // zostaje na 0, ale czas − 0 już wymaga debounce → true jeśli debounce upłynął).
+  expect(isUplinkSlow(watch, znaczniePoRozbiegu + UPLINK_DEBOUNCE_MS)).toBe(false)
 })
 
-test('ten sam zestaw w innej kolejności nie zeruje rozbiegu', () => {
+test('ten sam klucz nie zeruje rozbiegu', () => {
   // Klucz to posortowany, złączony ciąg (odpowiedzialność hooka) — sam
   // advanceUplinkWatch dostaje już gotowy ciąg, więc test podaje ten sam ciąg
   // dwa razy (odpowiednik dwóch różnych kolejności strumieni po sortowaniu)
