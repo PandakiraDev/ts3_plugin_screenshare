@@ -27,9 +27,26 @@ export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
 
   const { state, uplinkLimited } = lobby
   const sharing = state.myStreamKinds.length > 0
+  // Posortowany klucz zestawu nadawanych rodzajów: kolejność, w jakiej serwer
+  // rozgłasza start/stop strumieni, nie powinna sama w sobie liczyć się jako
+  // zmiana. Ale ZMIANA ZESTAWU (np. dołożenie kamery do trwającego udostępniania
+  // ekranu) ma się liczyć — to nowy rozbieg sterowania przepływem, inny niż
+  // rozbieg samego ekranu.
+  const streamKindsKey = [...state.myStreamKinds].sort().join(',')
 
   useEffect(() => {
     let cancelled = false
+
+    // Nowy zestaw nadawanych rodzajów = nowy rozbieg. Bez zerowania stary
+    // `sharingSince` przetrwałby np. dołożenie kamery, a dawno ubiegły rozbieg
+    // ekranu maskowałby świeży rozbieg kamery — pasek oskarżyłby łącze
+    // w trakcie ramp-upu sterowania przepływem, dokładnie tego, co rozbieg ma
+    // tłumić (patrz komentarz przy UPLINK_WARMUP_MS w connectionHealth.ts).
+    // Świadomy koszt: włączenie ALBO wyłączenie kamery w trakcie sesji ucisza
+    // ostrzeżenie o łączu na kolejne 45 s, nawet jeśli łącze faktycznie jest
+    // zatkane. Wybieramy chwilową ciszę zamiast fałszywego oskarżenia —
+    // komunikat, który raz skłamie, przestaje być czytany.
+    watchRef.current = NO_UPLINK_WATCH
 
     async function sample(): Promise<void> {
       const limited = sharing ? await uplinkLimited() : false
@@ -39,13 +56,17 @@ export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
       setUplinkSlow(isUplinkSlow(watchRef.current, now))
     }
 
-    void sample()
-    const id = setInterval(() => void sample(), UPLINK_POLL_MS)
+    // getStats() na sesji niszczonej w trakcie próbkowania (np. ponowne
+    // łączenie po zapisaniu nowego klucza API) potrafi odrzucić obietnicę.
+    // Flaga `cancelled` tu nie pomaga — odrzucenie omija sprawdzenie wewnątrz
+    // sample() i leciałoby dalej jako nieobsłużone odrzucenie w konsoli.
+    void sample().catch(() => {})
+    const id = setInterval(() => void sample().catch(() => {}), UPLINK_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(id)
     }
-  }, [sharing, uplinkLimited])
+  }, [streamKindsKey, sharing, uplinkLimited])
 
   useEffect(() => {
     function recompute(): void {
