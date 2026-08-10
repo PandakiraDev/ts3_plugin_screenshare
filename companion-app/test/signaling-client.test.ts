@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { createServer } from 'node:net'
+import type { AddressInfo, Socket } from 'node:net'
 // Prawdziwy serwer z sąsiedniego pakietu — celowo, żeby test wyłapał
 // rozjechanie się protokołu między companion-app a signaling-server.
 import {
@@ -244,4 +246,36 @@ test('dwa równoczesne startStream różnych rodzajów — obie obietnice się r
   const camera = client.startStream('camera')
 
   await expect(Promise.all([screen, camera])).resolves.toEqual([undefined, undefined])
+})
+
+test('connect przerywa po limicie czasu zamiast wisieć', async () => {
+  // Goły serwer TCP: przyjmuje połączenie i milczy. WebSocket nigdy nie dostanie
+  // odpowiedzi na uzgodnienie protokołu, więc bez limitu czasu `connect` wisiałby
+  // w nieskończoność — dokładnie to robi uśpiony Render, dopóki się nie obudzi.
+  //
+  // Śledzimy przyjęte gniazda i niszczymy je ręcznie w `finally`. Powód: gdy
+  // `connect` po limicie czasu wywołuje `socket.close()` na WebSocket, który wciąż
+  // łączy się (CONNECTING), Node (undici) potrafi po cichu otworzyć DRUGIE
+  // połączenie TCP do tego samego adresu i nigdy go nie zamknąć — zaobserwowane
+  // na Node 22.15 (Windows). Bez ręcznego `destroy()` `silent.close()` wisi
+  // w nieskończoność czekając na to osierocone gniazdo, mimo że test WebSocket
+  // już dawno się rozstrzygnął.
+  const sockets = new Set<Socket>()
+  const silent = createServer((socket) => {
+    // celowo nic nie odpowiadamy — tylko śledzimy gniazdo, żeby dało się je
+    // domknąć niezależnie od zachowania klienta
+    sockets.add(socket)
+    socket.on('close', () => sockets.delete(socket))
+  })
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+  const { port } = silent.address() as AddressInfo
+
+  try {
+    await expect(
+      SignalingClient.connect(`ws://127.0.0.1:${port}`, 200)
+    ).rejects.toThrow(/nie odpowiada/i)
+  } finally {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve) => silent.close(() => resolve()))
+  }
 })
