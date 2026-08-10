@@ -142,6 +142,12 @@ export interface LobbyCallbacks {
   /** Lista uczestników pokoju (bez nas) — zasila panel boczny. */
   onPeersChange: (peers: PeerInfo[]) => void
   onError: (message: string) => void
+  /**
+   * Osoby, z którymi połączenie jest w stanie `failed`. ZBIÓR, nie zdarzenie:
+   * z jednorazowego zgłoszenia nie dałoby się dowiedzieć, że problem minął,
+   * więc komunikat wisiałby w interfejsie po ustaniu przyczyny.
+   */
+  onUnreachableChange: (peerIds: string[]) => void
 }
 
 export class LobbySession {
@@ -162,6 +168,16 @@ export class LobbySession {
    */
   private readonly incoming = new Map<string, RTCPeerConnection>()
   private readonly incomingBuffers = new Map<string, CandidateBuffer>()
+  /**
+   * Połączenia w stanie `failed`: identyfikator połączenia -> peerId właściciela.
+   *
+   * Mapa per POŁĄCZENIE, nie zbiór per osoba, i to jest tu istotne: jedna osoba
+   * ma nawet cztery połączenia naraz (wychodzące i przychodzące × ekran
+   * i kamera). Przy zbiorze kluczowanym po peerId normalne zamknięcie jednego
+   * z nich skasowałoby wpis o awarii drugiego i komunikat zgasłby mimo trwającego
+   * problemu.
+   */
+  private readonly failedConnections = new Map<string, string>()
 
   /** connectionKey(peerId, rodzaj) -> StreamRef aktualnie nadawanego strumienia. */
   private readonly streamerRefs = new Map<string, StreamRef>()
@@ -207,6 +223,10 @@ export class LobbySession {
 
     this.signaling.on('peer-left', (peerId) => {
       this.peers.delete(peerId)
+      // Problem osoby, której już nie ma, przestał istnieć razem z nią.
+      for (const [id, owner] of this.failedConnections) {
+        if (owner === peerId) this.markReachability(id, owner, false)
+      }
       this.emitPeers()
       for (const kind of STREAM_KINDS) this.dropOutgoing(peerId, kind)
       // Peer mógł odejść nie zdejmując wcześniej transmisji (ekranu i/lub kamery).
@@ -248,6 +268,19 @@ export class LobbySession {
     this.callbacks.onPeersChange(
       [...this.peers].map(([peerId, displayName]) => ({ peerId, displayName }))
     )
+  }
+
+  /**
+   * `failed` dodaje, każdy inny stan usuwa. Dzięki temu odbudowane połączenie
+   * gasi komunikat samo, bez żadnej dodatkowej ścieżki.
+   *
+   * `connectionId` musi być unikalny w obrębie osoby — stąd prefiks kierunku.
+   */
+  private markReachability(connectionId: string, peerId: string, failed: boolean): void {
+    if (failed === this.failedConnections.has(connectionId)) return
+    if (failed) this.failedConnections.set(connectionId, peerId)
+    else this.failedConnections.delete(connectionId)
+    this.callbacks.onUnreachableChange([...new Set(this.failedConnections.values())])
   }
 
   // --- nadawanie ---------------------------------------------------------
@@ -384,9 +417,11 @@ export class LobbySession {
       }
     })
     connection.addEventListener('connectionstatechange', () => {
-      if (connection.connectionState === 'failed') {
-        this.callbacks.onError(`Połączenie z widzem ${peerId.slice(0, 8)} nie wstało`)
-      }
+      this.markReachability(
+        `out:${connectionKey(peerId, kind)}`,
+        peerId,
+        connection.connectionState === 'failed'
+      )
     })
     const key = connectionKey(peerId, kind)
     this.outgoing.set(key, connection)
@@ -414,6 +449,12 @@ export class LobbySession {
     const connection = this.outgoing.get(key)
     if (!connection) return
     connection.close()
+    // WebRTC 1.0 przy procedurze close() ustawia connectionState na 'closed'
+    // BEZ emitowania connectionstatechange — nasłuch w createOutgoing się
+    // nie odpali. To jedyne miejsce, które wyczyści wpis o awarii tego
+    // połączenia; markReachability ma guard na starcie, więc jest bezpieczne
+    // nawet gdyby zdarzenie jednak kiedyś poleciało.
+    this.markReachability(`out:${key}`, peerId, false)
     this.outgoing.delete(key)
     this.outgoingBuffers.delete(key)
     this.emitViewerCount()
@@ -449,9 +490,11 @@ export class LobbySession {
       }
     })
     connection.addEventListener('connectionstatechange', () => {
-      if (connection.connectionState === 'failed') {
-        this.callbacks.onError('Nie udało się zestawić połączenia z nadającym')
-      }
+      this.markReachability(
+        `in:${connectionKey(streamerId, kind)}`,
+        streamerId,
+        connection.connectionState === 'failed'
+      )
     })
     this.incoming.set(key, connection)
     this.incomingBuffers.set(key, new CandidateBuffer(connection))
@@ -461,6 +504,11 @@ export class LobbySession {
   private closeIncoming(streamerId: string, kind: StreamKind): void {
     const key = connectionKey(streamerId, kind)
     this.incoming.get(key)?.close()
+    // Jak w dropOutgoing: close() nie emituje connectionstatechange (spec
+    // WebRTC 1.0), więc nasłuch w ensureIncoming milczy. Bez tej linii wpis
+    // o awarii przeżyłby zdjęcie transmisji — dokładnie ten błąd, który cały
+    // rejestr miał wyeliminować.
+    this.markReachability(`in:${key}`, streamerId, false)
     this.incoming.delete(key)
     this.incomingBuffers.delete(key)
   }
@@ -511,6 +559,30 @@ export class LobbySession {
     await this.incomingBuffers.get(key)?.add(payload.candidate)
   }
 
+  /**
+   * Czy KTÓRYKOLWIEK z naszych nadajników jest duszony przez pasmo.
+   *
+   * Ekran i kamera to osobne połączenia z osobnymi limitami, ale rada dla
+   * użytkownika jest ta sama, więc nie rozróżniamy ich w wyniku.
+   *
+   * Własny typ zamiast `RTCOutboundRtpStreamStats`: pole
+   * `qualityLimitationReason` bywa nieobecne w typach DOM zależnie od wersji
+   * TypeScriptu, a to jedyne pole, którego tu potrzebujemy.
+   */
+  async uplinkLimited(): Promise<boolean> {
+    type OutboundStat = { type: string; kind?: string; qualityLimitationReason?: string }
+
+    for (const connection of this.outgoing.values()) {
+      const report = await connection.getStats()
+      for (const entry of report.values()) {
+        const stat = entry as OutboundStat
+        if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') continue
+        if (stat.qualityLimitationReason === 'bandwidth') return true
+      }
+    }
+    return false
+  }
+
   dispose(): void {
     this.disposed = true
     // Bezpośrednie sprzątanie lokalnego stanu, bez wołania signaling.stopStream:
@@ -526,5 +598,11 @@ export class LobbySession {
     this.incomingBuffers.clear()
     this.peers.clear()
     this.streamerRefs.clear()
+    this.failedConnections.clear()
+    // Zamykanie połączeń wyżej nie odpala connectionstatechange (jak w
+    // dropOutgoing/closeIncoming), więc bez tego jawnego wywołania stary
+    // komunikat o awarii przeżyłby koniec sesji i wisiałby dalej w interfejsie
+    // po ponownym połączeniu (np. po zapisaniu nowego klucza API).
+    this.callbacks.onUnreachableChange([])
   }
 }

@@ -105,6 +105,13 @@ export interface LobbyState {
   /** Nasz własny wpis na liście. */
   me: PeerInfo | null
   error: string | null
+  /** peerId osób, z którymi połączenie padło. Puste = wszystko w porządku. */
+  unreachablePeerIds: string[]
+  /**
+   * Kiedy ruszyła bieżąca próba połączenia; null gdy nie łączymy.
+   * Po tym liczy się, jak długo czekamy na budzący się serwer.
+   */
+  connectingSince: number | null
 }
 
 const INITIAL: LobbyState = {
@@ -115,7 +122,9 @@ const INITIAL: LobbyState = {
   viewers: 0,
   peers: [],
   me: null,
-  error: null
+  error: null,
+  unreachablePeerIds: [],
+  connectingSince: null
 }
 
 export interface Lobby {
@@ -126,6 +135,8 @@ export interface Lobby {
   replaceStream: (stream: MediaStream, kind: StreamKind) => void
   /** Bitrate i limit FPS danego rodzaju — działa też w trakcie nadawania, bez renegocjacji. */
   applyQuality: (kind: StreamKind, bitrateKbps: number, fps: number) => void
+  /** Czy któryś z naszych nadajników jest duszony przez pasmo — odczyt na żądanie. */
+  uplinkLimited: () => Promise<boolean>
 }
 
 /**
@@ -141,6 +152,13 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
 
   useEffect(() => {
     if (!options.roomId) return
+
+    setState((current) => ({
+      ...current,
+      connection: 'connecting',
+      connectingSince: Date.now(),
+      error: null
+    }))
 
     let cancelled = false
     void (async () => {
@@ -187,7 +205,9 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
             })),
           onViewerCountChange: (viewers) =>
             setState((current) => ({ ...current, viewers })),
-          onError: (message) => setState((current) => ({ ...current, error: message }))
+          onError: (message) => setState((current) => ({ ...current, error: message })),
+          onUnreachableChange: (peerIds) =>
+            setState((current) => ({ ...current, unreachablePeerIds: peerIds }))
         })
         sessionRef.current = session
 
@@ -201,6 +221,7 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
         setState((current) => ({
           ...current,
           connection: 'ready',
+          connectingSince: null,
           error: null,
           me: { peerId: joined.peerId, displayName: joined.displayName }
         }))
@@ -213,6 +234,7 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
         setState((current) => ({
           ...current,
           connection: /klucz/i.test(errorMessage) ? 'bad-key' : 'error',
+          connectingSince: null,
           error: errorMessage
         }))
       }
@@ -259,5 +281,10 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
     []
   )
 
-  return { state, startStream, stopStream, replaceStream, applyQuality }
+  const uplinkLimited = useCallback(async (): Promise<boolean> => {
+    // Brak sesji = nie nadajemy, więc nie ma czego dusić.
+    return sessionRef.current?.uplinkLimited() ?? false
+  }, [])
+
+  return { state, startStream, stopStream, replaceStream, applyQuality, uplinkLimited }
 }

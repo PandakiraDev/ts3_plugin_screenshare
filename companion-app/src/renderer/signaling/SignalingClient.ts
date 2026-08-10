@@ -69,15 +69,45 @@ export class SignalingClient {
     return this._peerId
   }
 
-  static connect(url: string): Promise<SignalingClient> {
+  /**
+   * `timeoutMs` jest parametrem, a nie stałą, wyłącznie po to, żeby test limitu
+   * nie musiał trwać półtorej minuty. Wartość domyślna z zapasem pokrywa zimny
+   * start uśpionego Rendera (~kilkadziesiąt sekund).
+   */
+  static connect(url: string, timeoutMs = 90_000): Promise<SignalingClient> {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url)
-      socket.addEventListener('open', () => resolve(new SignalingClient(socket)), {
-        once: true
-      })
+
+      // Bez tego uśpiony serwer, który przyjmuje połączenie TCP i milczy,
+      // zostawia aplikację w „Łączenie z kanałem…" w nieskończoność —
+      // zdarzenie 'error' nigdy nie przychodzi.
+      //
+      // Kolejność ma znaczenie: `socket.close()` na gnieździe wciąż łączącym
+      // się (CONNECTING) potrafi synchronicznie odpalić nasz listener 'error'
+      // (zaobserwowane w globalnym WebSocket Node 22 na Windows), zanim ta
+      // funkcja wróci do kolejnej linii. Obietnicę rozstrzyga tylko pierwsze
+      // wywołanie reject/resolve, więc rejectujemy z komunikatem o limicie
+      // PRZED zamknięciem gniazda — inaczej użytkownik zawsze zobaczyłby
+      // ogólny błąd połączenia zamiast informacji o limicie czasu.
+      const timer = setTimeout(() => {
+        reject(new Error(`Serwer ${url} nie odpowiada — spróbuj ponownie za chwilę.`))
+        socket.close()
+      }, timeoutMs)
+
+      socket.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer)
+          resolve(new SignalingClient(socket))
+        },
+        { once: true }
+      )
       socket.addEventListener(
         'error',
-        () => reject(new Error(`Nie udało się połączyć z ${url}`)),
+        () => {
+          clearTimeout(timer)
+          reject(new Error(`Nie udało się połączyć z ${url}`))
+        },
         { once: true }
       )
     })
