@@ -26,47 +26,42 @@ export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
   const watchRef = useRef<UplinkWatch>(NO_UPLINK_WATCH)
 
   const { state, uplinkLimited } = lobby
-  const sharing = state.myStreamKinds.length > 0
   // Posortowany klucz zestawu nadawanych rodzajów: kolejność, w jakiej serwer
   // rozgłasza start/stop strumieni, nie powinna sama w sobie liczyć się jako
-  // zmiana. Ale ZMIANA ZESTAWU (np. dołożenie kamery do trwającego udostępniania
-  // ekranu) ma się liczyć — to nowy rozbieg sterowania przepływem, inny niż
-  // rozbieg samego ekranu.
-  const streamKindsKey = [...state.myStreamKinds].sort().join(',')
+  // zmiana. Pusty string = nie nadajemy. ZMIANA ZESTAWU (np. dołożenie kamery
+  // do trwającego udostępniania ekranu) ma się liczyć jako nowy rozbieg —
+  // o tym decyduje już `advanceUplinkWatch` w connectionHealth.ts, więc hook
+  // sam nic tu nie zeruje.
+  const sharingKey = [...state.myStreamKinds].sort().join(',')
 
   useEffect(() => {
     let cancelled = false
 
-    // Nowy zestaw nadawanych rodzajów = nowy rozbieg. Bez zerowania stary
-    // `sharingSince` przetrwałby np. dołożenie kamery, a dawno ubiegły rozbieg
-    // ekranu maskowałby świeży rozbieg kamery — pasek oskarżyłby łącze
-    // w trakcie ramp-upu sterowania przepływem, dokładnie tego, co rozbieg ma
-    // tłumić (patrz komentarz przy UPLINK_WARMUP_MS w connectionHealth.ts).
-    // Świadomy koszt: włączenie ALBO wyłączenie kamery w trakcie sesji ucisza
-    // ostrzeżenie o łączu na kolejne 45 s, nawet jeśli łącze faktycznie jest
-    // zatkane. Wybieramy chwilową ciszę zamiast fałszywego oskarżenia —
-    // komunikat, który raz skłamie, przestaje być czytany.
-    watchRef.current = NO_UPLINK_WATCH
-
     async function sample(): Promise<void> {
-      const limited = sharing ? await uplinkLimited() : false
+      const limited = sharingKey !== '' ? await uplinkLimited() : false
       if (cancelled) return
       const now = Date.now()
-      watchRef.current = advanceUplinkWatch(watchRef.current, { sharing, limited, now })
+      watchRef.current = advanceUplinkWatch(watchRef.current, { sharingKey, limited, now })
       setUplinkSlow(isUplinkSlow(watchRef.current, now))
     }
 
     // getStats() na sesji niszczonej w trakcie próbkowania (np. ponowne
     // łączenie po zapisaniu nowego klucza API) potrafi odrzucić obietnicę.
     // Flaga `cancelled` tu nie pomaga — odrzucenie omija sprawdzenie wewnątrz
-    // sample() i leciałoby dalej jako nieobsłużone odrzucenie w konsoli.
-    void sample().catch(() => {})
-    const id = setInterval(() => void sample().catch(() => {}), UPLINK_POLL_MS)
+    // sample() i leciałoby dalej jako nieobsłużone odrzucenie w konsoli. Log
+    // zamiast pustego catch: pusty catch zjadłby też literówkę albo wyjątek
+    // z advanceUplinkWatch, nie tylko spodziewane odrzucenie getStats().
+    function reportSampleFailure(err: unknown): void {
+      console.debug('[diagnostyka] nieudane probkowanie lacza:', err)
+    }
+
+    void sample().catch(reportSampleFailure)
+    const id = setInterval(() => void sample().catch(reportSampleFailure), UPLINK_POLL_MS)
     return () => {
       cancelled = true
       clearInterval(id)
     }
-  }, [streamKindsKey, sharing, uplinkLimited])
+  }, [sharingKey, uplinkLimited])
 
   useEffect(() => {
     function recompute(): void {

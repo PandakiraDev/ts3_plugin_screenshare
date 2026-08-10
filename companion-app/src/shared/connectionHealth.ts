@@ -64,11 +64,22 @@ export function problemText(problem: ConnectionProblem): string {
     case 'peer-unreachable':
       // Przy kilku osobach wymieniamy liczbę, nie listę: pasek ma jedną linijkę,
       // a lista nazwisk rozepchnęłaby go na pół okna.
+      //
+      // Zdanie musi być neutralne kierunkowo: rejestr `failedConnections` w
+      // session.ts miesza połączenia WYCHODZĄCE (`out:`, my nadajemy) i
+      // PRZYCHODZĄCE (`in:`, ktoś nadaje do nas) — z samej nazwy na liście nie
+      // wiadomo, w którą stronę padło. „Obraz od tej osoby nie dojdzie" byłoby
+      // fałszywe przy awarii połączenia wychodzącego (my nadajemy, adresat nie
+      // widzi NASZEGO obrazu) — a układ „jeden nadaje, kilku ogląda" jest tu
+      // najczęstszy, więc ten fałszywy wariant widziałoby się częściej niż
+      // prawdziwy. Nie precyzuj z powrotem kierunku bez dodania pola
+      // `direction` do rejestru — inaczej wracamy do kłamstwa.
       return problem.names.length === 1
-        ? `Nie udało się połączyć z ${problem.names[0]} — obraz od tej osoby nie ` +
-            'dojdzie. Zwykle winny jest restrykcyjny NAT albo firewall.'
-        : `Nie udało się połączyć z ${problem.names.length} osobami — obraz od ` +
-            'nich nie dojdzie. Zwykle winny jest restrykcyjny NAT albo firewall.'
+        ? `Nie udało się zestawić połączenia z ${problem.names[0]} — obraz między ` +
+            'wami nie przejdzie. Zwykle winny jest restrykcyjny NAT albo firewall.'
+        : `Nie udało się zestawić połączenia z ${problem.names.length} osobami — ` +
+            'obraz między wami nie przejdzie. Zwykle winny jest restrykcyjny NAT ' +
+            'albo firewall.'
     case 'slow-uplink':
       return 'Twoje łącze nie nadąża — zmniejsz rozdzielczość albo FPS w ustawieniach.'
   }
@@ -80,27 +91,60 @@ export interface UplinkWatch {
   sharingSince: number | null
   /** Od kiedy trwa ograniczenie liczone PO rozbiegu; null = nie trwa. */
   limitedSince: number | null
+  /**
+   * Posortowany, złączony zestaw aktualnie nadawanych rodzajów strumienia
+   * (np. `'camera,screen'`); pusty string = nie nadajemy. Identyfikuje bieżący
+   * rozbieg — zmiana zestawu (np. dołożenie kamery do trwającego udostępniania
+   * ekranu) zaczyna go od nowa, patrz niżej.
+   */
+  sharingKey: string
 }
 
-export const NO_UPLINK_WATCH: UplinkWatch = { sharingSince: null, limitedSince: null }
+export const NO_UPLINK_WATCH: UplinkWatch = {
+  sharingSince: null,
+  limitedSince: null,
+  sharingKey: ''
+}
 
 /**
  * Uwaga na kolejność: w czasie rozbiegu `limitedSince` w ogóle się NIE zaczyna
  * liczyć. Gdyby zaczynało, licznik debounce'u zdążyłby dobiec do końca razem
  * z rozbiegiem i komunikat wyskoczyłby dokładnie w momencie, w którym
  * ograniczenie samo znika.
+ *
+ * Zmiana `sharingKey` (inny zestaw nadawanych rodzajów niż w poprzedniej
+ * próbce) zaczyna rozbieg od nowa — bez tego stary `sharingSince` przetrwałby
+ * np. dołożenie kamery do trwającego udostępniania ekranu, a dawno ubiegły
+ * rozbieg ekranu maskowałby świeży rozbieg kamery: pasek oskarżyłby łącze
+ * w trakcie ramp-upu sterowania przepływem, dokładnie tego, co rozbieg ma
+ * tłumić (patrz komentarz przy UPLINK_WARMUP_MS wyżej). Świadomy koszt:
+ * włączenie ALBO wyłączenie kamery w trakcie sesji ucisza ostrzeżenie o łączu
+ * na kolejne 45 s, nawet jeśli łącze faktycznie jest zatkane. Wybieramy
+ * chwilową ciszę zamiast fałszywego oskarżenia — komunikat, który raz
+ * skłamie, przestaje być czytany.
  */
 export function advanceUplinkWatch(
   watch: UplinkWatch,
-  sample: { sharing: boolean; limited: boolean; now: number }
+  sample: { sharingKey: string; limited: boolean; now: number }
 ): UplinkWatch {
-  if (!sample.sharing) return NO_UPLINK_WATCH
+  if (sample.sharingKey === '') return NO_UPLINK_WATCH
 
-  const sharingSince = watch.sharingSince ?? sample.now
+  // Nowy zestaw strumieni = nowy rozbieg, od zera. `sharingSince` ustawiony na
+  // `sample.now` gwarantuje, że poniższe `inWarmup` wyjdzie prawdziwe (różnica
+  // to 0 < UPLINK_WARMUP_MS), więc druga gałąź niżej i tak zawsze widzi
+  // `startingNewRun === false` — `limitedSince` nie musi tego osobno sprawdzać.
+  const startingNewRun = sample.sharingKey !== watch.sharingKey
+  const sharingSince = startingNewRun ? sample.now : (watch.sharingSince ?? sample.now)
   const inWarmup = sample.now - sharingSince < UPLINK_WARMUP_MS
-  if (inWarmup || !sample.limited) return { sharingSince, limitedSince: null }
+  if (inWarmup || !sample.limited) {
+    return { sharingSince, limitedSince: null, sharingKey: sample.sharingKey }
+  }
 
-  return { sharingSince, limitedSince: watch.limitedSince ?? sample.now }
+  return {
+    sharingSince,
+    limitedSince: watch.limitedSince ?? sample.now,
+    sharingKey: sample.sharingKey
+  }
 }
 
 export function isUplinkSlow(watch: UplinkWatch, now: number): boolean {
