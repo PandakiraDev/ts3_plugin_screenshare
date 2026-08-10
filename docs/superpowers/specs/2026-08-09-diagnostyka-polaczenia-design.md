@@ -50,8 +50,14 @@ wiszących po ustaniu przyczyny.
 
 Konsekwencja dla `session.ts`: dzisiejsze `onError('… nie wstało')` to strzał
 w powietrze — z jednorazowego zdarzenia nie da się dowiedzieć, że problem minął.
-Zastępuje je **zbiór** nieosiągalnych peerów: `failed` dodaje, `connected`
-usuwa, wyjście osoby z kanału też usuwa.
+Zastępuje je rejestr połączeń w stanie `failed`: `failed` dodaje, każdy inny
+stan usuwa, wyjście osoby z kanału usuwa wszystkie jej wpisy.
+
+**Rejestr jest kluczowany po POŁĄCZENIU, nie po osobie.** Jedna osoba ma nawet
+cztery połączenia naraz — wychodzące i przychodzące, razy ekran i kamera. Przy
+zbiorze kluczowanym po `peerId` normalne zamknięcie jednego z nich skasowałoby
+wpis o awarii drugiego i komunikat zgasłby mimo trwającego problemu. Lista
+nieosiągalnych osób powstaje więc z odrębnych wartości rejestru.
 
 ### Tylko jeden problem naraz, po priorytecie
 
@@ -66,7 +72,13 @@ wartości.
 Priorytet odzwierciedla zagnieżdżenie problemów: bez serwera informacja o łączu
 jest bez znaczenia.
 
-### Rozbieg 30 s przed oceną łącza
+### Rozbieg 45 s przed oceną łącza
+
+> **Korekta względem pierwszej wersji tego specu.** Stało tu 30 s. Przy 30 s
+> rozbiegu i 10 s debounce'u najwcześniejszy komunikat wypada w 40 s — czyli tuż
+> przed zmierzonymi ~41 s, po których ograniczenie samo znika. Pasek migałby
+> przy każdym starcie kamery 1080p60. 45 s daje zapas; reakcja na zatkanie
+> w środku sesji jest niezmieniona, bo tam liczy się wyłącznie debounce.
 
 To jedyna decyzja podparta twardym pomiarem z tego projektu. TODO § 1 notuje:
 przy kamerze 1080p60 `qualityLimitationReason` było `bandwidth` przez pierwsze
@@ -79,14 +91,14 @@ nie czytał — a wtedy zadanie nie ma sensu.
 
 Wybrane: dwa niezależne bezpieczniki zamiast jednego długiego opóźnienia.
 
-- **Rozbieg:** pierwsze 30 s każdego strumienia ignorujemy całkowicie.
+- **Rozbieg:** pierwsze 45 s każdego strumienia ignorujemy całkowicie.
 - **Debounce:** po rozbiegu ograniczenie musi utrzymać się 10 s.
 
 Odrzucone: jeden próg 60 s. Prostsze, ale minutę czekałoby się także przy
 zatkaniu w połowie sesji — czyli dokładnie wtedy, gdy informacja jest najbardziej
 potrzebna.
 
-Zatrzymanie strumienia zeruje rozbieg, więc następny start dostaje świeże 30 s.
+Zatrzymanie strumienia zeruje rozbieg, więc następny start dostaje świeże 45 s.
 
 ### Limit czasu w `SignalingClient.connect`
 
@@ -120,7 +132,7 @@ zależności, testowalna w vitest. Timery i odpytywanie w hooku.
 | `src/shared/connectionHealth.ts` | **Nowy.** Typ problemu, wybór po priorytecie, teksty, maszyna rozbiegu i debounce'u | brak |
 | `src/renderer/hooks/useConnectionHealth.ts` | **Nowy.** Timery, odpytywanie co 3 s, licznik sekund | React, sesja |
 | `src/renderer/components/ConnectionNotice.tsx` | **Nowy.** Pasek | — |
-| `src/renderer/webrtc/session.ts` | Zbiór nieosiągalnych peerów zamiast `onError`; metoda odczytu ograniczenia łącza | — |
+| `src/renderer/webrtc/session.ts` | Rejestr połączeń w stanie `failed` zamiast `onError`; metoda odczytu ograniczenia łącza | — |
 | `src/renderer/hooks/useLobby.ts` | Nowe pola: `unreachablePeerIds`, `connectingSince` | — |
 | `src/renderer/signaling/SignalingClient.ts` | Limit czasu w `connect` | — |
 | `src/renderer/components/LobbyView.tsx` | Osadzenie paska | — |
@@ -136,7 +148,7 @@ export type ConnectionProblem =
 /** Ile trzeba czekać na serwer, zanim powiemy, że się budzi. */
 export const SERVER_WAKING_AFTER_MS = 5_000
 /** Ile pierwszych sekund strumienia ignorujemy przy ocenie łącza. */
-export const UPLINK_WARMUP_MS = 30_000
+export const UPLINK_WARMUP_MS = 45_000
 /** Jak długo ograniczenie musi się utrzymać po rozbiegu. */
 export const UPLINK_DEBOUNCE_MS = 10_000
 
@@ -187,11 +199,11 @@ czytającą stan **na żądanie**, a decyzję „jak często" podejmuje warstwa 
 
 - priorytet: budzenie serwera > nieosiągalny peer > zatkane łącze;
 - brak problemów → `null`;
-- rozbieg: ograniczenie w pierwszych 30 s **nie** daje komunikatu — to jest ten
+- rozbieg: ograniczenie w pierwszych 45 s **nie** daje komunikatu — to jest ten
   fałszywy alarm z pomiaru w TODO § 1;
 - debounce: po rozbiegu 5 s ograniczenia to za mało, 10 s wystarcza;
 - samoczynne gaśnięcie: ustanie ograniczenia zeruje licznik;
-- zatrzymanie strumienia zeruje rozbieg — następny start dostaje świeże 30 s;
+- zatrzymanie strumienia zeruje rozbieg — następny start dostaje świeże 45 s;
 - jedna osoba vs trzy: tekst przechodzi w formę zbiorczą.
 
 `test/signaling-client.test.ts` (plik istnieje) — dodatkowy przypadek: goły
