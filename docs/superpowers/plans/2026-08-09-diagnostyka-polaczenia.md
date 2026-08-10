@@ -38,8 +38,8 @@ Powód: pomiar z `TODO.md § 1` mówi, że przy kamerze 1080p60 `qualityLimitati
 | `test/connection-health.test.ts` | **Nowy.** Testy powyższego. | 1 |
 | `src/renderer/signaling/SignalingClient.ts` | Modyfikacja: limit czasu w `connect`. | 2 |
 | `test/signaling-client.test.ts` | Modyfikacja: przypadek limitu czasu. | 2 |
-| `src/renderer/webrtc/session.ts` | Modyfikacja: zbiór nieosiągalnych peerów, `uplinkLimited()`. | 3 |
-| `src/renderer/hooks/useLobby.ts` | Modyfikacja: `unreachablePeerIds`, `connectingSince`, `uplinkLimited`. | 4 |
+| `src/renderer/webrtc/session.ts` | Modyfikacja: rejestr połączeń w stanie `failed`, `uplinkLimited()`. | 3 |
+| `src/renderer/hooks/useLobby.ts` | Modyfikacja: `unreachablePeerIds` (zad. 3), `connectingSince` i `uplinkLimited` (zad. 4). | 3, 4 |
 | `src/renderer/hooks/useConnectionHealth.ts` | **Nowy.** Dwa timery: 3 s na próbkowanie łącza, 1 s na licznik. | 5 |
 | `src/renderer/components/ConnectionNotice.tsx` | **Nowy.** Pasek. | 5 |
 | `src/renderer/styles.css` | Modyfikacja: `.app__connection`. | 5 |
@@ -438,6 +438,7 @@ git commit -m "fix(sygnalizacja): limit czasu w connect zamiast wiecznego czekan
 - Produces:
   - `LobbyCallbacks.onUnreachableChange: (peerIds: string[]) => void`
   - `LobbySession.uplinkLimited(): Promise<boolean>`
+  - `LobbyState.unreachablePeerIds: string[]` (pole i obsługa callbacku — patrz krok 6)
 
 - [ ] **Step 1: Dodaj callback do interfejsu**
 
@@ -561,15 +562,39 @@ Metoda publiczna w `LobbySession`:
   }
 ```
 
-- [ ] **Step 6: Sprawdź typy i budowę**
+- [ ] **Step 6: Podłącz callback po stronie lobby — od razu na serio**
+
+Nowy callback jest wymagany przez typ `LobbyCallbacks`, więc bez tego kroku nie skompiluje się miejsce tworzenia `LobbySession`. **Nie wstawiaj atrapy `() => {}`** — pusty callback to połknięte zdarzenie, a gałąź zostałaby w połowicznym stanie do następnego zadania.
+
+W `companion-app/src/renderer/hooks/useLobby.ts`, w `interface LobbyState`, po polu `error`:
+
+```ts
+  /** peerId osób, z którymi połączenie padło. Puste = wszystko w porządku. */
+  unreachablePeerIds: string[]
+```
+
+W `INITIAL` dopisz:
+
+```ts
+  unreachablePeerIds: [],
+```
+
+Do obiektu callbacków przekazywanego do `new LobbySession(...)`, obok `onError`:
+
+```ts
+          onUnreachableChange: (peerIds) =>
+            setState((current) => ({ ...current, unreachablePeerIds: peerIds })),
+```
+
+- [ ] **Step 7: Sprawdź typy i budowę**
 
 ```bash
 cd companion-app && npm run build
 ```
 
-Oczekiwane: brak błędów. Jeśli `tsc` zgłosi, że `onUnreachableChange` brakuje w miejscu tworzenia `LobbySession` — to jest oczekiwane i naprawi to Zadanie 4; na czas tego zadania dodaj tymczasowo `onUnreachableChange: () => {}` w `useLobby.ts`, żeby budowa przeszła, i zaznacz to w raporcie.
+Oczekiwane: brak błędów.
 
-- [ ] **Step 7: Sprawdź, że testy dalej przechodzą**
+- [ ] **Step 8: Sprawdź, że testy dalej przechodzą**
 
 ```bash
 cd companion-app && npm test
@@ -577,7 +602,7 @@ cd companion-app && npm test
 
 Oczekiwane: PASS bez zmian w liczbie testów. `session.ts` nie ma testów jednostkowych — WebRTC nie istnieje w Node — więc weryfikacją jest budowa i przegląd kodu.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add companion-app/src/renderer/webrtc/session.ts companion-app/src/renderer/hooks/useLobby.ts
@@ -592,19 +617,18 @@ git commit -m "feat(diagnostyka): zbior nieosiagalnych peerow i odczyt ogranicze
 - Modify: `companion-app/src/renderer/hooks/useLobby.ts` — `LobbyState` (linie ~94-108), `INITIAL` (~110-119), efekt łączenia (~142-230), interfejs `Lobby` (~121-129)
 
 **Interfaces:**
-- Consumes: `onUnreachableChange`, `uplinkLimited()` z Zadania 3.
+- Consumes: `LobbySession.uplinkLimited()` z Zadania 3; `LobbyState.unreachablePeerIds` istnieje już od Zadania 3.
 - Produces:
-  - `LobbyState.unreachablePeerIds: string[]`
   - `LobbyState.connectingSince: number | null`
   - `Lobby.uplinkLimited: () => Promise<boolean>`
 
 - [ ] **Step 1: Rozszerz typ stanu**
 
-W `interface LobbyState`, po polu `error`:
+`unreachablePeerIds` dodało już Zadanie 3 — tutaj dochodzi wyłącznie znacznik czasu.
+
+W `interface LobbyState`, po `unreachablePeerIds`:
 
 ```ts
-  /** peerId osób, z którymi połączenie padło. Puste = wszystko w porządku. */
-  unreachablePeerIds: string[]
   /**
    * Kiedy ruszyła bieżąca próba połączenia; null gdy nie łączymy.
    * Po tym liczy się, jak długo czekamy na budzący się serwer.
@@ -615,7 +639,6 @@ W `interface LobbyState`, po polu `error`:
 W `INITIAL` dopisz:
 
 ```ts
-  unreachablePeerIds: [],
   connectingSince: null
 ```
 
@@ -630,7 +653,7 @@ W `interface Lobby`, po `applyQuality`:
   uplinkLimited: () => Promise<boolean>
 ```
 
-- [ ] **Step 3: Ustaw znacznik startu i podepnij callback**
+- [ ] **Step 3: Ustaw znacznik startu próby połączenia**
 
 Na początku ciała efektu, zaraz po `if (!options.roomId) return`:
 
@@ -641,13 +664,6 @@ Na początku ciała efektu, zaraz po `if (!options.roomId) return`:
       connectingSince: Date.now(),
       error: null
     }))
-```
-
-Do obiektu callbacków przekazywanego do `new LobbySession(...)`, obok `onError`:
-
-```ts
-          onUnreachableChange: (peerIds) =>
-            setState((current) => ({ ...current, unreachablePeerIds: peerIds })),
 ```
 
 W miejscu, gdzie po udanym `join` ustawiamy `connection: 'ready'`, dopisz `connectingSince: null`:
@@ -692,7 +708,7 @@ i dodaj `uplinkLimited` do obiektu zwracanego przez hook.
 cd companion-app && npm run build
 ```
 
-Oczekiwane: brak błędów. Jeśli w Zadaniu 3 dodano tymczasowe `onUnreachableChange: () => {}`, tutaj musi zniknąć na rzecz prawdziwej obsługi.
+Oczekiwane: brak błędów.
 
 - [ ] **Step 6: Sprawdź testy**
 
