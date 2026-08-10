@@ -449,6 +449,12 @@ export class LobbySession {
     const connection = this.outgoing.get(key)
     if (!connection) return
     connection.close()
+    // WebRTC 1.0 przy procedurze close() ustawia connectionState na 'closed'
+    // BEZ emitowania connectionstatechange — nasłuch w createOutgoing się
+    // nie odpali. To jedyne miejsce, które wyczyści wpis o awarii tego
+    // połączenia; markReachability ma guard na starcie, więc jest bezpieczne
+    // nawet gdyby zdarzenie jednak kiedyś poleciało.
+    this.markReachability(`out:${key}`, peerId, false)
     this.outgoing.delete(key)
     this.outgoingBuffers.delete(key)
     this.emitViewerCount()
@@ -498,6 +504,11 @@ export class LobbySession {
   private closeIncoming(streamerId: string, kind: StreamKind): void {
     const key = connectionKey(streamerId, kind)
     this.incoming.get(key)?.close()
+    // Jak w dropOutgoing: close() nie emituje connectionstatechange (spec
+    // WebRTC 1.0), więc nasłuch w ensureIncoming milczy. Bez tej linii wpis
+    // o awarii przeżyłby zdjęcie transmisji — dokładnie ten błąd, który cały
+    // rejestr miał wyeliminować.
+    this.markReachability(`in:${key}`, streamerId, false)
     this.incoming.delete(key)
     this.incomingBuffers.delete(key)
   }
@@ -588,5 +599,10 @@ export class LobbySession {
     this.peers.clear()
     this.streamerRefs.clear()
     this.failedConnections.clear()
+    // Zamykanie połączeń wyżej nie odpala connectionstatechange (jak w
+    // dropOutgoing/closeIncoming), więc bez tego jawnego wywołania stary
+    // komunikat o awarii przeżyłby koniec sesji i wisiałby dalej w interfejsie
+    // po ponownym połączeniu (np. po zapisaniu nowego klucza API).
+    this.callbacks.onUnreachableChange([])
   }
 }
