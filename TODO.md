@@ -412,3 +412,22 @@ kilkanaście minut:
   wygląda jak limit kodera, a nim nie jest. Trzeba dodać flagi
   `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`
   i `--disable-background-timer-throttling`.
+
+### Długi z przeglądów kodu (diagnostyka połączenia, 2026-08-10)
+
+- **`onError` w `session.ts` został z jednym nadawcą, którego komunikat dalej
+  nie ma gdzie się pokazać.** Jedyne pozostałe wywołanie to błąd `setParameters`
+  w `applyEncoding`; ląduje w `state.error`, a `LobbyView` renderuje
+  `state.error` tylko przy `connection === 'error'` i `'bad-key'` — czyli
+  w stanach, w których `applyEncoding` się nie wykonuje. Ta sama klasa błędu co
+  bliźniaczy wpis o `startError` wyżej.
+- **Zerwanie socketu sygnalizacji w trakcie sesji nie zapala niczego.**
+  `SignalingClient` emituje `'close'`, ale nikt tego nie słucha: `connection`
+  zostaje `'ready'`, nagłówek pokazuje liczbę transmisji, pasek milczy, choć
+  aplikacja jest odcięta od serwera. Naturalny kandydat na czwarty rodzaj
+  problemu w pasku.
+- **`join` nie ma limitu czasu, choć `connect` już ma.** Limit 90 s pokrywa
+  uzgodnienie WebSocketu; jeśli serwer przyjmie połączenie i nie odpowie na
+  `join`, aplikacja tkwi w `'connecting'` bez końca — teraz przynajmniej
+  z uczciwym licznikiem zamiast niemego spinnera, ale obietnica z § 3.3 jest
+  spełniona tylko na jednym z dwóch etapów.
