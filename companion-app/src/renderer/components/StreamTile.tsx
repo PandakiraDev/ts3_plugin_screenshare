@@ -8,6 +8,8 @@ interface StreamTileProps {
   kind: StreamKind
   /** Własny obraz nie ma sensu odtwarzać z dźwiękiem — słyszelibyśmy siebie. */
   isMe: boolean
+  /** Nadawca zakończył transmisję i kafelek właśnie odjeżdża. */
+  leaving: boolean
   zoomed: boolean
   onToggleZoom: () => void
 }
@@ -21,6 +23,7 @@ export function StreamTile({
   name,
   kind,
   isMe,
+  leaving,
   zoomed,
   onToggleZoom
 }: StreamTileProps): JSX.Element {
@@ -47,7 +50,7 @@ export function StreamTile({
   }, [isMe, muted, volume])
 
   return (
-    <div className={`tile${zoomed ? ' tile--zoom' : ''}`}>
+    <div className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}`}>
       {/*
         Powiększenie kliknięciem w sam obraz. Osobny element zamiast handlera na
         całym kafelku, bo pasek na dole ma własne kontrolki — suwak głośności

@@ -91,10 +91,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     unreachablePeerIds: lobby.state.unreachablePeerIds
   })
   const participantRows = useLeaveTransition(participants, (view) => view.peerId)
-  // Wynik na razie bez odbiorcy — animacje kafelków to Task 8. Wywołanie musi
-  // jednak stać tutaj już teraz, żeby kolejność hooków się nie zmieniła, gdy
-  // Task 8 doda `const tileRows = `.
-  useLeaveTransition(tiles, (tile) => tile.tileKey)
+  const tileRows = useLeaveTransition(tiles, (tile) => tile.tileKey)
 
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
@@ -296,7 +293,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
               <strong>Nie udało się połączyć z kanałem.</strong>
               <span>{lobby.state.error}</span>
             </div>
-          ) : tiles.length === 0 ? (
+          ) : tileRows.length === 0 ? (
             <div className="viewer__stage">
               <div className="viewer__waiting">
                 {lobby.state.streams.length > 0
@@ -307,20 +304,21 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           ) : (
             <div
               className={`siatka${zoomed ? ' siatka--zoom' : ''}`}
-              data-ile={Math.min(tiles.length, 4)}
+              data-ile={Math.min(tileRows.length, 4)}
             >
-              {tiles
-                .filter((t) => !zoomed || t.tileKey === zoomed)
-                .map((t) => (
+              {tileRows
+                .filter((row) => !zoomed || row.item.tileKey === zoomed)
+                .map((row) => (
                   <StreamTile
-                    key={t.tileKey}
-                    stream={t.stream}
-                    name={t.label}
-                    kind={t.kind}
-                    isMe={t.isMe}
-                    zoomed={zoomed === t.tileKey}
+                    key={row.item.tileKey}
+                    stream={row.item.stream}
+                    name={row.item.label}
+                    kind={row.item.kind}
+                    isMe={row.item.isMe}
+                    leaving={row.leaving}
+                    zoomed={zoomed === row.item.tileKey}
                     onToggleZoom={() =>
-                      setZoomed((c) => (c === t.tileKey ? null : t.tileKey))
+                      setZoomed((current) => (current === row.item.tileKey ? null : row.item.tileKey))
                     }
                   />
                 ))}

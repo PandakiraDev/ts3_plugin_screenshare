@@ -938,3 +938,121 @@ h3 {
   font-family: Consolas, 'Courier New', monospace;
   letter-spacing: 0.02em;
 }
+
+/* ---------- animacje transmisji ---------- */
+
+/*
+ * Krzywa z odbiciem: przeskakuje ponad docelowy rozmiar i wraca. To ona daje
+ * różnicę między „element się pojawił" a „element wszedł".
+ */
+@keyframes tile-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.78) translateY(16px);
+  }
+  65% {
+    transform: scale(1.04) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tile-out {
+  to {
+    opacity: 0;
+    transform: scale(0.84) translateY(12px);
+  }
+}
+
+@keyframes participant-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes participant-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes badge-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Dwa uderzenia, nie jedno: jeden puls ginie wśród innych zmian na ekranie. */
+@keyframes avatar-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.55);
+  }
+  25% {
+    box-shadow: 0 0 0 7px rgba(88, 101, 242, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.45);
+  }
+  75% {
+    box-shadow: 0 0 0 7px rgba(88, 101, 242, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0);
+  }
+}
+
+.tile {
+  animation: tile-in 400ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+/* `forwards` trzyma końcową klatkę, żeby element nie mrugnął z powrotem
+   w pełną widoczność między końcem animacji a usunięciem z DOM-u. */
+.tile--leaving {
+  animation: tile-out 400ms ease forwards;
+  pointer-events: none;
+}
+
+.participant {
+  animation: participant-in 400ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+.participant--leaving {
+  animation: participant-out 400ms ease forwards;
+  pointer-events: none;
+}
+
+.participant__avatar--started {
+  animation: avatar-pulse 900ms ease-out;
+}
+
+.badge {
+  animation: badge-in 300ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+/*
+ * Windows: „Efekty wizualne → Efekty animacji". Hook osobno skraca wtedy czas
+ * dogasania do zera, więc element nie tylko przestaje się ruszać, ale też nie
+ * wisi w DOM-ie przez czas nieistniejącej animacji.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .tile--leaving,
+  .participant,
+  .participant--leaving,
+  .participant__avatar--started,
+  .badge {
+    animation: none;
+  }
+}
