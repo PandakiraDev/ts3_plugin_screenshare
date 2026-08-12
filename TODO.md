@@ -377,6 +377,57 @@ następna osoba wpadnie w nie tak samo:
   właściciela projektu. Najłatwiej wywołać stan „serwer się budzi": nie
   używać aplikacji przez 15 minut, potem wejść do kanału.
 
+### Widać, jak im idzie — jakość odbioru u widzów (0.3.1, 2026-08-10)
+
+Przy każdej osobie, która nas ogląda, stoi kropka: obraz dochodzi bez zacięć,
+zacina się, albo jeszcze nie wiadomo. Spec:
+`docs/superpowers/specs/2026-08-10-jakosc-odbioru-u-widzow-design.md`.
+
+**Rozstrzygnięcie, od którego wszystko zależy: mierzymy OBRAZ, nie łącze.**
+Własne FPS i bitrate mówią „czy koduję", strata pakietów mówi o łączu — a obraz
+potrafi zacinać się od słabego procesora widza przy zerowej stracie pakietów,
+albo nie zacinać się mimo strat, bo WebRTC nadrobił je retransmisją. Jedyne
+miejsce, w którym istnieje odpowiedź na pytanie „czy się zacina", to odbiornik.
+Dlatego widz sam raportuje `totalFreezesDuration` ze swojego `inbound-rtp`.
+
+**Zgodność wstecz wyszła za darmo.** Wiadomość `signal` niesie nieprzezroczysty
+payload, więc raport jedzie tą samą drogą co SDP i kandydaci ICE — zero zmian
+w serwerze i w protokole. Payload celowo **nie zawiera pola `stream`**:
+starsze klienty routują nieznany rodzaj payloadu przez
+`connectionKey(from, payload.stream)`, więc bez tego pola klucz nigdy nie pasuje
+i wiadomość jest po cichu ignorowana. Z tym polem stary klient próbowałby dodać
+`undefined` jako kandydata ICE.
+
+**Pasek odzywa się przy jednym warunku:** wszyscy widzowie mają „słabo" i jest
+ich co najmniej dwóch. Przy jednym widzu nie da się odróżnić „moje łącze" od
+„jego komputer", więc informacja zostaje przy nazwisku.
+
+**ZMIERZONE (zadanie 7) — raporty dolatują, cały łańcuch potwierdzony.** Pomiar
+(`npm run e2e:jakosc`) uruchamia dwie instancje aplikacji w jednym kanale —
+jedna nadaje ekran, druga ogląda — i podsłuchuje sygnał `quality` bezpośrednio
+na `WebSocket.send` u widza, a kropkę czyta z DOM u nadawcy. W 25-sekundowym
+oknie doleciały **cztery raporty**, `windowMs` wyniosło kolejno 5000, 4999,
+5009 i 4997 ms — czyli dokładnie zamierzone 5 s (`QUALITY_REPORT_INTERVAL_MS`),
+mimo że okno liczy się z zegara, a nie ze stałej. `frozenMs` było zerowe na
+każdym z czterech raportów, co na łączu lokalnym (obie instancje na tej samej
+maszynie, `--use-fake-device-for-media-stream`) jest oczekiwane. U nadawcy
+kropka miała klasę `peers__quality--ok` i tytuł „Obraz dochodzi bez zacięć" —
+czyli potwierdzony jest **cały łańcuch**: odczyt `getStats()` u widza →
+sygnalizacja → stan u nadawcy → wyrenderowana kropka.
+
+**Czego nie zrobiono:**
+
+- **`framesDropped` i `jitter`** — jedna miara wystarczy; dwie wymagają dwóch
+  progów i dwóch uzasadnień.
+- **Historii jakości w czasie** — wskaźnik odpowiada na pytanie „jak jest teraz".
+- **Automatycznego obniżania jakości** przy zacinaniu. Najpierw informacja,
+  potem ewentualnie decyzja za użytkownika.
+- **Sprawdzenia, czy próg 5% odpowiada temu, co widać okiem.** Pomiar
+  potwierdza mechanikę — raporty dolatują, niosą sensowne liczby, kropka
+  reaguje — na łączu lokalnym, gdzie zerowe zamrożenia były oczekiwane. Nic
+  to nie mówi o tym, jak próg zachowa się przy realnie zatkanym łączu. Do
+  potwierdzenia przy pierwszej sesji we trzech.
+
 ## 4. Drobne
 
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset
