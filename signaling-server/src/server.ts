@@ -12,7 +12,21 @@ export interface SignalingServerOptions {
    * brak konfiguracji ma oznaczać "bez autoryzacji", a nie "nikt nie wejdzie".
    */
   keyStore?: KeyStore
+  /**
+   * Co ile pytać klientów, czy żyją. Parametr istnieje po to, żeby testy nie
+   * musiały czekać pół minuty — w produkcji zostaje wartość domyślna.
+   */
+  heartbeatMs?: number
 }
+
+/**
+ * Odstęp między rundami pulsu. Wykrycie zajmuje między jedną a dwiema rundami,
+ * czyli w najgorszym razie minutę — duch znika sam, bez restartu aplikacji.
+ *
+ * Przy okazji ruch co 30 s trzyma połączenie otwarte przez pośredniki i NAT-y,
+ * które zrywają bezczynne sesje.
+ */
+const DEFAULT_HEARTBEAT_MS = 30_000
 
 export interface SignalingServer {
   port: number
@@ -85,6 +99,37 @@ export async function startSignalingServer(
   const nameCounters = new Map<string, number>()
   const keyStore: KeyStore = options.keyStore ?? new OpenKeyStore()
 
+  /*
+   * Puls. Serwer wykrywał odejście wyłącznie po zdarzeniu zamknięcia gniazda,
+   * a to zdarzenie nie zawsze przychodzi: uśpiony laptop, zerwane Wi-Fi albo
+   * pośrednik (proxy hostingu, NAT), który trzyma połączenie w górę. Peer
+   * zostawał wtedy w pokoju NA ZAWSZE i widniał u wszystkich na liście.
+   *
+   * Zmierzone przed poprawką: czyste zamknięcie i ubity proces wykrywane po
+   * ~60 ms, klient zamrożony za takim pośrednikiem — nigdy.
+   *
+   * Zbiór trzyma gniazda, które odpowiedziały od ostatniej rundy. WeakSet, bo
+   * wpis ma zniknąć razem z gniazdem, bez naszego sprzątania.
+   */
+  const odpowiedzialy = new WeakSet<WebSocket>()
+
+  const puls = setInterval(() => {
+    for (const socket of wss.clients) {
+      if (!odpowiedzialy.has(socket)) {
+        // Cisza przez pełną rundę. `terminate` wywołuje zdarzenie zamknięcia,
+        // więc dalej działa zwykłe sprzątanie: zwolnienie transmisji
+        // i rozgłoszenie `peer-left`.
+        socket.terminate()
+        continue
+      }
+      odpowiedzialy.delete(socket)
+      socket.ping()
+    }
+  }, options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS)
+
+  // Bez `unref` ten interwał sam utrzymywałby proces przy życiu.
+  puls.unref()
+
   /** Wysyła do wszystkich w pokoju poza wskazanym peerem. */
   function broadcastToRoom(
     roomId: string,
@@ -135,6 +180,13 @@ export async function startSignalingServer(
 
   wss.on('connection', (socket) => {
     let self: Peer | undefined
+
+    // Świeże połączenie wchodzi jako odpowiadające — inaczej pierwsza runda
+    // pulsu zerwałaby je, zanim zdąży cokolwiek odesłać.
+    odpowiedzialy.add(socket)
+    // Odpowiedź na pinga leci automatycznie z warstwy protokołu, po obu
+    // stronach — klient nie musi o niej nic wiedzieć.
+    socket.on('pong', () => odpowiedzialy.add(socket))
 
     /** Właściwe wejście do pokoju — wołane dopiero po sprawdzeniu klucza. */
     function joinRoom(roomId: string, requestedName: string | null): void {
@@ -298,6 +350,7 @@ export async function startSignalingServer(
     port: address.port,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        clearInterval(puls)
         for (const peer of peers.values()) peer.socket.terminate()
         wss.close(() => http.close((err) => (err ? reject(err) : resolve())))
       })
