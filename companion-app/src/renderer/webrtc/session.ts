@@ -1,5 +1,6 @@
 import type { StreamKind, StreamRef } from '../../shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS } from '../../shared/types'
+import type { FreezeReport } from '@shared/viewerQuality'
 import type {
   JoinResult,
   PeerInfo,
@@ -94,6 +95,16 @@ type SignalPayload =
   | { kind: 'offer'; sdp: string; owner: string; stream: StreamKind }
   | { kind: 'answer'; sdp: string; owner: string; stream: StreamKind }
   | { kind: 'ice'; candidate: RTCIceCandidateInit; owner: string; stream: StreamKind }
+  /**
+   * Raport widza o tym, jak mu dochodzi nasz obraz.
+   *
+   * CELOWO bez pola `stream` — i to jest warunek zgodnosci wstecz, nie
+   * przeoczenie. `onSignal` w starszych klientach liczy
+   * `connectionKey(from, payload.stream)`; bez tego pola klucz nigdy nie
+   * pasuje i wiadomosc jest po cichu ignorowana. Z polem `stream` stary
+   * klient probowalby dodac `undefined` jako kandydata ICE.
+   */
+  | { kind: 'quality'; frozenMs: number; windowMs: number }
 
 /**
  * Kandydaci ICE potrafią dotrzeć zanim ustawimy zdalny opis sesji —
@@ -157,6 +168,8 @@ export interface LobbyCallbacks {
    * więc komunikat wisiałby w interfejsie po ustaniu przyczyny.
    */
   onUnreachableChange: (peerIds: string[]) => void
+  /** Raport od widza: ile jego obraz stal zamrozony w ostatnim oknie. */
+  onViewerQualityChange: (peerId: string, report: FreezeReport) => void
 }
 
 export class LobbySession {
@@ -203,6 +216,14 @@ export class LobbySession {
   private readonly quality = new Map<StreamKind, Quality>(
     STREAM_KINDS.map((kind) => [kind, { ...DEFAULT_STREAM_QUALITY[kind] }])
   )
+  /**
+   * Poprzedni odczyt zamrozen na polaczeniu PRZYCHODZACYM:
+   * connectionKey -> { laczny czas zamrozen, kiedy odczytany }.
+   *
+   * `totalFreezesDuration` narasta od poczatku polaczenia, wiec bez poprzedniej
+   * wartosci nie da sie policzyc, ile obraz stal w OSTATNIM oknie.
+   */
+  private readonly lastFreezeSample = new Map<string, { totalMs: number; at: number }>()
 
   constructor(
     private readonly signaling: SignalingClient,
@@ -520,11 +541,23 @@ export class LobbySession {
     this.markReachability(`in:${key}`, streamerId, false)
     this.incoming.delete(key)
     this.incomingBuffers.delete(key)
+    this.lastFreezeSample.delete(key)
   }
 
   // --- sygnalizacja ------------------------------------------------------
 
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
+    // Przed czymkolwiek innym: ten payload nie ma pola `stream`, wiec liczenie
+    // z niego klucza polaczenia nie ma sensu. Dalsza czesc funkcji traktuje
+    // wszystko, co nie jest oferta ani odpowiedzia, jako kandydata ICE.
+    if (payload.kind === 'quality') {
+      this.callbacks.onViewerQualityChange(from, {
+        frozenMs: payload.frozenMs,
+        windowMs: payload.windowMs
+      })
+      return
+    }
+
     const kind = payload.stream
     const key = connectionKey(from, kind)
 
@@ -592,6 +625,62 @@ export class LobbySession {
     return false
   }
 
+  /**
+   * Wysyla kazdemu nadajacemu raport o tym, jak nam dochodzi jego obraz.
+   * Wolane cyklicznie z warstwy interfejsu — sesja nie ma wlasnych timerow.
+   *
+   * Osoba nadajaca ekran i kamere naraz dostaje JEDEN raport: bierzemy
+   * najgorszy z jej strumieni. Wskaznik i tak stoi przy nazwisku, wiec
+   * rozbijanie go na strumienie niczego by nie wniosło.
+   */
+  async reportQualityToStreamers(): Promise<void> {
+    type InboundStat = { type: string; kind?: string; totalFreezesDuration?: number }
+
+    const now = Date.now()
+    const najgorszy = new Map<string, FreezeReport>()
+
+    for (const ref of this.streamerRefs.values()) {
+      if (ref.peerId === this.myPeerId) continue
+      const key = connectionKey(ref.peerId, ref.kind)
+      const connection = this.incoming.get(key)
+      if (!connection) continue
+
+      let totalMs: number | null = null
+      const report = await connection.getStats()
+      for (const entry of report.values()) {
+        const stat = entry as InboundStat
+        if (stat.type !== 'inbound-rtp' || stat.kind !== 'video') continue
+        // Statystyka jest w sekundach, my liczymy w milisekundach.
+        if (typeof stat.totalFreezesDuration === 'number') {
+          totalMs = stat.totalFreezesDuration * 1000
+        }
+      }
+      if (totalMs === null) continue
+
+      const previous = this.lastFreezeSample.get(key)
+      this.lastFreezeSample.set(key, { totalMs, at: now })
+      // Pierwsza probka nie ma z czym sie porownac. Bez tego pierwszy raport
+      // powiedzialby "zamrozone 3 s w oknie 5 s", choc te 3 s uzbieraly sie
+      // przez cala dotychczasowa transmisje.
+      if (!previous) continue
+
+      const windowMs = now - previous.at
+      if (windowMs <= 0) continue
+      // Licznik nie powinien maleć, ale ujemny wynik po restarcie polaczenia
+      // dalby bezsensowny raport.
+      const frozenMs = Math.max(0, totalMs - previous.totalMs)
+
+      const dotychczas = najgorszy.get(ref.peerId)
+      if (!dotychczas || frozenMs / windowMs > dotychczas.frozenMs / dotychczas.windowMs) {
+        najgorszy.set(ref.peerId, { frozenMs, windowMs })
+      }
+    }
+
+    for (const [peerId, raport] of najgorszy) {
+      this.signaling.signal(peerId, { kind: 'quality', ...raport })
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     // Bezpośrednie sprzątanie lokalnego stanu, bez wołania signaling.stopStream:
@@ -605,6 +694,7 @@ export class LobbySession {
     for (const connection of this.incoming.values()) connection.close()
     this.incoming.clear()
     this.incomingBuffers.clear()
+    this.lastFreezeSample.clear()
     this.peers.clear()
     this.streamerRefs.clear()
     this.failedConnections.clear()

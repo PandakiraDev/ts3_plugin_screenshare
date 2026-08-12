@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StreamKind, StreamRef } from '../../shared/types'
 import type { LaunchOptions } from '../../shared/cli'
+import type { FreezeReport } from '@shared/viewerQuality'
 import { SignalingClient } from '../signaling/SignalingClient'
 import type { PeerInfo } from '../signaling/SignalingClient'
 import { LobbySession, connectionKey } from '../webrtc/session'
@@ -101,6 +102,8 @@ export interface LobbyState {
   remoteStreams: Map<string, RemoteStream>
   /** Kto nas aktualnie ogląda. Licznik w nagłówku bierze się z długości. */
   viewerPeerIds: string[]
+  /** Ostatni raport od każdego widza wraz z czasem odbioru. */
+  viewerQuality: Map<string, { report: FreezeReport; receivedAt: number }>
   /** Pozostali uczestnicy pokoju (bez nas). */
   peers: PeerInfo[]
   /** Nasz własny wpis na liście. */
@@ -121,6 +124,7 @@ const INITIAL: LobbyState = {
   streams: [],
   remoteStreams: new Map(),
   viewerPeerIds: [],
+  viewerQuality: new Map(),
   peers: [],
   me: null,
   error: null,
@@ -208,7 +212,14 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
             setState((current) => ({ ...current, viewerPeerIds: peerIds })),
           onError: (message) => setState((current) => ({ ...current, error: message })),
           onUnreachableChange: (peerIds) =>
-            setState((current) => ({ ...current, unreachablePeerIds: peerIds }))
+            setState((current) => ({ ...current, unreachablePeerIds: peerIds })),
+          onViewerQualityChange: (peerId, report) =>
+            setState((current) => {
+              // Nowa mapa, nie mutacja: React porownuje referencje.
+              const viewerQuality = new Map(current.viewerQuality)
+              viewerQuality.set(peerId, { report, receivedAt: Date.now() })
+              return { ...current, viewerQuality }
+            })
         })
         sessionRef.current = session
 
