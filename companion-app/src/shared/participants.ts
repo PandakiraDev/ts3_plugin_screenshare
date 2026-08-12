@@ -1,3 +1,5 @@
+import type { ViewerQuality } from './viewerQuality'
+
 /**
  * Barwy krążków. Dobrane pod tło `--bg-raised` (#2b2d31) — każda ma dawać
  * czytelny biały tekst i różnić się od sąsiadek na tyle, żeby dwie osoby obok
@@ -42,4 +44,33 @@ export function avatarColorFrom(displayName: string): string {
     hash = ((hash << 5) + hash + (char.codePointAt(0) ?? 0)) | 0
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
+export type ParticipantBadge =
+  | { kind: 'screen' }
+  | { kind: 'camera' }
+  | { kind: 'watching'; quality: ViewerQuality }
+  | { kind: 'unreachable' }
+
+export interface BadgeInput {
+  hasScreen: boolean
+  hasCamera: boolean
+  /** Nas samych nie ma na liście widzów, więc własny wiersz tego nie dostaje. */
+  isWatchingUs: boolean
+  quality: ViewerQuality
+  isUnreachable: boolean
+}
+
+/**
+ * Plakietki w stałej kolejności: co nadaje, potem czy nas ogląda, na końcu
+ * kłopot z połączeniem. Kolejność jest stała celowo — wiersz ma wyglądać
+ * tak samo za każdym razem, żeby oko wiedziało, gdzie patrzeć.
+ */
+export function badgesFor(input: BadgeInput): ParticipantBadge[] {
+  const badges: ParticipantBadge[] = []
+  if (input.hasScreen) badges.push({ kind: 'screen' })
+  if (input.hasCamera) badges.push({ kind: 'camera' })
+  if (input.isWatchingUs) badges.push({ kind: 'watching', quality: input.quality })
+  if (input.isUnreachable) badges.push({ kind: 'unreachable' })
+  return badges
 }
