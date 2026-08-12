@@ -3,6 +3,7 @@ import {
   LEAVE_DURATION_MS,
   advanceLeaving,
   emptyLeaveState,
+  nextDeadlineAt,
   visibleItems,
   type LeaveState
 } from '@shared/leaveTransition'
@@ -41,13 +42,20 @@ export function useLeaveTransition<T>(
    * Gdy element dogaśnie, źródło już się nie zmieni — nikt nas nie obudzi.
    * Bez tego zegara wychodzący element zostałby w DOM-ie na zawsze, wygaszony
    * i nieklikany, ale zajmujący miejsce w siatce.
+   *
+   * Zależnością musi być TERMIN wybudzenia, a nie flaga „coś się wygasa". Gdyby była flaga:
+   * gdy A dogaśnie i znika, a B wciąż wygasa, flaga by została na true, efekt by się nie
+   * odpalił, i żaden budzik by się nie zaplanował dla B. Termin ma tę zaletę, że zmienia się
+   * przy każdym wejściu/wyjściu, więc efekt się odpalił dla każdego pierwszego/ostatniego
+   * elementu w grupie wychodzących.
    */
-  const hasLeaving = stateRef.current.leaving.size > 0
+  const nextDeadline = nextDeadlineAt(stateRef.current, durationMs)
   useEffect(() => {
-    if (!hasLeaving) return
-    const timer = setTimeout(() => bumpRender((count) => count + 1), durationMs)
+    if (nextDeadline === null) return
+    const delayMs = Math.max(0, nextDeadline - Date.now())
+    const timer = setTimeout(() => bumpRender((count) => count + 1), delayMs)
     return () => clearTimeout(timer)
-  }, [hasLeaving, durationMs])
+  }, [nextDeadline, durationMs])
 
   return visible
 }

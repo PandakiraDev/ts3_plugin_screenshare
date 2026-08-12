@@ -4,6 +4,7 @@ import {
   advanceLeaving,
   emptyLeaveState,
   visibleItems,
+  nextDeadlineAt,
   type LeaveState
 } from '../src/shared/leaveTransition'
 
@@ -103,4 +104,33 @@ test('dwa elementy wychodzące naraz zachowują swoją kolejność', () => {
   state = advanceLeaving(state, [item('a'), item('d')], keyOf, 10, LEAVE_DURATION_MS)
 
   expect(ids(state)).toEqual(['a', 'b', 'c', 'd'])
+})
+
+test('nextDeadlineAt: pusty stan zwraca null', () => {
+  const state = emptyLeaveState<Item>()
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(null)
+})
+
+test('nextDeadlineAt: jeden wygasający zwraca jego termin', () => {
+  let state = emptyLeaveState<Item>()
+  state = advanceLeaving(state, [item('a'), item('b')], keyOf, 100, LEAVE_DURATION_MS)
+  state = advanceLeaving(state, [item('a')], keyOf, 100, LEAVE_DURATION_MS)
+
+  // b wypadł w chwili 100, dogaśnie w 100 + 400 = 500
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(500)
+})
+
+test('nextDeadlineAt: dwa wygasające zwracają wcześniejszy termin (regresja: wielokrotne wychodzące)', () => {
+  // To jest test regresji dokładnie na błąd: gdy A dogaśnie, a B wciąż wygasa,
+  // zależnością hooka musi być termin, a nie flaga, inaczej efekt się nie odpalił
+  // dla B i B zastaje się w DOM-ie bez zaplanowanego wybudzenia.
+  let state = emptyLeaveState<Item>()
+  state = advanceLeaving(state, [item('a'), item('b'), item('c')], keyOf, 0, LEAVE_DURATION_MS)
+  state = advanceLeaving(state, [item('a'), item('c')], keyOf, 100, LEAVE_DURATION_MS) // b wypadł w 100
+  state = advanceLeaving(state, [item('a')], keyOf, 150, LEAVE_DURATION_MS) // c wypadł w 150
+
+  // b dogaśnie w 100 + 400 = 500 (wcześniej)
+  // c dogaśnie w 150 + 400 = 550 (później)
+  // powinna zwrócić 500
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(500)
 })

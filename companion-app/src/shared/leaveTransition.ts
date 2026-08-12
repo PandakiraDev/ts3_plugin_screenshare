@@ -68,3 +68,23 @@ export function visibleItems<T>(state: LeaveState<T>): { item: T; leaving: boole
   }
   return result
 }
+
+/**
+ * Moment, w którym pierwszy wygasający element dogaśnie i powinien zostać usunięty
+ * z DOM-u. Zwraca null, jeśli nic nie wygasa.
+ *
+ * Najwcześniejszy termin: gdy któryś element dogaśnie, reszta następuje w swoim czasie.
+ * Jeśli zależnością efektu będzie ten moment, każde przesunięcie terminu (nowy element
+ * wychodzący wcześniej/później niż poprzedni) przeplanuje budzik — to rozwiązuje regresję,
+ * gdzie drugi element wychodzący utknął w DOM-ie bez zaplanowanego wybudzenia.
+ */
+export function nextDeadlineAt<T>(state: LeaveState<T>, durationMs: number): number | null {
+  let earliest: number | null = null
+  for (const entry of state.leaving.values()) {
+    const deadline = entry.since + durationMs
+    if (earliest === null || deadline < earliest) {
+      earliest = deadline
+    }
+  }
+  return earliest
+}
