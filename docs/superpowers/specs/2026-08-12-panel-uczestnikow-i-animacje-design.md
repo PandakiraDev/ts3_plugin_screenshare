@@ -170,11 +170,15 @@ export function badgesFor(input: BadgeInput): ParticipantBadge[]
 /** Płaska lista w kolejności wyświetlania: my, potem pozostali. */
 export function buildParticipants(input: ParticipantsInput): ParticipantView[]
 
-/** Rozdzielenie na sekcje — osobno, bo działa dopiero PO przejściu wyjścia. */
-export function splitByStreaming(views: readonly ParticipantView[]): {
-  streaming: ParticipantView[]
-  others: ParticipantView[]
-}
+/**
+ * Rozdzielenie na sekcje — osobno, bo działa dopiero PO przejściu wyjścia.
+ * Generyczne, bo do tego czasu wiersz jest już opakowany w znacznik `leaving`
+ * i nie jest gołym `ParticipantView`.
+ */
+export function splitByStreaming<T>(
+  items: readonly T[],
+  isStreaming: (item: T) => boolean
+): { streaming: T[]; others: T[] }
 ```
 
 `buildParticipants` zwraca listę **płaską**, a nie od razu podzieloną na sekcje.
@@ -276,9 +280,11 @@ cała logika, która ma być sprawdzona, musi zamieszkać w `src/shared`.
 - plakietka „Ogląda" **wyłącznie** dla osób z `viewerPeerIds`;
 - jakość `unknown` daje plakietkę **bez dopisku**, a nie „płynnie";
 - `unreachable` daje plakietkę także osobie, która nic nie nadaje;
-- nasz własny wiersz nie dostaje ani „Ogląda", ani „Brak połączenia" — nie
-  łączymy się sami ze sobą, więc nie ma nas ani w `viewerPeerIds`, ani
-  w `unreachablePeerIds`;
+- nasz własny wiersz nie dostaje ani „Ogląda", ani „Brak połączenia". Nie
+  łączymy się sami ze sobą, więc nas na tych listach być nie powinno — ale
+  `buildParticipants` ma to **wymuszać**, a nie zakładać, inaczej test byłby
+  pusty: karmimy go listami zawierającymi nas i sprawdzamy, że i tak nie
+  wychodzi z tego „sam siebie oglądam";
 - `splitByStreaming` wstawia nas po stronie nadających, gdy nadajemy, i liczy
   obie sekcje osobno.
 
