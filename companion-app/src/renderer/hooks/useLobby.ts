@@ -142,6 +142,8 @@ export interface Lobby {
   applyQuality: (kind: StreamKind, bitrateKbps: number, fps: number) => void
   /** Czy któryś z naszych nadajników jest duszony przez pasmo — odczyt na żądanie. */
   uplinkLimited: () => Promise<boolean>
+  /** Wysyła nadającym raport o tym, jak nam dochodzi ich obraz. */
+  reportQualityToStreamers: () => Promise<void>
 }
 
 /**
@@ -298,5 +300,10 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
     return sessionRef.current?.uplinkLimited() ?? false
   }, [])
 
-  return { state, startStream, stopStream, replaceStream, applyQuality, uplinkLimited }
+  const reportQualityToStreamers = useCallback(async (): Promise<void> => {
+    // Brak sesji = nikogo nie oglądamy, więc nie ma o czym raportować.
+    await sessionRef.current?.reportQualityToStreamers()
+  }, [])
+
+  return { state, startStream, stopStream, replaceStream, applyQuality, uplinkLimited, reportQualityToStreamers }
 }
