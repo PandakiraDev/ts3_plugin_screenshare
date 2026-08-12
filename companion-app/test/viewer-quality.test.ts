@@ -3,6 +3,7 @@ import {
   FROZEN_FRACTION_POOR,
   QUALITY_STALE_AFTER_MS,
   allViewersStruggling,
+  freezeDelta,
   qualityFromReport,
   type ViewerQuality
 } from '../src/shared/viewerQuality'
@@ -60,4 +61,26 @@ test('nie wiemy, więc nie krzyczymy', () => {
 test('brak widzów to brak problemu', () => {
   const pusto: ViewerQuality[] = []
   expect(allViewersStruggling(pusto)).toBe(false)
+})
+
+test('pierwsza próbka nie ma z czym się porównać, więc nie produkuje raportu', () => {
+  expect(freezeDelta(undefined, { totalMs: 3_000, at: 5_000 })).toBeNull()
+})
+
+test('cofnięty licznik (restart połączenia) daje zero, nie ujemną wartość', () => {
+  const previous = { totalMs: 5_000, at: 10_000 }
+  const current = { totalMs: 0, at: 15_000 }
+  expect(freezeDelta(previous, current)).toEqual({ frozenMs: 0, windowMs: 5_000 })
+})
+
+test('identyczny znacznik czasu to okno zerowej długości, więc brak raportu', () => {
+  const previous = { totalMs: 1_000, at: 10_000 }
+  const current = { totalMs: 1_200, at: 10_000 }
+  expect(freezeDelta(previous, current)).toBeNull()
+})
+
+test('normalny przyrost liczy się wprost', () => {
+  const previous = { totalMs: 1_000, at: 10_000 }
+  const current = { totalMs: 1_300, at: 15_000 }
+  expect(freezeDelta(previous, current)).toEqual({ frozenMs: 300, windowMs: 5_000 })
 })

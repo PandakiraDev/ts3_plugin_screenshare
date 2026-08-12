@@ -15,6 +15,35 @@ export interface FreezeReport {
   windowMs: number
 }
 
+/**
+ * Przyrost zamrożeń między dwiema próbkami `totalFreezesDuration` (patrz
+ * `reportQualityToStreamers` w `session.ts`, jedyne miejsce wołające tę
+ * funkcję). Ta statystyka narasta od początku połączenia, nie od ostatniego
+ * odczytu, więc samo odjęcie próbek nie wystarczy — trzeba osłonić dwa
+ * przypadki brzegowe:
+ *
+ * - brak `previous` (pierwsza próbka po podłączeniu) — nie ma z czym
+ *   porównać, więc zwracamy `null` zamiast raportu liczonego z całej
+ *   dotychczasowej transmisji;
+ * - `windowMs <= 0` (ten sam znacznik czasu albo zegar cofnięty) — dzielenie
+ *   przez takie okno gdzie indziej (`qualityFromReport`) nie miałoby sensu,
+ *   więc odsiewamy to już tutaj, u źródła.
+ *
+ * Klamra `Math.max(0, …)` na przyroście: licznik nie powinien maleć, ale
+ * restart połączenia zeruje `totalFreezesDuration` po stronie przeglądarki,
+ * co bez tej klamry dałoby ujemny, bezsensowny `frozenMs`.
+ */
+export function freezeDelta(
+  previous: { totalMs: number; at: number } | undefined,
+  current: { totalMs: number; at: number }
+): FreezeReport | null {
+  if (!previous) return null
+  const windowMs = current.at - previous.at
+  if (windowMs <= 0) return null
+  const frozenMs = Math.max(0, current.totalMs - previous.totalMs)
+  return { frozenMs, windowMs }
+}
+
 /** Co ile widz wysyła raport. */
 export const QUALITY_REPORT_INTERVAL_MS = 5_000
 

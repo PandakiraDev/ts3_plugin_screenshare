@@ -26,6 +26,10 @@ test('osoba bez połączenia wychodzącego nie jest widzem', () => {
   expect(viewerPeerIds(['a', 'b'], (key) => connections.has(key))).toEqual(['a'])
 })
 
+test('nikt bez połączenia wychodzącego nie jest widzem', () => {
+  expect(viewerPeerIds(['a', 'b'], () => false)).toEqual([])
+})
+
 test('kolejność wynika z kolejności uczestników', () => {
   const connections = new Set([
     connectionKey('a', 'screen'),
