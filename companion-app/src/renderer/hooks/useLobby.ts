@@ -215,7 +215,7 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
             setState((current) => ({ ...current, unreachablePeerIds: peerIds })),
           onViewerQualityChange: (peerId, report) =>
             setState((current) => {
-              // Nowa mapa, nie mutacja: React porownuje referencje.
+              // Nowa mapa, nie mutacja: React porównuje referencje.
               const viewerQuality = new Map(current.viewerQuality)
               viewerQuality.set(peerId, { report, receivedAt: Date.now() })
               return { ...current, viewerQuality }

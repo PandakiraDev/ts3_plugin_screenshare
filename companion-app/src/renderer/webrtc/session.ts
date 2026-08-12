@@ -98,11 +98,11 @@ type SignalPayload =
   /**
    * Raport widza o tym, jak mu dochodzi nasz obraz.
    *
-   * CELOWO bez pola `stream` — i to jest warunek zgodnosci wstecz, nie
+   * CELOWO bez pola `stream` — i to jest warunek zgodności wstecz, nie
    * przeoczenie. `onSignal` w starszych klientach liczy
    * `connectionKey(from, payload.stream)`; bez tego pola klucz nigdy nie
-   * pasuje i wiadomosc jest po cichu ignorowana. Z polem `stream` stary
-   * klient probowalby dodac `undefined` jako kandydata ICE.
+   * pasuje i wiadomość jest po cichu ignorowana. Z polem `stream` stary
+   * klient próbowałby dodać `undefined` jako kandydata ICE.
    */
   | { kind: 'quality'; frozenMs: number; windowMs: number }
 
@@ -168,7 +168,7 @@ export interface LobbyCallbacks {
    * więc komunikat wisiałby w interfejsie po ustaniu przyczyny.
    */
   onUnreachableChange: (peerIds: string[]) => void
-  /** Raport od widza: ile jego obraz stal zamrozony w ostatnim oknie. */
+  /** Raport od widza: ile jego obraz stał zamrożony w ostatnim oknie. */
   onViewerQualityChange: (peerId: string, report: FreezeReport) => void
 }
 
@@ -217,11 +217,11 @@ export class LobbySession {
     STREAM_KINDS.map((kind) => [kind, { ...DEFAULT_STREAM_QUALITY[kind] }])
   )
   /**
-   * Poprzedni odczyt zamrozen na polaczeniu PRZYCHODZACYM:
-   * connectionKey -> { laczny czas zamrozen, kiedy odczytany }.
+   * Poprzedni odczyt zamrożeń na połączeniu PRZYCHODZĄCYM:
+   * connectionKey -> { łączny czas zamrożeń, kiedy odczytany }.
    *
-   * `totalFreezesDuration` narasta od poczatku polaczenia, wiec bez poprzedniej
-   * wartosci nie da sie policzyc, ile obraz stal w OSTATNIM oknie.
+   * `totalFreezesDuration` narasta od początku połączenia, więc bez poprzedniej
+   * wartości nie da się policzyć, ile obraz stał w OSTATNIM oknie.
    */
   private readonly lastFreezeSample = new Map<string, { totalMs: number; at: number }>()
 
@@ -547,9 +547,9 @@ export class LobbySession {
   // --- sygnalizacja ------------------------------------------------------
 
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
-    // Przed czymkolwiek innym: ten payload nie ma pola `stream`, wiec liczenie
-    // z niego klucza polaczenia nie ma sensu. Dalsza czesc funkcji traktuje
-    // wszystko, co nie jest oferta ani odpowiedzia, jako kandydata ICE.
+    // Przed czymkolwiek innym: ten payload nie ma pola `stream`, więc liczenie
+    // z niego klucza połączenia nie ma sensu. Dalsza część funkcji traktuje
+    // wszystko, co nie jest ofertą ani odpowiedzią, jako kandydata ICE.
     if (payload.kind === 'quality') {
       this.callbacks.onViewerQualityChange(from, {
         frozenMs: payload.frozenMs,
@@ -626,18 +626,18 @@ export class LobbySession {
   }
 
   /**
-   * Wysyla kazdemu nadajacemu raport o tym, jak nam dochodzi jego obraz.
-   * Wolane cyklicznie z warstwy interfejsu — sesja nie ma wlasnych timerow.
+   * Wysyła każdemu nadającemu raport o tym, jak nam dochodzi jego obraz.
+   * Wołane cyklicznie z warstwy interfejsu — sesja nie ma własnych timerów.
    *
-   * Osoba nadajaca ekran i kamere naraz dostaje JEDEN raport: bierzemy
-   * najgorszy z jej strumieni. Wskaznik i tak stoi przy nazwisku, wiec
+   * Osoba nadająca ekran i kamerę naraz dostaje JEDEN raport: bierzemy
+   * najgorszy z jej strumieni. Wskaźnik i tak stoi przy nazwisku, więc
    * rozbijanie go na strumienie niczego by nie wniosło.
    */
   async reportQualityToStreamers(): Promise<void> {
     type InboundStat = { type: string; kind?: string; totalFreezesDuration?: number }
 
     const now = Date.now()
-    const najgorszy = new Map<string, FreezeReport>()
+    const worst = new Map<string, FreezeReport>()
 
     for (const ref of this.streamerRefs.values()) {
       if (ref.peerId === this.myPeerId) continue
@@ -646,8 +646,8 @@ export class LobbySession {
       if (!connection) continue
 
       let totalMs: number | null = null
-      const report = await connection.getStats()
-      for (const entry of report.values()) {
+      const stats = await connection.getStats()
+      for (const entry of stats.values()) {
         const stat = entry as InboundStat
         if (stat.type !== 'inbound-rtp' || stat.kind !== 'video') continue
         // Statystyka jest w sekundach, my liczymy w milisekundach.
@@ -659,25 +659,25 @@ export class LobbySession {
 
       const previous = this.lastFreezeSample.get(key)
       this.lastFreezeSample.set(key, { totalMs, at: now })
-      // Pierwsza probka nie ma z czym sie porownac. Bez tego pierwszy raport
-      // powiedzialby "zamrozone 3 s w oknie 5 s", choc te 3 s uzbieraly sie
-      // przez cala dotychczasowa transmisje.
+      // Pierwsza próbka nie ma z czym się porównać. Bez tego pierwszy raport
+      // powiedziałby "zamrożone 3 s w oknie 5 s", choć te 3 s uzbierały się
+      // przez całą dotychczasową transmisję.
       if (!previous) continue
 
       const windowMs = now - previous.at
       if (windowMs <= 0) continue
-      // Licznik nie powinien maleć, ale ujemny wynik po restarcie polaczenia
-      // dalby bezsensowny raport.
+      // Licznik nie powinien maleć, ale ujemny wynik po restarcie połączenia
+      // dałby bezsensowny raport.
       const frozenMs = Math.max(0, totalMs - previous.totalMs)
 
-      const dotychczas = najgorszy.get(ref.peerId)
-      if (!dotychczas || frozenMs / windowMs > dotychczas.frozenMs / dotychczas.windowMs) {
-        najgorszy.set(ref.peerId, { frozenMs, windowMs })
+      const previousWorst = worst.get(ref.peerId)
+      if (!previousWorst || frozenMs / windowMs > previousWorst.frozenMs / previousWorst.windowMs) {
+        worst.set(ref.peerId, { frozenMs, windowMs })
       }
     }
 
-    for (const [peerId, raport] of najgorszy) {
-      this.signaling.signal(peerId, { kind: 'quality', ...raport })
+    for (const [peerId, report] of worst) {
+      this.signaling.signal(peerId, { kind: 'quality', ...report })
     }
   }
 
