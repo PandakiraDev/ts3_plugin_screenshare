@@ -1,4 +1,5 @@
 import type { ViewerQuality } from './viewerQuality'
+import type { StreamKind } from './types'
 
 /**
  * Barwy krążków. Dobrane pod tło `--bg-raised` (#2b2d31) — każda ma dawać
@@ -73,4 +74,79 @@ export function badgesFor(input: BadgeInput): ParticipantBadge[] {
   if (input.isWatchingUs) badges.push({ kind: 'watching', quality: input.quality })
   if (input.isUnreachable) badges.push({ kind: 'unreachable' })
   return badges
+}
+
+export interface ParticipantView {
+  peerId: string
+  displayName: string
+  isMe: boolean
+  initials: string
+  color: string
+  /** Nadaje cokolwiek — decyduje o przydziale do sekcji. */
+  isStreaming: boolean
+  badges: ParticipantBadge[]
+}
+
+export interface ParticipantsInput {
+  me: { peerId: string; displayName: string } | null
+  peers: readonly { peerId: string; displayName: string }[]
+  streams: readonly { peerId: string; kind: StreamKind }[]
+  viewerPeerIds: readonly string[]
+  viewerQuality: ReadonlyMap<string, ViewerQuality>
+  unreachablePeerIds: readonly string[]
+}
+
+/**
+ * Płaska lista w kolejności wyświetlania: my, potem pozostali w kolejności
+ * z serwera. PŁASKA, a nie od razu podzielona na sekcje — podział musi się
+ * odbyć dopiero po przejściu wyjścia, inaczej osoba kończąca transmisję byłaby
+ * przez chwilę widoczna dwa razy naraz (dogasająca w „Nadają" i już wstawiona
+ * do „W kanale").
+ */
+export function buildParticipants(input: ParticipantsInput): ParticipantView[] {
+  const viewers = new Set(input.viewerPeerIds)
+  const unreachable = new Set(input.unreachablePeerIds)
+  const everyone = [
+    ...(input.me ? [{ ...input.me, isMe: true }] : []),
+    ...input.peers.map((peer) => ({ ...peer, isMe: false }))
+  ]
+
+  return everyone.map((person) => {
+    const kinds = input.streams.filter((stream) => stream.peerId === person.peerId)
+    const hasScreen = kinds.some((stream) => stream.kind === 'screen')
+    const hasCamera = kinds.some((stream) => stream.kind === 'camera')
+    return {
+      peerId: person.peerId,
+      displayName: person.displayName,
+      isMe: person.isMe,
+      initials: initialsFrom(person.displayName),
+      color: avatarColorFrom(person.displayName),
+      isStreaming: hasScreen || hasCamera,
+      badges: badgesFor({
+        hasScreen,
+        hasCamera,
+        // `!person.isMe` to strażnik, nie ozdobnik. Nie łączymy się sami ze
+        // sobą, więc nas na tych listach BYĆ NIE POWINNO — ale gdyby kiedyś
+        // trafiły tam przez pomyłkę, własny wiersz twierdziłby, że sam siebie
+        // ogląda i sam do siebie nie może się dobić. Reguła zamiast założenia.
+        isWatchingUs: !person.isMe && viewers.has(person.peerId),
+        quality: input.viewerQuality.get(person.peerId) ?? 'unknown',
+        isUnreachable: !person.isMe && unreachable.has(person.peerId)
+      })
+    }
+  })
+}
+
+/**
+ * Generyczne, bo w chwili podziału wiersz jest już opakowany w znacznik
+ * `leaving` i nie jest gołym `ParticipantView`.
+ */
+export function splitByStreaming<T>(
+  items: readonly T[],
+  isStreaming: (item: T) => boolean
+): { streaming: T[]; others: T[] } {
+  return {
+    streaming: items.filter((item) => isStreaming(item)),
+    others: items.filter((item) => !isStreaming(item))
+  }
 }

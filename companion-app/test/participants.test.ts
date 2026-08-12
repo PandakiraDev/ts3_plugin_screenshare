@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { AVATAR_COLORS, avatarColorFrom, initialsFrom, badgesFor } from '../src/shared/participants'
+import { AVATAR_COLORS, avatarColorFrom, initialsFrom, badgesFor, buildParticipants, splitByStreaming } from '../src/shared/participants'
 
 test('dwa słowa dają dwie pierwsze litery', () => {
   expect(initialsFrom('Jan Kowalski')).toBe('JK')
@@ -104,4 +104,105 @@ test('sama kamera bez ekranu daje jedną plakietkę', () => {
     isUnreachable: false
   })
   expect(badges).toEqual([{ kind: 'camera' }])
+})
+
+const EMPTY_QUALITY = new Map<string, 'ok' | 'poor' | 'unknown'>()
+
+test('nasz wiersz stoi pierwszy i jest oznaczony jako nasz', () => {
+  const views = buildParticipants({
+    me: { peerId: 'me', displayName: 'Konrad' },
+    peers: [{ peerId: 'p1', displayName: 'Marek' }],
+    streams: [],
+    viewerPeerIds: [],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: []
+  })
+  expect(views.map((view) => view.peerId)).toEqual(['me', 'p1'])
+  expect(views[0].isMe).toBe(true)
+  expect(views[1].isMe).toBe(false)
+})
+
+test('osoba z ekranem i kamerą naraz dostaje obie plakietki', () => {
+  const views = buildParticipants({
+    me: null,
+    peers: [{ peerId: 'p1', displayName: 'Marek' }],
+    streams: [
+      { peerId: 'p1', kind: 'screen' },
+      { peerId: 'p1', kind: 'camera' }
+    ],
+    viewerPeerIds: [],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: []
+  })
+  expect(views[0].badges).toEqual([{ kind: 'screen' }, { kind: 'camera' }])
+  expect(views[0].isStreaming).toBe(true)
+})
+
+test('widz bez raportu jakości dostaje plakietkę „nie wiadomo"', () => {
+  const views = buildParticipants({
+    me: null,
+    peers: [{ peerId: 'p1', displayName: 'Marek' }],
+    streams: [],
+    viewerPeerIds: ['p1'],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: []
+  })
+  expect(views[0].badges).toEqual([{ kind: 'watching', quality: 'unknown' }])
+})
+
+test('nieosiągalny peer jest oznaczony', () => {
+  const views = buildParticipants({
+    me: null,
+    peers: [{ peerId: 'p1', displayName: 'Piotrek' }],
+    streams: [],
+    viewerPeerIds: [],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: ['p1']
+  })
+  expect(views[0].badges).toEqual([{ kind: 'unreachable' }])
+})
+
+test('nasz wiersz nie dostaje ani „Ogląda", ani „Brak połączenia"', () => {
+  // Nie łączymy się sami ze sobą, więc nie ma nas ani w viewerPeerIds, ani
+  // w unreachablePeerIds. Test pilnuje, żeby nikt tego nie „naprawił"
+  // dopisując nas do którejś z tych list.
+  const views = buildParticipants({
+    me: { peerId: 'me', displayName: 'Konrad' },
+    peers: [],
+    streams: [{ peerId: 'me', kind: 'screen' }],
+    viewerPeerIds: ['me'],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: ['me']
+  })
+  // Gdyby buildParticipants brał te listy bezkrytycznie, byłyby tu trzy
+  // plakietki. Ma być jedna — ta o ekranie.
+  expect(views[0].badges).toEqual([{ kind: 'screen' }])
+})
+
+test('podział na sekcje wstawia nas po stronie nadających, gdy nadajemy', () => {
+  const views = buildParticipants({
+    me: { peerId: 'me', displayName: 'Konrad' },
+    peers: [{ peerId: 'p1', displayName: 'Marek' }],
+    streams: [{ peerId: 'me', kind: 'screen' }],
+    viewerPeerIds: [],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: []
+  })
+  const sections = splitByStreaming(views, (view) => view.isStreaming)
+  expect(sections.streaming.map((view) => view.peerId)).toEqual(['me'])
+  expect(sections.others.map((view) => view.peerId)).toEqual(['p1'])
+})
+
+test('podział działa też na wierszach opakowanych w znacznik wyjścia', () => {
+  // To NIE jest ten sam test co wyżej: sekcje dzielimy dopiero PO przejściu
+  // wyjścia, więc do splitByStreaming trafia opakowany wiersz, a nie goły
+  // ParticipantView. Gdyby funkcja nie była generyczna, tu by się wywaliła.
+  const rows = [
+    { item: { isStreaming: true, peerId: 'a' }, leaving: false },
+    { item: { isStreaming: false, peerId: 'b' }, leaving: true }
+  ]
+  const sections = splitByStreaming(rows, (row) => row.item.isStreaming)
+  expect(sections.streaming).toHaveLength(1)
+  expect(sections.others).toHaveLength(1)
+  expect(sections.others[0].leaving).toBe(true)
 })
