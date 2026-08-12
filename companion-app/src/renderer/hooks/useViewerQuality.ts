@@ -20,8 +20,8 @@ export function useViewerQuality(lobby: Lobby): Map<string, ViewerQuality> {
 
   useEffect(() => {
     function report(): void {
-      // Sesja moze zostac zniszczona pod trwajacym odczytem (rekonekt po
-      // zmianie klucza API) — `getStats()` na zamknietym polaczeniu rzuca.
+      // Sesja może zostać zniszczona pod trwającym odczytem (rekonekt po
+      // zmianie klucza API) — `getStats()` na zamkniętym połączeniu rzuca.
       void reportQualityToStreamers().catch((err: unknown) =>
         console.debug('[jakosc] nieudana wysylka raportu:', err)
       )

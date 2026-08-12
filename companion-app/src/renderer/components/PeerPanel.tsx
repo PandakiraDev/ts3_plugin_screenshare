@@ -19,7 +19,7 @@ interface PeerPanelProps {
   onToggle: () => void
 }
 
-const OPIS_JAKOSCI: Record<ViewerQuality, string> = {
+const QUALITY_DESCRIPTIONS: Record<ViewerQuality, string> = {
   ok: 'Obraz dochodzi bez zacięć',
   poor: 'Obraz się u tej osoby zacina',
   unknown: 'Jeszcze nie wiadomo, jak dochodzi obraz'
@@ -82,7 +82,7 @@ export function PeerPanel({
           const kinds = streams.filter((s) => s.peerId === peer.peerId)
           const hasScreen = kinds.some((s) => s.kind === 'screen')
           const hasCamera = kinds.some((s) => s.kind === 'camera')
-          const jakosc = viewerQuality.get(peer.peerId)
+          const quality = viewerQuality.get(peer.peerId)
           const labels: string[] = []
           if (hasScreen) labels.push('Udostępnia ekran')
           if (hasCamera) labels.push('Ma włączoną kamerę')
@@ -101,11 +101,11 @@ export function PeerPanel({
                 {peer.displayName}
                 {peer.isMe && <span className="peers__you"> (Ty)</span>}
               </span>
-              {jakosc && (
+              {quality && (
                 <span
-                  className={`peers__quality peers__quality--${jakosc}`}
-                  title={OPIS_JAKOSCI[jakosc]}
-                  aria-label={OPIS_JAKOSCI[jakosc]}
+                  className={`peers__quality peers__quality--${quality}`}
+                  title={QUALITY_DESCRIPTIONS[quality]}
+                  aria-label={QUALITY_DESCRIPTIONS[quality]}
                 />
               )}
             </li>
