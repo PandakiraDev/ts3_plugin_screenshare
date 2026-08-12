@@ -196,7 +196,12 @@ test('podział na sekcje wstawia nas po stronie nadających, gdy nadajemy', () =
 test('podział działa też na wierszach opakowanych w znacznik wyjścia', () => {
   // To NIE jest ten sam test co wyżej: sekcje dzielimy dopiero PO przejściu
   // wyjścia, więc do splitByStreaming trafia opakowany wiersz, a nie goły
-  // ParticipantView. Gdyby funkcja nie była generyczna, tu by się wywaliła.
+  // ParticipantView. Test pilnuje dwóm rzeczom:
+  // 1) W czasie wykonania — że funkcja rzeczywiście używa przekazanego predykatu
+  //    (row.item.isStreaming), a nie sięga sztywno po pole `isStreaming` na
+  //    opakowanym obiekcie, gdzie byłoby undefined.
+  // 2) Na poziomie typów — że tsc (teraz mający test/ w tsconfig.json) wyłapie,
+  //    gdyby ktoś kiedyś usunął generyczność z ParticipantView[].
   const rows = [
     { item: { isStreaming: true, peerId: 'a' }, leaving: false },
     { item: { isStreaming: false, peerId: 'b' }, leaving: true }
