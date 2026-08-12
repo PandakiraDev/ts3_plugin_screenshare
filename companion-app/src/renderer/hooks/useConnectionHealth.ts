@@ -20,7 +20,10 @@ const PROBLEM_TICK_MS = 1_000
  * interwał zmusiłby do wyboru: albo drogie odczyty co sekundę, albo licznik
  * skaczący co trzy.
  */
-export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
+export function useConnectionHealth(
+  lobby: Lobby,
+  viewersStruggling: boolean
+): ConnectionProblem | null {
   const [problem, setProblem] = useState<ConnectionProblem | null>(null)
   const [uplinkSlow, setUplinkSlow] = useState(false)
   const watchRef = useRef<UplinkWatch>(NO_UPLINK_WATCH)
@@ -79,7 +82,8 @@ export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
               ? now - state.connectingSince
               : null,
           unreachableNames: names,
-          uplinkSlow
+          uplinkSlow,
+          viewersStruggling
         })
       )
     }
@@ -92,7 +96,8 @@ export function useConnectionHealth(lobby: Lobby): ConnectionProblem | null {
     state.connectingSince,
     state.unreachablePeerIds,
     state.peers,
-    uplinkSlow
+    uplinkSlow,
+    viewersStruggling
   ])
 
   return problem

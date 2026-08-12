@@ -15,6 +15,7 @@ import { AppVersion, UpdateNotice } from './UpdateNotice'
 import { useConnectionHealth } from '../hooks/useConnectionHealth'
 import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
+import { allViewersStruggling } from '@shared/viewerQuality'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -48,8 +49,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
   const lobby = useLobby(options, apiKeyVersion)
-  const connectionProblem = useConnectionHealth(lobby)
   const viewerQuality = useViewerQuality(lobby)
+  const connectionProblem = useConnectionHealth(
+    lobby,
+    allViewersStruggling([...viewerQuality.values()])
+  )
   const { startStream, stopStream, replaceStream, applyQuality } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
