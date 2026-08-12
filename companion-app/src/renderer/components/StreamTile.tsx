@@ -71,7 +71,7 @@ export function StreamTile({
       <div className="tile__bar">
         <span className="tile__name" title={name}>
           {name}
-          {isMe && <span className="peers__you"> (Ty)</span>}
+          {isMe && <span className="tile__you"> (Ty)</span>}
         </span>
 
         {audioApplies && hasAudio && (

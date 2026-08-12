@@ -869,6 +869,17 @@ h3 {
   font-size: 13px;
 }
 
+/*
+ * Dopisek "(Ty)" na pasku kafelka. Własna klasa w rodzinie `.tile__*`,
+ * a NIE pożyczona od panelu uczestników (`.peers__you` / `.participant__you`):
+ * kafelek i panel to osobne komponenty i osobne rodziny nazw. Pożyczanie klas
+ * między nimi już raz ubocznie popsuło ten napis, gdy ktoś sprzątał style
+ * panelu i nie wiedział, że kafelek też z nich korzysta.
+ */
+.tile__you {
+  color: var(--text-muted);
+}
+
 .tile__audio {
   display: flex;
   align-items: center;
