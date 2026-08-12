@@ -427,6 +427,17 @@ sygnalizacja → stan u nadawcy → wyrenderowana kropka.
   reaguje — na łączu lokalnym, gdzie zerowe zamrożenia były oczekiwane. Nic
   to nie mówi o tym, jak próg zachowa się przy realnie zatkanym łączu. Do
   potwierdzenia przy pierwszej sesji we trzech.
+- **Okno migracji 0.3.0 → 0.3.1.** `allViewersStruggling` wymaga, żeby
+  KAŻDY widz miał „słabo" — a widz, który nie zaktualizował aplikacji do
+  0.3.1, nigdy nie wyśle raportu jakości, więc jego kropka zostaje „brak
+  danych" na zawsze. Skutek: przy nadawaniu do kilku osób, z których choć
+  jedna stoi na starszej wersji, pasek „Obraz zacina się u wszystkich
+  widzów" nie odezwie się NIGDY, choćby pozostali realnie stali w miejscu.
+  Zachowanie jest zgodne ze specem („nie krzyczymy o czymś, czego nie
+  zmierzyliśmy") i degradacja jest łagodna — kropka przy nazwisku dalej
+  działa poprawnie dla osób na nowej wersji — więc kod zostaje bez zmian.
+  Ale to realne ograniczenie pierwszego wieczoru po wydaniu, dopóki nie
+  wszyscy się zaktualizują.
 
 ## 4. Drobne
 

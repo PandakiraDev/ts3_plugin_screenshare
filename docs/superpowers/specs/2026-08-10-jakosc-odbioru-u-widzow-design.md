@@ -67,8 +67,15 @@ ostatniego odczytu. Pierwsza próbka po podłączeniu nie ma z czym się porówn
 więc raportu z niej nie wysyłamy — inaczej pierwszy raport powiedziałby
 „zamrożone 3 s w oknie 5 s", podczas gdy te 3 s uzbierały się przez minutę.
 
-Skutek: świeżo podłączony widz przez pierwsze 5 s ma stan „brak danych". To
-poprawne i uczciwe — naprawdę jeszcze nie wiadomo.
+Skutek: świeżo podłączony widz ma stan „brak danych" przez 5–10 s, nie równo
+5 s. Timer widza (`useViewerQuality`) startuje przy montowaniu hooka, nie przy
+zestawieniu KONKRETNEGO połączenia z danym nadawcą — więc w chwili, gdy
+nadawca widzi tę osobę na liście widzów, cykl raportowania widza jest już
+w dowolnym miejscu swoich pięciu sekund. Najbliższa próbka zamyka bieżący
+cykl i sama jeszcze nie daje raportu (patrz wyżej — pierwsza próbka wobec
+TEGO połączenia nie ma z czym się porównać), a dopiero kolejna, pięć sekund
+później, faktycznie coś wysyła. To poprawne i uczciwe — naprawdę jeszcze nie
+wiadomo.
 
 ### Kto znika z listy
 
