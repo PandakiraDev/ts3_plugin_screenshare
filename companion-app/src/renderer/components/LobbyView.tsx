@@ -16,6 +16,8 @@ import { useConnectionHealth } from '../hooks/useConnectionHealth'
 import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
 import { allViewersStruggling } from '@shared/viewerQuality'
+import { buildParticipants } from '@shared/participants'
+import { useLeaveTransition } from '../hooks/useLeaveTransition'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -73,6 +75,26 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     lobby.state.me,
     lobby.state.peers
   )
+
+  /*
+   * UWAGA: oba hooki MUSZĄ stać tutaj, przed instrukcjami `return` niżej.
+   * LobbyView wychodzi wcześniej przy `bad-key` i przy otwartym wyborze źródła,
+   * a hook wywołany po takim wyjściu łamie zasady Reacta i wywala aplikację
+   * przy pierwszym otwarciu okna wyboru.
+   */
+  const participants = buildParticipants({
+    me: lobby.state.me,
+    peers: lobby.state.peers,
+    streams: lobby.state.streams,
+    viewerPeerIds: lobby.state.viewerPeerIds,
+    viewerQuality,
+    unreachablePeerIds: lobby.state.unreachablePeerIds
+  })
+  const participantRows = useLeaveTransition(participants, (view) => view.peerId)
+  // Wynik na razie bez odbiorcy — animacje kafelków to Task 8. Wywołanie musi
+  // jednak stać tutaj już teraz, żeby kolejność hooków się nie zmieniła, gdy
+  // Task 8 doda `const tileRows = `.
+  useLeaveTransition(tiles, (tile) => tile.tileKey)
 
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
@@ -307,10 +329,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
         </div>
 
         <PeerPanel
-          me={lobby.state.me}
-          peers={lobby.state.peers}
-          streams={lobby.state.streams}
-          viewerQuality={viewerQuality}
+          rows={participantRows}
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
         />
