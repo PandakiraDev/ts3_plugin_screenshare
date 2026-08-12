@@ -13,7 +13,9 @@ import { StreamTile } from './StreamTile'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 import { AppVersion, UpdateNotice } from './UpdateNotice'
 import { useConnectionHealth } from '../hooks/useConnectionHealth'
+import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
+import { allViewersStruggling } from '@shared/viewerQuality'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -47,7 +49,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
   const lobby = useLobby(options, apiKeyVersion)
-  const connectionProblem = useConnectionHealth(lobby)
+  const viewerQuality = useViewerQuality(lobby)
+  const connectionProblem = useConnectionHealth(
+    lobby,
+    allViewersStruggling([...viewerQuality.values()])
+  )
   const { startStream, stopStream, replaceStream, applyQuality } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
@@ -201,9 +207,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
               : `${tiles.length} ${tiles.length === 1 ? 'transmisja' : 'transmisje'}` +
                 (sharingScreen || sharingCamera
                   ? ` · Ty: ${
-                      lobby.state.viewers === 0
+                      lobby.state.viewerPeerIds.length === 0
                         ? 'nikt nie ogląda'
-                        : `${lobby.state.viewers} ${lobby.state.viewers === 1 ? 'widz' : 'widzów'}`
+                        : `${lobby.state.viewerPeerIds.length} ${
+                            lobby.state.viewerPeerIds.length === 1 ? 'widz' : 'widzów'
+                          }`
                     }`
                   : ''))}
         </span>
@@ -302,6 +310,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           me={lobby.state.me}
           peers={lobby.state.peers}
           streams={lobby.state.streams}
+          viewerQuality={viewerQuality}
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
         />

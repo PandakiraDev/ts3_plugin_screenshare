@@ -696,12 +696,23 @@ h3 {
   gap: 2px;
 }
 
-/* Kolumna ikon mieści DWIE: osoba z ekranem i kamerą naraz pokazuje obie. */
+/*
+ * Kolumna ikon mieści DWIE: osoba z ekranem i kamerą naraz pokazuje obie.
+ * Trzecia kolumna to kropka jakości odbioru — bez niej auto-flow siatki
+ * zepchnąłby ją do nowego wiersza zamiast obok nazwy.
+ *
+ * `gap` tu celowo zerowe: rynna między kolumnami istnieje w siatce
+ * niezależnie od tego, czy trzecia kolumna ma zawartość, więc przy braku
+ * kropki kolumna nazwy traciłaby 8px na pusto. Odstępy dają zamiast tego
+ * marginesy na samych elementach (`.peers__name`, `.peers__quality`) — brak
+ * elementu kropki w DOM-ie (a nie tylko brak jej szerokości) oznacza wtedy
+ * naprawdę zerowy odstęp.
+ */
 .peers__item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   padding: 6px 8px;
   border-radius: 4px;
   overflow: hidden;
@@ -728,10 +739,38 @@ h3 {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+  /* Zastępuje dawny `gap` między kolumną ikony a nazwy — patrz komentarz przy .peers__item. */
+  margin-left: 8px;
 }
 
 .peers__you {
   color: var(--text-muted);
+}
+
+/* Kropka jakości odbioru. Tylko przy osobach, które nas oglądają — brak kropki
+   znaczy "nie ogląda", a nie "brak danych"; od tego drugiego jest kolor.
+   Element w ogóle nie trafia do DOM-u, gdy nie ma jakości do pokazania, więc
+   margines poniżej nie dokłada żadnego odstępu w wierszach bez kropki. Do
+   prawej krawędzi dosuwa ją sąsiadująca kolumna minmax(0, 1fr) — bez
+   flex-shrink i margin-left: auto, które nic nie robią poza flexboksem. */
+.peers__quality {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+}
+
+.peers__quality--ok {
+  background: #57a773;
+}
+
+.peers__quality--poor {
+  background: #f0c674;
+}
+
+/* Pusty środek: "nie wiemy" ma wyglądać inaczej niż każda odpowiedź. */
+.peers__quality--unknown {
+  border: 1px solid var(--border);
 }
 
 /* ---------- siatka strumieni ---------- */

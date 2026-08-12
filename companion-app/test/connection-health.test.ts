@@ -9,7 +9,12 @@ import {
   problemText
 } from '../src/shared/connectionHealth'
 
-const NIC = { connectingForMs: null, unreachableNames: [], uplinkSlow: false }
+const NIC = {
+  connectingForMs: null,
+  unreachableNames: [],
+  uplinkSlow: false,
+  viewersStruggling: false
+}
 
 test('brak problemów daje null', () => {
   expect(pickProblem(NIC)).toBeNull()
@@ -33,7 +38,8 @@ test('budzenie serwera wygrywa z pozostałymi problemami', () => {
   const problem = pickProblem({
     connectingForMs: 10_000,
     unreachableNames: ['Michał'],
-    uplinkSlow: true
+    uplinkSlow: true,
+    viewersStruggling: true
   })
   expect(problem?.kind).toBe('server-waking')
 })
@@ -42,7 +48,8 @@ test('nieosiągalny peer wygrywa z zatkanym łączem', () => {
   const problem = pickProblem({
     connectingForMs: null,
     unreachableNames: ['Michał'],
-    uplinkSlow: true
+    uplinkSlow: true,
+    viewersStruggling: true
   })
   expect(problem?.kind).toBe('peer-unreachable')
 })
@@ -158,4 +165,26 @@ test('ten sam klucz nie zeruje rozbiegu', () => {
     now: po
   })
   expect(isUplinkSlow(poInnychZmianach, po + UPLINK_DEBOUNCE_MS)).toBe(false)
+})
+
+test('zacinanie u wszystkich widzów trafia na pasek', () => {
+  const problem = pickProblem({ ...NIC, viewersStruggling: true })
+  expect(problem).toEqual({ kind: 'viewers-struggling' })
+  expect(problemText(problem!)).toMatch(/rozdzielczo|FPS/i)
+})
+
+test('zatkane łącze wygrywa z zacinaniem u widzów', () => {
+  // Obie sytuacje mają tę samą radę, ale zatkane łącze nazywa przyczynę
+  // dokładniej — po co mówić o skutku, gdy znamy powód.
+  const problem = pickProblem({ ...NIC, uplinkSlow: true, viewersStruggling: true })
+  expect(problem?.kind).toBe('slow-uplink')
+})
+
+test('nieosiągalny peer wygrywa z zacinaniem u widzów', () => {
+  const problem = pickProblem({
+    ...NIC,
+    unreachableNames: ['Michał'],
+    viewersStruggling: true
+  })
+  expect(problem?.kind).toBe('peer-unreachable')
 })

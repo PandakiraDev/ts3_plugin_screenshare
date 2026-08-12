@@ -1,4 +1,5 @@
 import type { StreamRef } from '@shared/types'
+import type { ViewerQuality } from '@shared/viewerQuality'
 import type { PeerInfo } from '../signaling/SignalingClient'
 
 interface PeerPanelProps {
@@ -9,8 +10,19 @@ interface PeerPanelProps {
    * z ekranem i kamerą naraz ma pokazać obie ikony, nie jedną.
    */
   streams: StreamRef[]
+  /**
+   * Jak dochodzi nasz obraz do osób, które nas oglądają. Klucz to peerId;
+   * osoby spoza tej mapy nie oglądają nas i nie dostają wskaźnika.
+   */
+  viewerQuality: Map<string, ViewerQuality>
   collapsed: boolean
   onToggle: () => void
+}
+
+const QUALITY_DESCRIPTIONS: Record<ViewerQuality, string> = {
+  ok: 'Obraz dochodzi bez zacięć',
+  poor: 'Obraz się u tej osoby zacina',
+  unknown: 'Jeszcze nie wiadomo, jak dochodzi obraz'
 }
 
 /**
@@ -22,6 +34,7 @@ export function PeerPanel({
   me,
   peers,
   streams,
+  viewerQuality,
   collapsed,
   onToggle
 }: PeerPanelProps): JSX.Element {
@@ -69,6 +82,7 @@ export function PeerPanel({
           const kinds = streams.filter((s) => s.peerId === peer.peerId)
           const hasScreen = kinds.some((s) => s.kind === 'screen')
           const hasCamera = kinds.some((s) => s.kind === 'camera')
+          const quality = viewerQuality.get(peer.peerId)
           const labels: string[] = []
           if (hasScreen) labels.push('Udostępnia ekran')
           if (hasCamera) labels.push('Ma włączoną kamerę')
@@ -87,6 +101,13 @@ export function PeerPanel({
                 {peer.displayName}
                 {peer.isMe && <span className="peers__you"> (Ty)</span>}
               </span>
+              {quality && (
+                <span
+                  className={`peers__quality peers__quality--${quality}`}
+                  title={QUALITY_DESCRIPTIONS[quality]}
+                  aria-label={QUALITY_DESCRIPTIONS[quality]}
+                />
+              )}
             </li>
           )
         })}

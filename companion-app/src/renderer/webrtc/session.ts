@@ -1,5 +1,6 @@
 import type { StreamKind, StreamRef } from '../../shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS } from '../../shared/types'
+import { freezeDelta, type FreezeReport } from '../../shared/viewerQuality'
 import type {
   JoinResult,
   PeerInfo,
@@ -39,21 +40,26 @@ export function connectionKey(peerId: string, kind: StreamKind): string {
 }
 
 /**
- * Liczy WIDZOW, nie polaczenia. Widz ogladajacy nasz ekran i nasza kamere ma
- * dwa polaczenia wychodzace, wiec `outgoing.size` pokazywaloby "2 widzow",
- * choc po drugiej stronie siedzi jedna osoba. Pytamy o gotowy klucz zamiast
- * rozbierac go z powrotem na peerId — peerId pochodzi z serwera i nikt nam nie
- * obiecal, ze nie ma w nim dwukropka.
+ * Zwraca WIDZÓW, nie połączenia. Widz oglądający nasz ekran i naszą kamerę ma
+ * dwa połączenia wychodzące, więc sama liczba połączeń pokazywałaby "2 widzów",
+ * choć po drugiej stronie siedzi jedna osoba. Pytamy o gotowy klucz zamiast
+ * rozbierać go z powrotem na peerId — peerId pochodzi z serwera i nikt nam nie
+ * obiecał, że nie ma w nim dwukropka.
+ *
+ * Lista, nie liczba: wskaźnik jakości odbioru trzeba postawić przy konkretnej
+ * osobie, a z liczby nie da się odtworzyć, przy której.
  */
-export function countViewers(
+export function viewerPeerIds(
   peerIds: Iterable<string>,
   hasConnection: (key: string) => boolean
-): number {
-  let count = 0
+): string[] {
+  const viewers: string[] = []
   for (const peerId of peerIds) {
-    if (STREAM_KINDS.some((kind) => hasConnection(connectionKey(peerId, kind)))) count += 1
+    if (STREAM_KINDS.some((kind) => hasConnection(connectionKey(peerId, kind)))) {
+      viewers.push(peerId)
+    }
   }
-  return count
+  return viewers
 }
 
 interface Quality {
@@ -89,6 +95,16 @@ type SignalPayload =
   | { kind: 'offer'; sdp: string; owner: string; stream: StreamKind }
   | { kind: 'answer'; sdp: string; owner: string; stream: StreamKind }
   | { kind: 'ice'; candidate: RTCIceCandidateInit; owner: string; stream: StreamKind }
+  /**
+   * Raport widza o tym, jak mu dochodzi nasz obraz.
+   *
+   * CELOWO bez pola `stream` — i to jest warunek zgodności wstecz, nie
+   * przeoczenie. `onSignal` w starszych klientach liczy
+   * `connectionKey(from, payload.stream)`; bez tego pola klucz nigdy nie
+   * pasuje i wiadomość jest po cichu ignorowana. Z polem `stream` stary
+   * klient próbowałby dodać `undefined` jako kandydata ICE.
+   */
+  | { kind: 'quality'; frozenMs: number; windowMs: number }
 
 /**
  * Kandydaci ICE potrafią dotrzeć zanim ustawimy zdalny opis sesji —
@@ -138,7 +154,11 @@ export interface LobbyCallbacks {
   onRemoteStream: (peerId: string, kind: StreamKind, stream: MediaStream | null) => void
   /** Pełna lista aktualnie nadawanych strumieni (łącznie z naszym, jeśli nadajemy). */
   onStreamersChange: (streams: StreamRef[]) => void
-  onViewerCountChange: (count: number) => void
+  /**
+   * Kto nas aktualnie ogląda. Lista, nie liczba — przy każdej z tych osób
+   * stoi wskaźnik jakości odbioru.
+   */
+  onViewersChange: (peerIds: string[]) => void
   /** Lista uczestników pokoju (bez nas) — zasila panel boczny. */
   onPeersChange: (peers: PeerInfo[]) => void
   onError: (message: string) => void
@@ -148,6 +168,8 @@ export interface LobbyCallbacks {
    * więc komunikat wisiałby w interfejsie po ustaniu przyczyny.
    */
   onUnreachableChange: (peerIds: string[]) => void
+  /** Raport od widza: ile jego obraz stał zamrożony w ostatnim oknie. */
+  onViewerQualityChange: (peerId: string, report: FreezeReport) => void
 }
 
 export class LobbySession {
@@ -194,6 +216,14 @@ export class LobbySession {
   private readonly quality = new Map<StreamKind, Quality>(
     STREAM_KINDS.map((kind) => [kind, { ...DEFAULT_STREAM_QUALITY[kind] }])
   )
+  /**
+   * Poprzedni odczyt zamrożeń na połączeniu PRZYCHODZĄCYM:
+   * connectionKey -> { łączny czas zamrożeń, kiedy odczytany }.
+   *
+   * `totalFreezesDuration` narasta od początku połączenia, więc bez poprzedniej
+   * wartości nie da się policzyć, ile obraz stał w OSTATNIM oknie.
+   */
+  private readonly lastFreezeSample = new Map<string, { totalMs: number; at: number }>()
 
   constructor(
     private readonly signaling: SignalingClient,
@@ -426,7 +456,7 @@ export class LobbySession {
     const key = connectionKey(peerId, kind)
     this.outgoing.set(key, connection)
     this.outgoingBuffers.set(key, new CandidateBuffer(connection))
-    this.emitViewerCount()
+    this.emitViewers()
     return connection
   }
 
@@ -457,12 +487,12 @@ export class LobbySession {
     this.markReachability(`out:${key}`, peerId, false)
     this.outgoing.delete(key)
     this.outgoingBuffers.delete(key)
-    this.emitViewerCount()
+    this.emitViewers()
   }
 
-  private emitViewerCount(): void {
-    this.callbacks.onViewerCountChange(
-      countViewers(this.peers.keys(), (key) => this.outgoing.has(key))
+  private emitViewers(): void {
+    this.callbacks.onViewersChange(
+      viewerPeerIds(this.peers.keys(), (key) => this.outgoing.has(key))
     )
   }
 
@@ -511,11 +541,23 @@ export class LobbySession {
     this.markReachability(`in:${key}`, streamerId, false)
     this.incoming.delete(key)
     this.incomingBuffers.delete(key)
+    this.lastFreezeSample.delete(key)
   }
 
   // --- sygnalizacja ------------------------------------------------------
 
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
+    // Przed czymkolwiek innym: ten payload nie ma pola `stream`, więc liczenie
+    // z niego klucza połączenia nie ma sensu. Dalsza część funkcji traktuje
+    // wszystko, co nie jest ofertą ani odpowiedzią, jako kandydata ICE.
+    if (payload.kind === 'quality') {
+      this.callbacks.onViewerQualityChange(from, {
+        frozenMs: payload.frozenMs,
+        windowMs: payload.windowMs
+      })
+      return
+    }
+
     const kind = payload.stream
     const key = connectionKey(from, kind)
 
@@ -583,6 +625,73 @@ export class LobbySession {
     return false
   }
 
+  /**
+   * Wysyła każdemu nadającemu raport o tym, jak nam dochodzi jego obraz.
+   * Wołane cyklicznie z warstwy interfejsu — sesja nie ma własnych timerów.
+   *
+   * Osoba nadająca ekran i kamerę naraz dostaje JEDEN raport: bierzemy
+   * najgorszy z jej strumieni. Wskaźnik i tak stoi przy nazwisku, więc
+   * rozbijanie go na strumienie niczego by nie wniosło.
+   *
+   * Sama arytmetyka przyrostu (pierwsza próbka, cofnięty licznik, zerowe
+   * okno) mieszka w `freezeDelta` (`src/shared/viewerQuality.ts`) — tu
+   * zostaje tylko odczyt `getStats()`, przeliczenie sekund na milisekundy
+   * i ta agregacja "najgorszy strumień na osobę".
+   */
+  async reportQualityToStreamers(): Promise<void> {
+    type InboundStat = { type: string; kind?: string; totalFreezesDuration?: number }
+
+    const now = Date.now()
+    const worst = new Map<string, FreezeReport>()
+
+    for (const ref of this.streamerRefs.values()) {
+      if (ref.peerId === this.myPeerId) continue
+      const key = connectionKey(ref.peerId, ref.kind)
+      const connection = this.incoming.get(key)
+      if (!connection) continue
+
+      let stats: RTCStatsReport
+      try {
+        stats = await connection.getStats()
+      } catch {
+        // Jedno odrzucone getStats() nie może uciszyć raportów do WSZYSTKICH
+        // pozostałych nadających w tym cyklu — pomijamy TYLKO to połączenie
+        // i lecimy dalej, żeby reszta pętli (i już policzone wpisy w `worst`)
+        // przeżyła i trafiła do wysyłki niżej.
+        continue
+      }
+
+      let totalMs: number | null = null
+      for (const entry of stats.values()) {
+        const stat = entry as InboundStat
+        if (stat.type !== 'inbound-rtp' || stat.kind !== 'video') continue
+        // Statystyka jest w sekundach, my liczymy w milisekundach.
+        if (typeof stat.totalFreezesDuration === 'number') {
+          totalMs = stat.totalFreezesDuration * 1000
+        }
+      }
+      if (totalMs === null) continue
+
+      const current = { totalMs, at: now }
+      const previous = this.lastFreezeSample.get(key)
+      this.lastFreezeSample.set(key, current)
+      const report = freezeDelta(previous, current)
+      if (!report) continue
+
+      const previousWorst = worst.get(ref.peerId)
+      if (
+        !previousWorst ||
+        report.frozenMs / report.windowMs > previousWorst.frozenMs / previousWorst.windowMs
+      ) {
+        worst.set(ref.peerId, report)
+      }
+    }
+
+    for (const [peerId, report] of worst) {
+      this.signaling.signal(peerId, { kind: 'quality', ...report })
+    }
+  }
+
   dispose(): void {
     this.disposed = true
     // Bezpośrednie sprzątanie lokalnego stanu, bez wołania signaling.stopStream:
@@ -596,6 +705,7 @@ export class LobbySession {
     for (const connection of this.incoming.values()) connection.close()
     this.incoming.clear()
     this.incomingBuffers.clear()
+    this.lastFreezeSample.clear()
     this.peers.clear()
     this.streamerRefs.clear()
     this.failedConnections.clear()
@@ -604,5 +714,8 @@ export class LobbySession {
     // komunikat o awarii przeżyłby koniec sesji i wisiałby dalej w interfejsie
     // po ponownym połączeniu (np. po zapisaniu nowego klucza API).
     this.callbacks.onUnreachableChange([])
+    // To samo dla listy widzów — symetria z wywołaniem wyżej, żeby "kogoś tam
+    // ogląda" nie przeżyło końca sesji.
+    this.callbacks.onViewersChange([])
   }
 }

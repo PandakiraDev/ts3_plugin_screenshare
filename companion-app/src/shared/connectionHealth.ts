@@ -10,6 +10,7 @@ export type ConnectionProblem =
   | { kind: 'server-waking'; secondsWaiting: number }
   | { kind: 'peer-unreachable'; names: string[] }
   | { kind: 'slow-uplink' }
+  | { kind: 'viewers-struggling' }
 
 /** Zwykłe połączenie wstaje od razu; dłuższe czekanie to budzący się Render. */
 export const SERVER_WAKING_AFTER_MS = 5_000
@@ -35,6 +36,7 @@ export function pickProblem(input: {
   connectingForMs: number | null
   unreachableNames: string[]
   uplinkSlow: boolean
+  viewersStruggling: boolean
 }): ConnectionProblem | null {
   if (input.connectingForMs !== null && input.connectingForMs >= SERVER_WAKING_AFTER_MS) {
     return {
@@ -46,6 +48,9 @@ export function pickProblem(input: {
     return { kind: 'peer-unreachable', names: input.unreachableNames }
   }
   if (input.uplinkSlow) return { kind: 'slow-uplink' }
+  // Niżej niż zatkane łącze: obie sytuacje mają tę samą radę, ale tamta
+  // nazywa przyczynę dokładniej.
+  if (input.viewersStruggling) return { kind: 'viewers-struggling' }
   return null
 }
 
@@ -82,6 +87,8 @@ export function problemText(problem: ConnectionProblem): string {
             'albo firewall.'
     case 'slow-uplink':
       return 'Twoje łącze nie nadąża — zmniejsz rozdzielczość albo FPS w ustawieniach.'
+    case 'viewers-struggling':
+      return 'Obraz zacina się u wszystkich widzów — zmniejsz rozdzielczość albo FPS.'
   }
 }
 
