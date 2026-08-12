@@ -696,10 +696,14 @@ h3 {
   gap: 2px;
 }
 
-/* Kolumna ikon mieści DWIE: osoba z ekranem i kamerą naraz pokazuje obie. */
+/*
+ * Kolumna ikon mieści DWIE: osoba z ekranem i kamerą naraz pokazuje obie.
+ * Trzecia kolumna to kropka jakości odbioru — bez niej auto-flow siatki
+ * zepchnąłby ją do nowego wiersza zamiast obok nazwy.
+ */
 .peers__item {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
@@ -732,6 +736,29 @@ h3 {
 
 .peers__you {
   color: var(--text-muted);
+}
+
+/* Kropka jakości odbioru. Tylko przy osobach, które nas oglądają — brak kropki
+   znaczy "nie ogląda", a nie "brak danych"; od tego drugiego jest kolor. */
+.peers__quality {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.peers__quality--ok {
+  background: #57a773;
+}
+
+.peers__quality--poor {
+  background: #f0c674;
+}
+
+/* Pusty środek: "nie wiemy" ma wyglądać inaczej niż każda odpowiedź. */
+.peers__quality--unknown {
+  border: 1px solid var(--border);
 }
 
 /* ---------- siatka strumieni ---------- */

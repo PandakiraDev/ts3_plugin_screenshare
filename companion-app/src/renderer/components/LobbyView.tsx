@@ -13,6 +13,7 @@ import { StreamTile } from './StreamTile'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 import { AppVersion, UpdateNotice } from './UpdateNotice'
 import { useConnectionHealth } from '../hooks/useConnectionHealth'
+import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
 
 interface LobbyViewProps {
@@ -48,6 +49,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const camera = useCamera(cameraEnabled, cameraSettings)
   const lobby = useLobby(options, apiKeyVersion)
   const connectionProblem = useConnectionHealth(lobby)
+  const viewerQuality = useViewerQuality(lobby)
   const { startStream, stopStream, replaceStream, applyQuality } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
@@ -304,6 +306,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           me={lobby.state.me}
           peers={lobby.state.peers}
           streams={lobby.state.streams}
+          viewerQuality={viewerQuality}
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
         />
