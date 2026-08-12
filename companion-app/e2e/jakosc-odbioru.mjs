@@ -32,6 +32,12 @@ const CHANNEL = process.env.CHANNEL ?? `jakosc-e2e-${Date.now()}`
 const PORT_A = 9371
 const PORT_B = 9372
 
+// Trzymać zgodne z FROZEN_FRACTION_POOR w src/shared/viewerQuality.ts. Ten
+// skrypt jest .mjs, więc nie może po prostu zaimportować stałej z TS bez
+// osobnego kroku budowania — duplikat jest świadomy, ale ma być jeden, nie
+// rozrzucony po kilku miejscach w pliku.
+const FROZEN_FRACTION_POOR = 0.05
+
 function instanceArgs() {
   return [
     '--ts3-server=ts.test.pl:9987',
@@ -240,7 +246,10 @@ try {
       `  zamrożone łącznie ${frozenMsTotal.toFixed(0)} ms z ${WAIT_MS} ms ` +
         `(${(fraction * 100).toFixed(2)}%) | zacięć: ${stat.freezeCount} | klatek: ${stat.framesDecoded}`
     )
-    console.log(`  -> próg 5%: ${fraction > 0.05 ? 'PRZEKROCZONY (słabo)' : 'nieprzekroczony (dobrze)'}`)
+    console.log(
+      `  -> próg ${FROZEN_FRACTION_POOR * 100}%: ` +
+        `${fraction > FROZEN_FRACTION_POOR ? 'PRZEKROCZONY (słabo)' : 'nieprzekroczony (dobrze)'}`
+    )
   }
 
   console.log('\n=== U NADAWCY (kropki w panelu) ===')
