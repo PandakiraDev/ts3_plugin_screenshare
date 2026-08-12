@@ -10,8 +10,10 @@ export const ROOM_A = 'a'.repeat(64)
 export const ROOM_B = 'b'.repeat(64)
 
 /** Serwer na porcie efemerycznym (0), żeby testy nie biły się o port. */
-export async function startTestServer(): Promise<SignalingServer> {
-  return startSignalingServer({ port: 0 })
+export async function startTestServer(
+  options: Omit<Parameters<typeof startSignalingServer>[0], 'port'> = {}
+): Promise<SignalingServer> {
+  return startSignalingServer({ port: 0, ...options })
 }
 
 /**
@@ -74,6 +76,19 @@ export class TestClient {
     if (this.queue.length > 0) {
       throw new Error(`Spodziewano się ciszy, przyszło: ${JSON.stringify(this.queue)}`)
     }
+  }
+
+  /**
+   * Zamraża klienta: przestaje czytać z gniazda, więc nie zobaczy pinga i nie
+   * odpowie pongiem — ale połączenie TCP zostaje otwarte i serwer nie dostanie
+   * żadnego zdarzenia zamknięcia.
+   *
+   * Tak wygląda uśpiony laptop, zerwane Wi-Fi albo klient za pośrednikiem,
+   * który trzyma połączenie w górę. Zwykłe `close()` tego NIE odtwarza —
+   * zamknięcie dochodzi wtedy do serwera w kilkadziesiąt milisekund.
+   */
+  freeze(): void {
+    ;(this.socket as unknown as { _socket: { pause: () => void } })._socket.pause()
   }
 
   close(): void {
