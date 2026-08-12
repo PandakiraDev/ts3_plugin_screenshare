@@ -39,21 +39,26 @@ export function connectionKey(peerId: string, kind: StreamKind): string {
 }
 
 /**
- * Liczy WIDZOW, nie polaczenia. Widz ogladajacy nasz ekran i nasza kamere ma
- * dwa polaczenia wychodzace, wiec `outgoing.size` pokazywaloby "2 widzow",
+ * Zwraca WIDZOW, nie polaczenia. Widz ogladajacy nasz ekran i nasza kamere ma
+ * dwa polaczenia wychodzace, wiec sama liczba polaczen pokazywalaby "2 widzow",
  * choc po drugiej stronie siedzi jedna osoba. Pytamy o gotowy klucz zamiast
  * rozbierac go z powrotem na peerId — peerId pochodzi z serwera i nikt nam nie
  * obiecal, ze nie ma w nim dwukropka.
+ *
+ * Lista, nie liczba: wskaznik jakosci odbioru trzeba postawic przy konkretnej
+ * osobie, a z liczby nie da sie odtworzyc, przy ktorej.
  */
-export function countViewers(
+export function viewerPeerIds(
   peerIds: Iterable<string>,
   hasConnection: (key: string) => boolean
-): number {
-  let count = 0
+): string[] {
+  const viewers: string[] = []
   for (const peerId of peerIds) {
-    if (STREAM_KINDS.some((kind) => hasConnection(connectionKey(peerId, kind)))) count += 1
+    if (STREAM_KINDS.some((kind) => hasConnection(connectionKey(peerId, kind)))) {
+      viewers.push(peerId)
+    }
   }
-  return count
+  return viewers
 }
 
 interface Quality {
@@ -138,7 +143,11 @@ export interface LobbyCallbacks {
   onRemoteStream: (peerId: string, kind: StreamKind, stream: MediaStream | null) => void
   /** Pełna lista aktualnie nadawanych strumieni (łącznie z naszym, jeśli nadajemy). */
   onStreamersChange: (streams: StreamRef[]) => void
-  onViewerCountChange: (count: number) => void
+  /**
+   * Kto nas aktualnie oglada. Lista, nie liczba — przy kazdej z tych osob
+   * stoi wskaznik jakosci odbioru.
+   */
+  onViewersChange: (peerIds: string[]) => void
   /** Lista uczestników pokoju (bez nas) — zasila panel boczny. */
   onPeersChange: (peers: PeerInfo[]) => void
   onError: (message: string) => void
@@ -426,7 +435,7 @@ export class LobbySession {
     const key = connectionKey(peerId, kind)
     this.outgoing.set(key, connection)
     this.outgoingBuffers.set(key, new CandidateBuffer(connection))
-    this.emitViewerCount()
+    this.emitViewers()
     return connection
   }
 
@@ -457,12 +466,12 @@ export class LobbySession {
     this.markReachability(`out:${key}`, peerId, false)
     this.outgoing.delete(key)
     this.outgoingBuffers.delete(key)
-    this.emitViewerCount()
+    this.emitViewers()
   }
 
-  private emitViewerCount(): void {
-    this.callbacks.onViewerCountChange(
-      countViewers(this.peers.keys(), (key) => this.outgoing.has(key))
+  private emitViewers(): void {
+    this.callbacks.onViewersChange(
+      viewerPeerIds(this.peers.keys(), (key) => this.outgoing.has(key))
     )
   }
 

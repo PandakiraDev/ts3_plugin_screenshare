@@ -201,9 +201,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
               : `${tiles.length} ${tiles.length === 1 ? 'transmisja' : 'transmisje'}` +
                 (sharingScreen || sharingCamera
                   ? ` · Ty: ${
-                      lobby.state.viewers === 0
+                      lobby.state.viewerPeerIds.length === 0
                         ? 'nikt nie ogląda'
-                        : `${lobby.state.viewers} ${lobby.state.viewers === 1 ? 'widz' : 'widzów'}`
+                        : `${lobby.state.viewerPeerIds.length} ${
+                            lobby.state.viewerPeerIds.length === 1 ? 'widz' : 'widzów'
+                          }`
                     }`
                   : ''))}
         </span>

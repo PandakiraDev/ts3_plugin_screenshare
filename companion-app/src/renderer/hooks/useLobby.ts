@@ -99,7 +99,8 @@ export interface LobbyState {
   streams: StreamRef[]
   /** connectionKey(peerId, kind) -> odebrany obraz. Jedna osoba może mieć dwa wpisy. */
   remoteStreams: Map<string, RemoteStream>
-  viewers: number
+  /** Kto nas aktualnie ogląda. Licznik w nagłówku bierze się z długości. */
+  viewerPeerIds: string[]
   /** Pozostali uczestnicy pokoju (bez nas). */
   peers: PeerInfo[]
   /** Nasz własny wpis na liście. */
@@ -119,7 +120,7 @@ const INITIAL: LobbyState = {
   myStreamKinds: [],
   streams: [],
   remoteStreams: new Map(),
-  viewers: 0,
+  viewerPeerIds: [],
   peers: [],
   me: null,
   error: null,
@@ -203,8 +204,8 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
                 peers.map((p) => p.peerId)
               )
             })),
-          onViewerCountChange: (viewers) =>
-            setState((current) => ({ ...current, viewers })),
+          onViewersChange: (peerIds) =>
+            setState((current) => ({ ...current, viewerPeerIds: peerIds })),
           onError: (message) => setState((current) => ({ ...current, error: message })),
           onUnreachableChange: (peerIds) =>
             setState((current) => ({ ...current, unreachablePeerIds: peerIds }))
