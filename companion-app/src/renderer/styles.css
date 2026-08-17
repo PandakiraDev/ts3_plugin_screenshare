@@ -756,7 +756,7 @@ h3 {
   margin-top: 5px;
 }
 
-.badge {
+.participant__badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -769,23 +769,23 @@ h3 {
   white-space: nowrap;
 }
 
-.badge--watching-ok {
+.participant__badge--watching-ok {
   background: rgba(87, 167, 115, 0.18);
   color: #57a773;
 }
 
-.badge--watching-poor {
+.participant__badge--watching-poor {
   background: rgba(240, 198, 116, 0.18);
   color: #f0c674;
 }
 
 /* „Nie wiadomo" ma wyglądać inaczej niż każda odpowiedź — stąd szarość. */
-.badge--watching-unknown {
+.participant__badge--watching-unknown {
   background: rgba(148, 155, 164, 0.16);
   color: var(--text-muted);
 }
 
-.badge--unreachable {
+.participant__badge--unreachable {
   background: rgba(218, 55, 60, 0.18);
   color: #ff9a9d;
 }
@@ -1042,7 +1042,7 @@ h3 {
   animation: avatar-pulse 900ms ease-out;
 }
 
-.badge {
+.participant__badge {
   animation: badge-in 300ms cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
@@ -1057,7 +1057,7 @@ h3 {
   .participant,
   .participant--leaving,
   .participant__avatar--started,
-  .badge {
+  .participant__badge {
     animation: none;
   }
 }

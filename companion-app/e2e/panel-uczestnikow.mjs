@@ -67,7 +67,7 @@ const PANEL = `(() => {
   const rows = [...document.querySelectorAll('.participant')].map(el => ({
     initials: el.querySelector('.participant__avatar')?.textContent ?? '',
     name: el.querySelector('.participant__name')?.textContent ?? '',
-    badges: [...el.querySelectorAll('.badge')].map(b => b.className)
+    badges: [...el.querySelectorAll('.participant__badge')].map(b => b.className)
   }))
   return JSON.stringify({ sections, rows })
 })()`
@@ -99,7 +99,7 @@ try {
   console.log('start udostępniania u A:', await shareScreen(A))
 
   // --- u widza: nadawca w sekcji „Nadają", z plakietką ekranu ---
-  const atViewer = await waitForBadge(B, /badge--screen/)
+  const atViewer = await waitForBadge(B, /participant__badge--screen/)
   console.log('\n=== PANEL U WIDZA ===')
   console.log('  sekcje:', JSON.stringify(atViewer.sections))
   for (const row of atViewer.rows) {
@@ -110,7 +110,7 @@ try {
     console.error('BŁĄD: u widza nie ma sekcji „Nadają", choć ktoś nadaje.')
     exitCode = 1
   }
-  if (!atViewer.rows.some((row) => row.badges.some((cls) => /badge--screen/.test(cls)))) {
+  if (!atViewer.rows.some((row) => row.badges.some((cls) => /participant__badge--screen/.test(cls)))) {
     console.error('BŁĄD: u widza nie ma plakietki ekranu przy nadawcy.')
     exitCode = 1
   }
@@ -120,14 +120,14 @@ try {
   }
 
   // --- u nadawcy: widz z plakietką „Ogląda" ---
-  const atStreamer = await waitForBadge(A, /badge--watching-/)
+  const atStreamer = await waitForBadge(A, /participant__badge--watching-/)
   console.log('\n=== PANEL U NADAWCY ===')
   console.log('  sekcje:', JSON.stringify(atStreamer.sections))
   for (const row of atStreamer.rows) {
     console.log(`  [${row.initials}] ${row.name}  ${JSON.stringify(row.badges)}`)
   }
 
-  if (!atStreamer.rows.some((row) => row.badges.some((cls) => /badge--watching-/.test(cls)))) {
+  if (!atStreamer.rows.some((row) => row.badges.some((cls) => /participant__badge--watching-/.test(cls)))) {
     console.error('BŁĄD: u nadawcy nie ma plakietki „Ogląda" przy widzu.')
     exitCode = 1
   }

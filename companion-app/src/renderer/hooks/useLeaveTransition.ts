@@ -36,7 +36,7 @@ export function useLeaveTransition<T>(
 
   const durationMs = reducedMotion() ? 0 : LEAVE_DURATION_MS
   stateRef.current = advanceLeaving(stateRef.current, current, keyOf, Date.now(), durationMs)
-  const visible = visibleItems(stateRef.current)
+  const visible = visibleItems(stateRef.current, keyOf)
 
   /*
    * Gdy element dogaśnie, źródło już się nie zmieni — nikt nas nie obudzi.

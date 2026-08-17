@@ -64,7 +64,7 @@ const HEADER = `document.querySelector('.app__stage-tag').textContent.trim()`
 const PANEL = `(() => {
   const items = [...document.querySelectorAll('.participant')].map(li => ({
     text: li.querySelector('.participant__name').textContent.trim(),
-    streaming: !!li.querySelector('.badge--screen, .badge--camera')
+    streaming: !!li.querySelector('.participant__badge--screen, .participant__badge--camera')
   }));
   const collapsed = !!document.querySelector('.peers--collapsed');
   return JSON.stringify({ collapsed, items });

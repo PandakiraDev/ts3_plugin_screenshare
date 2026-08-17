@@ -26,9 +26,10 @@ Wybór źródła to osobny ekran, pokazywany dopiero po kliknięciu „Udostępn
 ekran" — lobby zostaje czyste, bo domyślnie się ogląda, a nie wybiera.
 
 ### Panel uczestników
-Po prawej lista osób w kanale, z ikoną przy tym, kto aktualnie nadaje. Da się go
-zwinąć do wąskiego paska z licznikiem — obraz bywa ważniejszy niż lista, ale
-panel nie powinien znikać bez śladu.
+Po prawej lista osób w kanale: krążek z inicjałami przy każdej, plakietki stanu
+(np. „Ekran", „Ogląda · płynnie") i podział na sekcje „Nadają" / „W kanale". Da
+się go zwinąć do wąskiego paska z licznikiem — obraz bywa ważniejszy niż lista,
+ale panel nie powinien znikać bez śladu.
 
 Nazwy biorą się z `--nick` (docelowo poda go plugin z TS3). Gdy go brak, **serwer**
 nadaje zastępnik `Użytkownik N`. Numeruje serwer, a nie klient, bo inaczej każdy

@@ -61,7 +61,7 @@ export function ParticipantRow({ view, leaving }: ParticipantRowProps): JSX.Elem
                 raporcie z 0.3.1. Zmiana „płynnie" ↔ „zacina" ma być przemalowaniem
                 istniejącej plakietki, nie nową plakietką.
               */
-              <span key={badge.kind} className={`badge badge--${badgeModifier(badge)}`}>
+              <span key={badge.kind} className={`participant__badge participant__badge--${badgeModifier(badge)}`}>
                 {badgeLabel(badge)}
               </span>
             ))}

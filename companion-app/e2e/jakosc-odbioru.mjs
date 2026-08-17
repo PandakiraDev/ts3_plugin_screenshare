@@ -216,8 +216,8 @@ try {
   // --- strona nadawcy: co widać w interfejsie ---
   const badges = JSON.parse(
     await A.evaluate(`
-      JSON.stringify([...document.querySelectorAll('.badge')]
-        .filter((el) => /badge--watching-/.test(el.className))
+      JSON.stringify([...document.querySelectorAll('.participant__badge')]
+        .filter((el) => /participant__badge--watching-/.test(el.className))
         .map((el) => ({ className: el.className, description: el.textContent })))
     `)
   )
