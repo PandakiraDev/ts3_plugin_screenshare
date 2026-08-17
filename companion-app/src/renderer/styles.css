@@ -630,7 +630,7 @@ h3 {
 }
 
 .peers {
-  width: 240px;
+  width: 280px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -656,11 +656,26 @@ h3 {
   margin-bottom: 14px;
 }
 
-.peers__title {
-  font-size: 12px;
+.peers__title,
+.peers__section {
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Nagłówek sekcji oddycha nad listą, ale nie nad samym sobą przy pierwszej. */
+.peers__section {
+  margin: 14px 0 8px;
+}
+
+.peers__section:first-of-type {
+  margin-top: 0;
+}
+
+.peers__section-count {
+  font-variant-numeric: tabular-nums;
 }
 
 .peers__toggle {
@@ -696,81 +711,83 @@ h3 {
   gap: 2px;
 }
 
-/*
- * Kolumna ikon mieści DWIE: osoba z ekranem i kamerą naraz pokazuje obie.
- * Trzecia kolumna to kropka jakości odbioru — bez niej auto-flow siatki
- * zepchnąłby ją do nowego wiersza zamiast obok nazwy.
- *
- * `gap` tu celowo zerowe: rynna między kolumnami istnieje w siatce
- * niezależnie od tego, czy trzecia kolumna ma zawartość, więc przy braku
- * kropki kolumna nazwy traciłaby 8px na pusto. Odstępy dają zamiast tego
- * marginesy na samych elementach (`.peers__name`, `.peers__quality`) — brak
- * elementu kropki w DOM-ie (a nie tylko brak jej szerokości) oznacza wtedy
- * naprawdę zerowy odstęp.
- */
-.peers__item {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+.participant {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 6px;
+}
+
+.participant__avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
-  gap: 0;
-  padding: 6px 8px;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.peers__item--streaming {
-  background: rgba(88, 101, 242, 0.14);
-}
-
-.peers__icon {
-  text-align: center;
-  color: var(--text-muted);
+  justify-content: center;
   font-size: 13px;
-  white-space: nowrap;
+  font-weight: 700;
+  color: #fff;
 }
 
-.peers__item--streaming .peers__icon {
-  color: var(--accent);
-}
-
-.peers__name {
+.participant__body {
   min-width: 0;
+  flex: 1;
+}
+
+.participant__name {
+  display: block;
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  /* Zastępuje dawny `gap` między kolumną ikony a nazwy — patrz komentarz przy .peers__item. */
-  margin-left: 8px;
 }
 
-.peers__you {
+.participant__you {
   color: var(--text-muted);
 }
 
-/* Kropka jakości odbioru. Tylko przy osobach, które nas oglądają — brak kropki
-   znaczy "nie ogląda", a nie "brak danych"; od tego drugiego jest kolor.
-   Element w ogóle nie trafia do DOM-u, gdy nie ma jakości do pokazania, więc
-   margines poniżej nie dokłada żadnego odstępu w wierszach bez kropki. Do
-   prawej krawędzi dosuwa ją sąsiadująca kolumna minmax(0, 1fr) — bez
-   flex-shrink i margin-left: auto, które nic nie robią poza flexboksem. */
-.peers__quality {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-left: 8px;
+.participant__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
 }
 
-.peers__quality--ok {
-  background: #57a773;
+.participant__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(88, 101, 242, 0.2);
+  color: #a5adff;
+  white-space: nowrap;
 }
 
-.peers__quality--poor {
-  background: #f0c674;
+.participant__badge--watching-ok {
+  background: rgba(87, 167, 115, 0.18);
+  color: #57a773;
 }
 
-/* Pusty środek: "nie wiemy" ma wyglądać inaczej niż każda odpowiedź. */
-.peers__quality--unknown {
-  border: 1px solid var(--border);
+.participant__badge--watching-poor {
+  background: rgba(240, 198, 116, 0.18);
+  color: #f0c674;
+}
+
+/* „Nie wiadomo" ma wyglądać inaczej niż każda odpowiedź — stąd szarość. */
+.participant__badge--watching-unknown {
+  background: rgba(148, 155, 164, 0.16);
+  color: var(--text-muted);
+}
+
+.participant__badge--unreachable {
+  background: rgba(218, 55, 60, 0.18);
+  color: #ff9a9d;
 }
 
 /* ---------- siatka strumieni ---------- */
@@ -852,6 +869,17 @@ h3 {
   font-size: 13px;
 }
 
+/*
+ * Dopisek "(Ty)" na pasku kafelka. Własna klasa w rodzinie `.tile__*`,
+ * a NIE pożyczona od panelu uczestników (`.peers__you` / `.participant__you`):
+ * kafelek i panel to osobne komponenty i osobne rodziny nazw. Pożyczanie klas
+ * między nimi już raz ubocznie popsuło ten napis, gdy ktoś sprzątał style
+ * panelu i nie wiedział, że kafelek też z nich korzysta.
+ */
+.tile__you {
+  color: var(--text-muted);
+}
+
 .tile__audio {
   display: flex;
   align-items: center;
@@ -909,4 +937,127 @@ h3 {
 .klucz__input {
   font-family: Consolas, 'Courier New', monospace;
   letter-spacing: 0.02em;
+}
+
+/* ---------- animacje transmisji ---------- */
+
+/*
+ * Krzywa z odbiciem: przeskakuje ponad docelowy rozmiar i wraca. To ona daje
+ * różnicę między „element się pojawił" a „element wszedł".
+ */
+@keyframes tile-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.78) translateY(16px);
+  }
+  65% {
+    transform: scale(1.04) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tile-out {
+  to {
+    opacity: 0;
+    transform: scale(0.84) translateY(12px);
+  }
+}
+
+@keyframes participant-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes participant-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes badge-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Dwa uderzenia, nie jedno: jeden puls ginie wśród innych zmian na ekranie. */
+@keyframes avatar-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.55);
+  }
+  25% {
+    box-shadow: 0 0 0 7px rgba(88, 101, 242, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.45);
+  }
+  75% {
+    box-shadow: 0 0 0 7px rgba(88, 101, 242, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(88, 101, 242, 0);
+  }
+}
+
+.tile {
+  animation: tile-in 400ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+/* `forwards` trzyma końcową klatkę, żeby element nie mrugnął z powrotem
+   w pełną widoczność między końcem animacji a usunięciem z DOM-u.
+   Te 400ms MUSZĄ być zgodne z `LEAVE_DURATION_MS` w src/shared/leaveTransition.ts —
+   to ta stała trzyma element w DOM-ie na czas animacji. Zmiana jednej wartości
+   bez drugiej to cicha usterka: element znikałby przed końcem animacji albo
+   wisiał bezczynnie po jej zakończeniu. Zmieniać obie naraz. */
+.tile--leaving {
+  animation: tile-out 400ms ease forwards;
+  pointer-events: none;
+}
+
+.participant {
+  animation: participant-in 400ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+/* Te 400ms też muszą być zgodne z LEAVE_DURATION_MS — patrz komentarz przy .tile--leaving. */
+.participant--leaving {
+  animation: participant-out 400ms ease forwards;
+  pointer-events: none;
+}
+
+.participant__avatar--started {
+  animation: avatar-pulse 900ms ease-out;
+}
+
+.participant__badge {
+  animation: badge-in 300ms cubic-bezier(0.22, 1.4, 0.36, 1);
+}
+
+/*
+ * Windows: „Efekty wizualne → Efekty animacji". Hook osobno skraca wtedy czas
+ * dogasania do zera, więc element nie tylko przestaje się ruszać, ale też nie
+ * wisi w DOM-ie przez czas nieistniejącej animacji.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .tile,
+  .tile--leaving,
+  .participant,
+  .participant--leaving,
+  .participant__avatar--started,
+  .participant__badge {
+    animation: none;
+  }
 }

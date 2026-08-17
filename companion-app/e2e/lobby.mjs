@@ -56,10 +56,15 @@ async function attach(port) {
 }
 
 const HEADER = `document.querySelector('.app__stage-tag').textContent.trim()`
+// Wiersz uczestnika to teraz '.participant' (dawniej '.peers__item'), a nazwa
+// '.participant__name' (dawniej '.peers__name'). Wiersz nie ma już własnego
+// modyfikatora "nadaje" — poznajemy to po plakietce ekranu/kamery W ŚRODKU
+// wiersza, bo to dokładnie ten sam warunek, co dawny 'peers__item--streaming'
+// (patrz `isStreaming = hasScreen || hasCamera` w shared/participants.ts).
 const PANEL = `(() => {
-  const items = [...document.querySelectorAll('.peers__item')].map(li => ({
-    text: li.querySelector('.peers__name').textContent.trim(),
-    streaming: li.classList.contains('peers__item--streaming')
+  const items = [...document.querySelectorAll('.participant')].map(li => ({
+    text: li.querySelector('.participant__name').textContent.trim(),
+    streaming: !!li.querySelector('.participant__badge--screen, .participant__badge--camera')
   }));
   const collapsed = !!document.querySelector('.peers--collapsed');
   return JSON.stringify({ collapsed, items });

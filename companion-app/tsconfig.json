@@ -23,6 +23,11 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
-    "electron.vite.config.ts"
+    "electron.vite.config.ts",
+    // Bez tego wpisu katalog test/ w ogóle nie jest sprawdzany typami — testy
+    // pilnujące WŁAŚCIWOŚCI TYPÓW (np. że funkcja jest generyczna) przechodziłyby
+    // na zielono nawet wtedy, gdy ta właściwość jest złamana, bo tsc nigdy by ich
+    // nie zobaczył. Znalezione na pustym teście.
+    "test/**/*.ts"
   ]
 }

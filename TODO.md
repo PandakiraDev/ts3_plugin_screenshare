@@ -439,6 +439,79 @@ sygnalizacja → stan u nadawcy → wyrenderowana kropka.
   Ale to realne ograniczenie pierwszego wieczoru po wydaniu, dopóki nie
   wszyscy się zaktualizują.
 
+### Panel uczestników i animacje (0.3.2, 2026-08-12)
+
+Krążki z inicjałami, plakietki stanu zamiast 13-pikselowych emoji, podział listy
+na „Nadają" i „W kanale", animacje startu i końca transmisji. Spec:
+`docs/superpowers/specs/2026-08-12-panel-uczestnikow-i-animacje-design.md`.
+
+**Kropka jakości z 0.3.1 zniknęła** — jej informacja przeszła do plakietki
+„Ogląda · płynnie / zacina". To przeprowadzka, nie wycofanie funkcji.
+
+**Rzecz, która okazała się sednem:** animacja wyjścia w Reakcie nie ma czego
+animować, bo element znika z DOM-u w tej samej klatce, w której wypada z listy.
+Stąd `src/shared/leaveTransition.ts` — reduktor trzymający wychodzące elementy
+jeszcze przez 400 ms, na ich dawnych pozycjach. Jest generyczny PO ELEMENCIE,
+a nie po kluczu, bo kafelek musi dogasać z tym samym `MediaStream` — inaczej
+zamiast obrazu gasłby czarny prostokąt.
+
+**Animacje wejścia nie mają ani jednego zegara:** uruchamia je dobór `key`.
+Krążek pulsuje, bo jego `key` zawiera `isStreaming`; plakietka ma `key` równy
+samemu `kind` CELOWO bez `quality`, inaczej podskakiwałaby przy każdym raporcie
+jakości, czyli co pięć sekund.
+
+**Zegara nie ma tylko wejście.** Wyjście już ma — `useLeaveTransition` — i to
+w nim recenzja znalazła najpoważniejszy błąd tego wydania: zależnością efektu
+budzącego była flaga `hasLeaving` („coś jeszcze wygasa"), a nie termin
+wybudzenia. Gdy drugi element zaczynał wygasać, zanim pierwszy skończył,
+flaga się nie zmieniała, więc React pomijał efekt i nikt nie planował budzika
+dla późniejszego terminu — element zostawał w DOM-ie na zawsze. Poprawka:
+`nextDeadlineAt` liczy najwcześniejszy termin ze wszystkich wygasających i to
+on jest zależnością efektu, więc każde przesunięcie terminu przeplanowuje
+budzik na nowo.
+
+**Odrzucone:** View Transitions API (Chromium 130 je ma i załatwiłoby nawet
+przejazd wiersza między sekcjami, ale robi migawkę całego dokumentu — z żywym
+`<video>` grozi to mrugnięciem czarną klatką, i nie da się tego przetestować
+bez przeglądarki). Przejazd wiersza między sekcjami został więc natychmiastowy.
+
+**Dług spłacony przy okazji:** `vitest.config.ts` z aliasem `@shared`.
+
+**Dwie kolizje nazw, obie ten sam błąd w dwie strony.** Usunięcie `.peers__you`
+rozjaśniło napis „(Ty)" na kafelkach wideo, bo `StreamTile` pożyczał sobie klasę
+panelu — stąd własna `.tile__you`. Potem nowe plakietki nazwano `.badge`, a ta
+klasa już istniała i należała do `PreviewPane` (metadana „1920×1080 · 30 FPS"),
+więc zrobiła się indygowa, pigułkowata i zaczęła wskakiwać animacją — stąd
+`.participant__badge`. Wniosek na przyszłość: **nazwa klasy należy do rodziny
+komponentu**, a nowa klasa wymaga sprawdzenia, czy ktoś już jej nie używa.
+
+**Znane ograniczenia, świadomie zostawione w 0.3.2** (wyszły z przeglądu
+końcowego, żadne nie blokowało wydania):
+
+- **Puls krążka i wejście kafelka grają przy każdym przemontowaniu**, nie tylko
+  przy faktycznej zmianie stanu. Zwinięcie i rozwinięcie panelu odmontowuje
+  wszystkie wiersze, więc po rozwinięciu krążki pulsują, jakby wszyscy właśnie
+  zaczęli nadawać; powrót z powiększenia odbija pozostałe kafelki. To cena
+  mechanizmu „animacja przy montowaniu, bez ani jednego zegara" — naprawa
+  wymaga pamiętania poprzedniego stanu, czyli tego, czego ten mechanizm miał
+  uniknąć.
+- **Licznik w pasku tytułowym liczy prawdę, panel i siatka liczą to, co widać.**
+  Przez 400 ms po zakończeniu ostatniej transmisji pasek mówi już „Nikt nie
+  nadaje obrazu", a na scenie stoi wygaszający się kafelek. Rozjazd jest
+  zamierzony (siatka nie ma przeskakiwać w połowie animacji), ale nierówny.
+- **Powiększony kafelek, który kończy transmisję, mruga** — jedna klatka na
+  całej scenie, potem wpada w siatkę w połowie wygaszania. Kliknięcia są
+  zablokowane, ale fokus klawiaturą nie.
+- **„Ogląda · płynnie" może stać obok „Brak połączenia"** nawet 15 sekund:
+  nieosiągalność liczy się ze stanu `RTCPeerConnection`, a ostatni raport
+  jakości starzeje się dopiero po `QUALITY_STALE_AFTER_MS`. Do rozstrzygnięcia,
+  czy `unreachable` ma degradować jakość do „nie wiadomo".
+- **`e2e/panel-uczestnikow.mjs` sprawdza sekcję i plakietkę niezależnie**, nie
+  po tym samym wierszu. Dziurę zasłania test jednostkowy podziału na sekcje.
+
+Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
+Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
+
 ## 4. Drobne
 
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset

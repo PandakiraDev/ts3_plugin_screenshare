@@ -1,28 +1,15 @@
-import type { StreamRef } from '@shared/types'
-import type { ViewerQuality } from '@shared/viewerQuality'
-import type { PeerInfo } from '../signaling/SignalingClient'
+import { splitByStreaming, type ParticipantView } from '@shared/participants'
+import { ParticipantRow } from './ParticipantRow'
 
 interface PeerPanelProps {
-  me: PeerInfo | null
-  peers: PeerInfo[]
   /**
-   * Wszystkie nadawane strumienie. Lista par, nie samych peerId: osoba
-   * z ekranem i kamerą naraz ma pokazać obie ikony, nie jedną.
+   * Wiersze PO przejściu wyjścia. Podział na sekcje robimy tutaj, a nie przed
+   * przejściem: inaczej osoba kończąca transmisję byłaby przez chwilę widoczna
+   * dwa razy naraz — dogasająca w „Nadają" i już wstawiona do „W kanale".
    */
-  streams: StreamRef[]
-  /**
-   * Jak dochodzi nasz obraz do osób, które nas oglądają. Klucz to peerId;
-   * osoby spoza tej mapy nie oglądają nas i nie dostają wskaźnika.
-   */
-  viewerQuality: Map<string, ViewerQuality>
+  rows: { item: ParticipantView; leaving: boolean }[]
   collapsed: boolean
   onToggle: () => void
-}
-
-const QUALITY_DESCRIPTIONS: Record<ViewerQuality, string> = {
-  ok: 'Obraz dochodzi bez zacięć',
-  poor: 'Obraz się u tej osoby zacina',
-  unknown: 'Jeszcze nie wiadomo, jak dochodzi obraz'
 }
 
 /**
@@ -30,19 +17,7 @@ const QUALITY_DESCRIPTIONS: Record<ViewerQuality, string> = {
  * obraz jest ważniejszy niż lista — ale zwinięta zostawia pasek z liczbą osób,
  * żeby nie znikała bez śladu.
  */
-export function PeerPanel({
-  me,
-  peers,
-  streams,
-  viewerQuality,
-  collapsed,
-  onToggle
-}: PeerPanelProps): JSX.Element {
-  const everyone: (PeerInfo & { isMe: boolean })[] = [
-    ...(me ? [{ ...me, isMe: true }] : []),
-    ...peers.map((peer) => ({ ...peer, isMe: false }))
-  ]
-
+export function PeerPanel({ rows, collapsed, onToggle }: PeerPanelProps): JSX.Element {
   if (collapsed) {
     return (
       <aside className="peers peers--collapsed">
@@ -54,18 +29,19 @@ export function PeerPanel({
           aria-expanded={false}
         >
           <span aria-hidden="true">‹</span>
-          <span className="peers__count-badge">{everyone.length}</span>
+          {/* Licznik na zwiniętym pasku jest ŁĄCZNY — tu nie ma podziału na sekcje. */}
+          <span className="peers__count-badge">{rows.length}</span>
         </button>
       </aside>
     )
   }
 
+  const { streaming, others } = splitByStreaming(rows, (row) => row.item.isStreaming)
+
   return (
     <aside className="peers">
       <header className="peers__header">
-        <h2 className="peers__title">
-          W kanale <span className="source-grid__count">{everyone.length}</span>
-        </h2>
+        <h2 className="peers__title">Uczestnicy</h2>
         <button
           type="button"
           className="peers__toggle"
@@ -77,43 +53,33 @@ export function PeerPanel({
         </button>
       </header>
 
-      <ul className="peers__list">
-        {everyone.map((peer) => {
-          const kinds = streams.filter((s) => s.peerId === peer.peerId)
-          const hasScreen = kinds.some((s) => s.kind === 'screen')
-          const hasCamera = kinds.some((s) => s.kind === 'camera')
-          const quality = viewerQuality.get(peer.peerId)
-          const labels: string[] = []
-          if (hasScreen) labels.push('Udostępnia ekran')
-          if (hasCamera) labels.push('Ma włączoną kamerę')
-          const label = labels.join(' · ') || undefined
-          return (
-            <li
-              key={peer.peerId}
-              className={`peers__item${hasScreen || hasCamera ? ' peers__item--streaming' : ''}`}
-            >
-              <span className="peers__icon" title={label} aria-label={label}>
-                {hasScreen && '🖥'}
-                {hasCamera && '📷'}
-                {!hasScreen && !hasCamera && '•'}
-              </span>
-              <span className="peers__name">
-                {peer.displayName}
-                {peer.isMe && <span className="peers__you"> (Ty)</span>}
-              </span>
-              {quality && (
-                <span
-                  className={`peers__quality peers__quality--${quality}`}
-                  title={QUALITY_DESCRIPTIONS[quality]}
-                  aria-label={QUALITY_DESCRIPTIONS[quality]}
-                />
-              )}
-            </li>
-          )
-        })}
-      </ul>
+      {streaming.length > 0 && (
+        <>
+          <h3 className="peers__section">
+            Nadają <span className="peers__section-count">{streaming.length}</span>
+          </h3>
+          <ul className="peers__list">
+            {streaming.map((row) => (
+              <ParticipantRow key={row.item.peerId} view={row.item} leaving={row.leaving} />
+            ))}
+          </ul>
+        </>
+      )}
 
-      {everyone.length <= 1 && (
+      {others.length > 0 && (
+        <>
+          <h3 className="peers__section">
+            W kanale <span className="peers__section-count">{others.length}</span>
+          </h3>
+          <ul className="peers__list">
+            {others.map((row) => (
+              <ParticipantRow key={row.item.peerId} view={row.item} leaving={row.leaving} />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {rows.length <= 1 && (
         <p className="settings__hint">Nikt inny nie dołączył jeszcze do kanału.</p>
       )}
     </aside>
