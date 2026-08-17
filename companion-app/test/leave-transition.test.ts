@@ -123,7 +123,7 @@ test('nextDeadlineAt: jeden wygasający zwraca jego termin', () => {
 test('nextDeadlineAt: dwa wygasające zwracają wcześniejszy termin (regresja: wielokrotne wychodzące)', () => {
   // To jest test regresji dokładnie na błąd: gdy A dogaśnie, a B wciąż wygasa,
   // zależnością hooka musi być termin, a nie flaga, inaczej efekt się nie odpalił
-  // dla B i B zastaje się w DOM-ie bez zaplanowanego wybudzenia.
+  // dla B i B zostaje w DOM-ie bez zaplanowanego wybudzenia.
   let state = emptyLeaveState<Item>()
   state = advanceLeaving(state, [item('a'), item('b'), item('c')], keyOf, 0, LEAVE_DURATION_MS)
   state = advanceLeaving(state, [item('a'), item('c')], keyOf, 100, LEAVE_DURATION_MS) // b wypadł w 100

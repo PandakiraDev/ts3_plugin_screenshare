@@ -609,7 +609,13 @@ git commit -m "feat(panel): model wiersza uczestnika i podzial na sekcje"
 
 **Interfaces:**
 - Consumes: nic
-- Produces: `LEAVE_DURATION_MS`, `LeaveState<T>`, `emptyLeaveState<T>()`, `advanceLeaving<T>(state, current, keyOf, now, durationMs)`, `visibleItems<T>(state)`
+- Produces: `LEAVE_DURATION_MS`, `LeaveState<T>`, `emptyLeaveState<T>()`, `advanceLeaving<T>(state, current, keyOf, now, durationMs)`, `visibleItems<T>(state)`, `nextDeadlineAt<T>(state, durationMs)`
+
+> **Poprawka po przeglądzie.** `nextDeadlineAt` i jego trzy testy niżej nie
+> należały do pierwotnej wersji tego zadania — doszły razem z poprawką opisaną
+> w nocie przy Task 6, gdzie właśnie ta funkcja usuwa błąd zgubionego budzika.
+> Zamieszczone tu od razu, żeby ktoś wykonujący ten plan od nowa napisał
+> od razu poprawną wersję.
 
 - [ ] **Step 1: Napisz testy przejścia**
 
@@ -622,6 +628,7 @@ import {
   advanceLeaving,
   emptyLeaveState,
   visibleItems,
+  nextDeadlineAt,
   type LeaveState
 } from '../src/shared/leaveTransition'
 
@@ -722,6 +729,35 @@ test('dwa elementy wychodzące naraz zachowują swoją kolejność', () => {
 
   expect(ids(state)).toEqual(['a', 'b', 'c', 'd'])
 })
+
+test('nextDeadlineAt: pusty stan zwraca null', () => {
+  const state = emptyLeaveState<Item>()
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(null)
+})
+
+test('nextDeadlineAt: jeden wygasający zwraca jego termin', () => {
+  let state = emptyLeaveState<Item>()
+  state = advanceLeaving(state, [item('a'), item('b')], keyOf, 100, LEAVE_DURATION_MS)
+  state = advanceLeaving(state, [item('a')], keyOf, 100, LEAVE_DURATION_MS)
+
+  // b wypadł w chwili 100, dogaśnie w 100 + 400 = 500
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(500)
+})
+
+test('nextDeadlineAt: dwa wygasające zwracają wcześniejszy termin (regresja: wielokrotne wychodzące)', () => {
+  // To jest test regresji dokładnie na błąd: gdy A dogaśnie, a B wciąż wygasa,
+  // zależnością hooka musi być termin, a nie flaga, inaczej efekt się nie odpalił
+  // dla B i B zostaje w DOM-ie bez zaplanowanego wybudzenia.
+  let state = emptyLeaveState<Item>()
+  state = advanceLeaving(state, [item('a'), item('b'), item('c')], keyOf, 0, LEAVE_DURATION_MS)
+  state = advanceLeaving(state, [item('a'), item('c')], keyOf, 100, LEAVE_DURATION_MS) // b wypadł w 100
+  state = advanceLeaving(state, [item('a')], keyOf, 150, LEAVE_DURATION_MS) // c wypadł w 150
+
+  // b dogaśnie w 100 + 400 = 500 (wcześniej)
+  // c dogaśnie w 150 + 400 = 550 (później)
+  // powinna zwrócić 500
+  expect(nextDeadlineAt(state, LEAVE_DURATION_MS)).toBe(500)
+})
 ```
 
 - [ ] **Step 2: Uruchom testy, żeby zobaczyć, że nie przechodzą**
@@ -804,12 +840,33 @@ export function visibleItems<T>(state: LeaveState<T>): { item: T; leaving: boole
   }
   return result
 }
+
+/**
+ * Moment, w którym pierwszy wygasający element dogaśnie i powinien zostać usunięty
+ * z DOM-u. Zwraca null, jeśli nic nie wygasa.
+ *
+ * Najwcześniejszy termin: gdy któryś element dogaśnie, reszta następuje w swoim czasie.
+ * Jeśli zależnością efektu będzie ten moment, każde przesunięcie terminu (nowy element
+ * wychodzący wcześniej/później niż poprzedni) przeplanuje budzik — to rozwiązuje regresję,
+ * gdzie drugi element wychodzący utknął w DOM-ie bez zaplanowanego wybudzenia.
+ */
+export function nextDeadlineAt<T>(state: LeaveState<T>, durationMs: number): number | null {
+  let earliest: number | null = null
+  for (const entry of state.leaving.values()) {
+    const deadline = entry.since + durationMs
+    if (earliest === null || deadline < earliest) {
+      earliest = deadline
+    }
+  }
+  return earliest
+}
 ```
 
 - [ ] **Step 4: Uruchom testy i sprawdź, że przechodzą**
 
 Run: `cd companion-app && npm test`
-Expected: PASS — 8 testów w `leave-transition.test.ts`, całość zielona
+Expected: PASS — 11 testów w `leave-transition.test.ts` (8 z reduktora + 3 dla
+`nextDeadlineAt`), całość zielona
 
 - [ ] **Step 5: Commit**
 
@@ -828,8 +885,17 @@ Hooka nie da się przetestować jednostkowo — vitest chodzi bez jsdom, więc n
 - Create: `companion-app/src/renderer/hooks/useLeaveTransition.ts`
 
 **Interfaces:**
-- Consumes: `LEAVE_DURATION_MS`, `advanceLeaving`, `emptyLeaveState`, `visibleItems`, `LeaveState` z Task 5
+- Consumes: `LEAVE_DURATION_MS`, `advanceLeaving`, `emptyLeaveState`, `visibleItems`, `nextDeadlineAt`, `LeaveState` z Task 5
 - Produces: `useLeaveTransition<T>(current: readonly T[], keyOf: (item: T) => string): { item: T; leaving: boolean }[]`
+
+> **Poprawka po przeglądzie.** Kod poniżej to już naprawiona wersja. Pierwotnie
+> zależnością efektu budzącego była flaga logiczna `hasLeaving` („coś jeszcze
+> wygasa"). Błąd: gdy drugi element zaczynał wygasać, zanim pierwszy skończył,
+> `hasLeaving` zostawała `true` przed i po, więc React efekt pomijał i dla
+> późniejszego terminu nikt nie planował budzika — element zostawał w DOM-ie
+> na zawsze. Naprawa zamienia flagę na `nextDeadlineAt`: konkretny TERMIN
+> najwcześniejszego wybudzenia, który zmienia się przy każdym wejściu/wyjściu
+> w grupie wygasających, więc efekt odpala się dla każdego z nich.
 
 - [ ] **Step 1: Napisz hook**
 
@@ -841,6 +907,7 @@ import {
   LEAVE_DURATION_MS,
   advanceLeaving,
   emptyLeaveState,
+  nextDeadlineAt,
   visibleItems,
   type LeaveState
 } from '@shared/leaveTransition'
@@ -879,13 +946,20 @@ export function useLeaveTransition<T>(
    * Gdy element dogaśnie, źródło już się nie zmieni — nikt nas nie obudzi.
    * Bez tego zegara wychodzący element zostałby w DOM-ie na zawsze, wygaszony
    * i nieklikany, ale zajmujący miejsce w siatce.
+   *
+   * Zależnością musi być TERMIN wybudzenia, a nie flaga „coś się wygasa". Gdyby była flaga:
+   * gdy A dogaśnie i znika, a B wciąż wygasa, flaga by została na true, efekt by się nie
+   * odpalił, i żaden budzik by się nie zaplanował dla B. Termin ma tę zaletę, że zmienia się
+   * przy każdym wejściu/wyjściu, więc efekt się odpalił dla każdego pierwszego/ostatniego
+   * elementu w grupie wychodzących.
    */
-  const hasLeaving = stateRef.current.leaving.size > 0
+  const nextDeadline = nextDeadlineAt(stateRef.current, durationMs)
   useEffect(() => {
-    if (!hasLeaving) return
-    const timer = setTimeout(() => bumpRender((count) => count + 1), durationMs)
+    if (nextDeadline === null) return
+    const delayMs = Math.max(0, nextDeadline - Date.now())
+    const timer = setTimeout(() => bumpRender((count) => count + 1), delayMs)
     return () => clearTimeout(timer)
-  }, [hasLeaving, durationMs])
+  }, [nextDeadline, durationMs])
 
   return visible
 }

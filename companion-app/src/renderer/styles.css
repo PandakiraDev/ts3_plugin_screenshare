@@ -1018,7 +1018,11 @@ h3 {
 }
 
 /* `forwards` trzyma końcową klatkę, żeby element nie mrugnął z powrotem
-   w pełną widoczność między końcem animacji a usunięciem z DOM-u. */
+   w pełną widoczność między końcem animacji a usunięciem z DOM-u.
+   Te 400ms MUSZĄ być zgodne z `LEAVE_DURATION_MS` w src/shared/leaveTransition.ts —
+   to ta stała trzyma element w DOM-ie na czas animacji. Zmiana jednej wartości
+   bez drugiej to cicha usterka: element znikałby przed końcem animacji albo
+   wisiał bezczynnie po jej zakończeniu. Zmieniać obie naraz. */
 .tile--leaving {
   animation: tile-out 400ms ease forwards;
   pointer-events: none;
@@ -1028,6 +1032,7 @@ h3 {
   animation: participant-in 400ms cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
+/* Te 400ms też muszą być zgodne z LEAVE_DURATION_MS — patrz komentarz przy .tile--leaving. */
 .participant--leaving {
   animation: participant-out 400ms ease forwards;
   pointer-events: none;

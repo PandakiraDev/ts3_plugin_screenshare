@@ -196,7 +196,7 @@ test('podział na sekcje wstawia nas po stronie nadających, gdy nadajemy', () =
 test('podział działa też na wierszach opakowanych w znacznik wyjścia', () => {
   // To NIE jest ten sam test co wyżej: sekcje dzielimy dopiero PO przejściu
   // wyjścia, więc do splitByStreaming trafia opakowany wiersz, a nie goły
-  // ParticipantView. Test pilnuje dwóm rzeczom:
+  // ParticipantView. Test pilnuje dwóch rzeczy:
   // 1) W czasie wykonania — że funkcja rzeczywiście używa przekazanego predykatu
   //    (row.item.isStreaming), a nie sięga sztywno po pole `isStreaming` na
   //    opakowanym obiekcie, gdzie byłoby undefined.

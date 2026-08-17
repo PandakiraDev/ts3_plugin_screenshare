@@ -439,6 +439,47 @@ sygnalizacja → stan u nadawcy → wyrenderowana kropka.
   Ale to realne ograniczenie pierwszego wieczoru po wydaniu, dopóki nie
   wszyscy się zaktualizują.
 
+### Panel uczestników i animacje (0.3.2, 2026-08-12)
+
+Krążki z inicjałami, plakietki stanu zamiast 13-pikselowych emoji, podział listy
+na „Nadają" i „W kanale", animacje startu i końca transmisji. Spec:
+`docs/superpowers/specs/2026-08-12-panel-uczestnikow-i-animacje-design.md`.
+
+**Kropka jakości z 0.3.1 zniknęła** — jej informacja przeszła do plakietki
+„Ogląda · płynnie / zacina". To przeprowadzka, nie wycofanie funkcji.
+
+**Rzecz, która okazała się sednem:** animacja wyjścia w Reakcie nie ma czego
+animować, bo element znika z DOM-u w tej samej klatce, w której wypada z listy.
+Stąd `src/shared/leaveTransition.ts` — reduktor trzymający wychodzące elementy
+jeszcze przez 400 ms, na ich dawnych pozycjach. Jest generyczny PO ELEMENCIE,
+a nie po kluczu, bo kafelek musi dogasać z tym samym `MediaStream` — inaczej
+zamiast obrazu gasłby czarny prostokąt.
+
+**Animacje wejścia nie mają ani jednego zegara:** uruchamia je dobór `key`.
+Krążek pulsuje, bo jego `key` zawiera `isStreaming`; plakietka ma `key` równy
+samemu `kind` CELOWO bez `quality`, inaczej podskakiwałaby przy każdym raporcie
+jakości, czyli co pięć sekund.
+
+**Zegara nie ma tylko wejście.** Wyjście już ma — `useLeaveTransition` — i to
+w nim recenzja znalazła najpoważniejszy błąd tego wydania: zależnością efektu
+budzącego była flaga `hasLeaving` („coś jeszcze wygasa"), a nie termin
+wybudzenia. Gdy drugi element zaczynał wygasać, zanim pierwszy skończył,
+flaga się nie zmieniała, więc React pomijał efekt i nikt nie planował budzika
+dla późniejszego terminu — element zostawał w DOM-ie na zawsze. Poprawka:
+`nextDeadlineAt` liczy najwcześniejszy termin ze wszystkich wygasających i to
+on jest zależnością efektu, więc każde przesunięcie terminu przeplanowuje
+budzik na nowo.
+
+**Odrzucone:** View Transitions API (Chromium 130 je ma i załatwiłoby nawet
+przejazd wiersza między sekcjami, ale robi migawkę całego dokumentu — z żywym
+`<video>` grozi to mrugnięciem czarną klatką, i nie da się tego przetestować
+bez przeglądarki). Przejazd wiersza między sekcjami został więc natychmiastowy.
+
+**Dług spłacony przy okazji:** `vitest.config.ts` z aliasem `@shared`.
+
+Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
+Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
+
 ## 4. Drobne
 
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset
