@@ -5,11 +5,11 @@
 //     (dokładnie to, co poleciało w sieć) oraz surowe totalFreezesDuration
 //     z inbound-rtp — czy liczby są w ogóle sensowne i po której stronie
 //     progu 5% wypadają;
-//   - u NADAWCY (A): kropki w panelu uczestników — czy cały łańcuch działa,
+//   - u NADAWCY (A): plakietki w panelu uczestników — czy cały łańcuch działa,
 //     od odczytu przez sygnalizację po wyrenderowanie.
 //
-// Czytamy DOM zamiast stanu Reacta celowo: kropka w interfejsie jest tym, co
-// widzi użytkownik, a stan można mieć poprawny i zapomnieć go pokazać.
+// Czytamy DOM zamiast stanu Reacta celowo: plakietka w interfejsie jest tym,
+// co widzi użytkownik, a stan można mieć poprawny i zapomnieć go pokazać.
 //
 // Uruchamianie, podpięcie przez CDP i klikanie w interfejs skopiowane
 // z e2e/obciazenie.mjs — ten sam układ (A nadaje, B ogląda), te same flagi
@@ -214,12 +214,11 @@ try {
   )
 
   // --- strona nadawcy: co widać w interfejsie ---
-  const dots = JSON.parse(
+  const badges = JSON.parse(
     await A.evaluate(`
-      JSON.stringify([...document.querySelectorAll('.peers__quality')].map((el) => ({
-        className: el.className,
-        description: el.getAttribute('title')
-      })))
+      JSON.stringify([...document.querySelectorAll('.badge')]
+        .filter((el) => /badge--watching-/.test(el.className))
+        .map((el) => ({ className: el.className, description: el.textContent })))
     `)
   )
 
@@ -252,18 +251,19 @@ try {
     )
   }
 
-  console.log('\n=== U NADAWCY (kropki w panelu) ===')
-  if (dots.length === 0) {
-    console.error('  BRAK KROPEK — łańcuch nie działa albo nikt nie ogląda')
+  console.log('\n=== U NADAWCY (plakietki w panelu) ===')
+  if (badges.length === 0) {
+    console.error('  BRAK PLAKIETEK — łańcuch nie działa albo nikt nie ogląda')
     exitCode = 1
   }
-  for (const dot of dots) {
-    console.log(`  ${dot.className}  "${dot.description}"`)
+  for (const badge of badges) {
+    console.log(`  ${badge.className}  "${badge.description}"`)
   }
 
-  const allUnknown = dots.length > 0 && dots.every((dot) => dot.className.includes('--unknown'))
+  const allUnknown =
+    badges.length > 0 && badges.every((badge) => badge.className.includes('watching-unknown'))
   if (allUnknown) {
-    console.error(`\nBŁĄD: po ${WAIT_MS / 1000} s wszystkie kropki nadal pokazują "brak danych".`)
+    console.error(`\nBŁĄD: po ${WAIT_MS / 1000} s wszystkie plakietki nadal mówią „Ogląda" bez dopisku.`)
     console.error('Raporty nie dolatują — wróć do diagnozy zamiast dopisywać kod.')
     exitCode = 1
   }
@@ -274,7 +274,7 @@ try {
   }
 
   if (exitCode === 0) {
-    console.log('\nOK: raporty dolatują, kropki mają stan inny niż "brak danych".')
+    console.log('\nOK: raporty dolatują, plakietki mają stan inny niż „nie wiadomo".')
   }
 } catch (err) {
   console.error('\nBŁĄD pomiaru:', err instanceof Error ? err.message : String(err))
