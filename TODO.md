@@ -477,6 +477,38 @@ bez przeglądarki). Przejazd wiersza między sekcjami został więc natychmiasto
 
 **Dług spłacony przy okazji:** `vitest.config.ts` z aliasem `@shared`.
 
+**Dwie kolizje nazw, obie ten sam błąd w dwie strony.** Usunięcie `.peers__you`
+rozjaśniło napis „(Ty)" na kafelkach wideo, bo `StreamTile` pożyczał sobie klasę
+panelu — stąd własna `.tile__you`. Potem nowe plakietki nazwano `.badge`, a ta
+klasa już istniała i należała do `PreviewPane` (metadana „1920×1080 · 30 FPS"),
+więc zrobiła się indygowa, pigułkowata i zaczęła wskakiwać animacją — stąd
+`.participant__badge`. Wniosek na przyszłość: **nazwa klasy należy do rodziny
+komponentu**, a nowa klasa wymaga sprawdzenia, czy ktoś już jej nie używa.
+
+**Znane ograniczenia, świadomie zostawione w 0.3.2** (wyszły z przeglądu
+końcowego, żadne nie blokowało wydania):
+
+- **Puls krążka i wejście kafelka grają przy każdym przemontowaniu**, nie tylko
+  przy faktycznej zmianie stanu. Zwinięcie i rozwinięcie panelu odmontowuje
+  wszystkie wiersze, więc po rozwinięciu krążki pulsują, jakby wszyscy właśnie
+  zaczęli nadawać; powrót z powiększenia odbija pozostałe kafelki. To cena
+  mechanizmu „animacja przy montowaniu, bez ani jednego zegara" — naprawa
+  wymaga pamiętania poprzedniego stanu, czyli tego, czego ten mechanizm miał
+  uniknąć.
+- **Licznik w pasku tytułowym liczy prawdę, panel i siatka liczą to, co widać.**
+  Przez 400 ms po zakończeniu ostatniej transmisji pasek mówi już „Nikt nie
+  nadaje obrazu", a na scenie stoi wygaszający się kafelek. Rozjazd jest
+  zamierzony (siatka nie ma przeskakiwać w połowie animacji), ale nierówny.
+- **Powiększony kafelek, który kończy transmisję, mruga** — jedna klatka na
+  całej scenie, potem wpada w siatkę w połowie wygaszania. Kliknięcia są
+  zablokowane, ale fokus klawiaturą nie.
+- **„Ogląda · płynnie" może stać obok „Brak połączenia"** nawet 15 sekund:
+  nieosiągalność liczy się ze stanu `RTCPeerConnection`, a ostatni raport
+  jakości starzeje się dopiero po `QUALITY_STALE_AFTER_MS`. Do rozstrzygnięcia,
+  czy `unreachable` ma degradować jakość do „nie wiadomo".
+- **`e2e/panel-uczestnikow.mjs` sprawdza sekcję i plakietkę niezależnie**, nie
+  po tym samym wierszu. Dziurę zasłania test jednostkowy podziału na sekcje.
+
 Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
 Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
 
