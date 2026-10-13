@@ -94,3 +94,25 @@ export function parseNvidiaSmi(stdout: string, at: number): GpuReading | null {
   const [utilizationPercent, memoryUsedMb, memoryTotalMb] = numbers as number[]
   return { utilizationPercent, memoryUsedMb, memoryTotalMb, at }
 }
+
+/**
+ * Odczyt GPU z wstrzykiwanym uruchamiaczem.
+ *
+ * Uruchamianie procesu nie siedzi tutaj celowo: gdyby siedziało, nie dałoby
+ * się przetestować ścieżki, która w praktyce zdarza się najczęściej — braku
+ * `nvidia-smi` (karta AMD, narzędzie nie w `PATH`, sterownik w aktualizacji).
+ * Proces główny wstrzykuje funkcję, która naprawdę uruchamia narzędzie.
+ *
+ * Łapiemy WSZYSTKO, bo odrzucona obietnica może nieść cokolwiek, nie tylko
+ * `Error`. Diagnostyka jest dodatkiem: jej awaria nie może zatrzymać zapisu.
+ */
+export async function readGpu(
+  run: () => Promise<string>,
+  at: number
+): Promise<GpuReading | null> {
+  try {
+    return parseNvidiaSmi(await run(), at)
+  } catch {
+    return null
+  }
+}

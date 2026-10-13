@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { parseNvidiaSmi } from '../src/shared/diagnostics'
+import { parseNvidiaSmi, readGpu } from '../src/shared/diagnostics'
 
 test('poprawny odczyt jednej karty', () => {
   const reading = parseNvidiaSmi('99, 10034, 12282', 1000)
@@ -92,4 +92,37 @@ test('liczba zbyt duża, by być skończoną, daje brak odczytu', () => {
   // ktoś kiedyś podstawił tu inne źródło danych.
   const absurd = '9'.repeat(400)
   expect(parseNvidiaSmi(`${absurd}, 100, 200`, 1)).toBeNull()
+})
+
+test('odczyt GPU zwraca wartości, gdy uruchamiacz je poda', async () => {
+  const reading = await readGpu(async () => '99, 10034, 12282', 7)
+  expect(reading?.utilizationPercent).toBe(99)
+  expect(reading?.at).toBe(7)
+})
+
+test('wyjątek uruchamiacza daje brak odczytu, a nie wyjątek w górę', async () => {
+  // Tak wygląda brak nvidia-smi w PATH (ENOENT), karta AMD albo sterownik
+  // w trakcie aktualizacji. Jeden wyjątek nie może zatrzymać całego zapisu.
+  const reading = await readGpu(async () => {
+    throw new Error('spawn nvidia-smi ENOENT')
+  }, 7)
+  expect(reading).toBeNull()
+})
+
+test('odrzucona obietnica bez obiektu błędu też daje brak odczytu', async () => {
+  const reading = await readGpu(() => Promise.reject('cokolwiek'), 7)
+  expect(reading).toBeNull()
+})
+
+test('nieczytelne wyjście uruchamiacza daje brak odczytu', async () => {
+  expect(await readGpu(async () => 'NVIDIA-SMI has failed', 7)).toBeNull()
+})
+
+test('synchroniczny wyjątek uruchamiacza też daje brak odczytu', async () => {
+  // execSync rzuca wyjątek od razu, zamiast odrzucić obietnicę. Typ wymaga
+  // Promise, ale wstrzyknięty uruchamiacz może go nie dotrzymać.
+  const reading = await readGpu(() => {
+    throw new Error('spawnSync nvidia-smi ENOENT')
+  }, 7)
+  expect(reading).toBeNull()
 })
