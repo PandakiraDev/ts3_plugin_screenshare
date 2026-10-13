@@ -19,6 +19,7 @@
     "e2e:kamera": "node e2e/kamera.mjs",
     "e2e:obciazenie": "node e2e/obciazenie.mjs",
     "e2e:jakosc": "node e2e/jakosc-odbioru.mjs",
+    "e2e:dlawienie": "node e2e/dlawienie.mjs",
     "e2e:panel": "node e2e/panel-uczestnikow.mjs",
     "e2e:audio": "npm run sync:native && npm run build && node e2e/app-audio.mjs",
     "e2e:dll-swap": "node e2e/dll-swap.mjs",
