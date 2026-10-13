@@ -39,6 +39,17 @@ export interface DiagnosticsSample {
   at: number
   system: SystemStats
   streams: StreamStats[]
+  /**
+   * Ile milisekund mają dane o strumieniach w tej próbce, licząc od chwili,
+   * gdy renderer je przysłał. `null` znaczy, że nie przysłał ich ani razu.
+   *
+   * Bez tego pola nie da się odróżnić „nie ma strumieni" od „renderer
+   * przestał się odzywać" — a to drugie jest objawem, którego szukamy:
+   * zagłodzony renderer przestaje wysyłać, a rejestrator w procesie głównym
+   * tyka dalej. Stare liczby powtarzane w kolejnych próbkach kazałyby
+   * wskazać złe ogniwo łańcucha.
+   */
+  streamsAgeMs: number | null
 }
 
 export interface StreamRates {

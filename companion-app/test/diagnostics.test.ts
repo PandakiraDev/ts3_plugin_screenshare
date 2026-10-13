@@ -312,7 +312,12 @@ test('każde pole bierze dane ze swojego licznika, nie z sąsiedniego', () => {
 })
 
 function sample(at: number): DiagnosticsSample {
-  return { at, system: { cpuPercent: 1, memoryMb: 2, gpu: null }, streams: [] }
+  return {
+    at,
+    system: { cpuPercent: 1, memoryMb: 2, gpu: null },
+    streams: [],
+    streamsAgeMs: null
+  }
 }
 
 test('bufor zachowuje kolejność i to, co się mieści', () => {

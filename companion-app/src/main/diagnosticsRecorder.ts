@@ -20,8 +20,18 @@ import { readSystemStats, startGpuPolling } from './metrics'
  * więc nie zakładamy sortowania i niczego tu nie sortujemy.
  */
 let buffer: DiagnosticsSample[] = []
-/** Ostatnie statystyki strumieni przysłane przez renderer. */
+/**
+ * Ostatnie statystyki strumieni przysłane przez renderer. Celowo NIE czyścimy
+ * ich, gdy renderer milknie: stare dane opisane wiekiem (`streamsAgeMs`) są
+ * uczciwe, a wyrzucone są stracone.
+ */
 let pendingStreams: StreamStats[] = []
+/**
+ * Moment ostatniego `push` z renderera, `null` do pierwszego. Zegar
+ * monotoniczny (`performance.now()`), nie `Date.now()`: cofnięcie zegara
+ * systemowego dałoby ujemny wiek, a wiek ma mówić, jak długo renderer milczy.
+ */
+let lastPushAt: number | null = null
 let logPath: string | null = null
 let logBytes = 0
 let ceilingReported = false
@@ -33,8 +43,23 @@ let ceilingReported = false
  */
 function appendLine(sample: DiagnosticsSample): void {
   if (logPath === null) return
-  const line = JSON.stringify(sample) + '\n'
-  const lineBytes = Buffer.byteLength(line, 'utf8')
+
+  /*
+   * Serializacja też w `try`: `streams` przychodzą z renderera przez IPC,
+   * a nie z naszego własnego kodu, więc nie zakładamy, że da się je
+   * zserializować. Strukturalne kopiowanie Electrona przenosi cykle bez
+   * protestu, a `JSON.stringify` rzuciłby na takiej strukturze i przewrócił
+   * tyknięcie zegara w procesie głównym. Taka próbka trafia do bufora
+   * w pamięci, tylko nie do pliku.
+   */
+  let line: string
+  let lineBytes: number
+  try {
+    line = JSON.stringify(sample) + '\n'
+    lineBytes = Buffer.byteLength(line, 'utf8')
+  } catch {
+    return
+  }
 
   if (!shouldAppendLine(logBytes, lineBytes, LOG_SIZE_CEILING_BYTES)) {
     if (ceilingReported) return
@@ -95,6 +120,7 @@ export function registerDiagnostics(enabled: boolean): void {
    */
   ipcMain.handle(IPC_DIAGNOSTICS_PUSH, (_event, streams: StreamStats[]) => {
     pendingStreams = Array.isArray(streams) ? streams : []
+    lastPushAt = performance.now()
   })
   ipcMain.handle(IPC_DIAGNOSTICS_LATEST, () => buffer[buffer.length - 1] ?? null)
   ipcMain.handle(IPC_DIAGNOSTICS_READ, () => buffer)
@@ -103,7 +129,10 @@ export function registerDiagnostics(enabled: boolean): void {
     const sample: DiagnosticsSample = {
       at: Date.now(),
       system: readSystemStats(),
-      streams: pendingStreams
+      streams: pendingStreams,
+      // Wiek liczymy w procesie głównym: renderer jest podejrzanym i nie
+      // wolno zrzucać na niego odpowiedzi, czy się jeszcze odzywa.
+      streamsAgeMs: lastPushAt === null ? null : Math.round(performance.now() - lastPushAt)
     }
     buffer = appendSample(buffer, sample, BUFFER_MAX_AGE_MS, BUFFER_MAX_SAMPLES)
     appendLine(sample)
