@@ -174,20 +174,17 @@ export function ratesBetween(
  * Oba ograniczenia są parametrami, nie stałymi w środku: inaczej test bufora
  * musiałby czekać dziesięć minut i wstawiać sześćset próbek.
  *
- * Dwie reguły, obie wymuszone przez cofnięcie zegara systemowego
- * (synchronizacja czasu zdarza się w środku sesji):
+ * Granica wieku liczy się od znacznika próbki właśnie dokładanej. Przy zegarze
+ * idącym w przód to to samo co od największego znacznika w buforze, bo nowa
+ * próbka jest wtedy najnowsza. Różnica pojawia się dopiero przy cofnięciu
+ * zegara systemowego (synchronizacja czasu zdarza się w środku sesji): cofnięta
+ * próbka poluzowuje wtedy okno zamiast wyrzucać dane, a stare wpisy wypycha
+ * sufit liczby wpisów. Ten wariant odzyskuje świeżość po `maxCount` dopisaniach,
+ * niezależnie od wielkości cofnięcia, o ile takty nie są dłuższe niż okno.
+ * Nowa próbka zostaje zawsze, bo jej wiek względem granicy wynosi zero.
  *
- * 1. **Granicę wieku liczymy od największego znacznika czasu**, a nie od
- *    znacznika próbki właśnie dokładanej. Cofnięta próbka nie może poluzować
- *    okna: granica liczona od niej zostawiałaby w buforze dane starsze niż
- *    dozwolony wiek względem najnowszego pomiaru.
- * 2. **Nowa próbka nie podlega filtrowi wieku i zostaje zawsze.** Inaczej po
- *    cofnięciu zegara każda kolejna próbka byłaby starsza od okna liczonego
- *    względem starej epoki — i zapis cicho by umarł.
- *
- * Skutkiem drugiej reguły bufor może przez chwilę trzymać dwie epoki czasu.
- * Dlatego ograniczenie rozmiaru bierze na siebie `maxCount`: filtr wieku nie
- * jest w tym przypadku żadną gwarancją, a bufor musi być skończony.
+ * Zakłada `maxCount >= 1` oraz że `maxCount` i `sample.at` są skończone.
+ * Produkcja podaje stałą 600, więc to kontrakt, nie obsługa błędu.
  */
 export function appendSample(
   buffer: readonly DiagnosticsSample[],
@@ -195,13 +192,20 @@ export function appendSample(
   maxAgeMs: number,
   maxCount: number
 ): DiagnosticsSample[] {
-  const newest = buffer.reduce((largest, entry) => Math.max(largest, entry.at), sample.at)
+  // Granica od próbki właśnie dokładanej, nie od największego znacznika w buforze.
+  const newest = sample.at
   const kept = buffer.filter((entry) => newest - entry.at <= maxAgeMs)
   const next = [...kept, sample]
   return next.length > maxCount ? next.slice(next.length - maxCount) : next
 }
 
-/** Czy linia zmieści się pod sufitem rozmiaru pliku. */
+/**
+ * Czy linia zmieści się pod sufitem rozmiaru pliku.
+ *
+ * Granica jest włącznie: linia równa wolnemu miejscu jeszcze się mieści.
+ * `currentBytes` i `lineBytes` to bajty, nie znaki. Polskie litery zajmują
+ * w UTF-8 po dwa bajty, więc liczenie znaków zaniżałoby rozmiar pliku.
+ */
 export function shouldAppendLine(
   currentBytes: number,
   lineBytes: number,

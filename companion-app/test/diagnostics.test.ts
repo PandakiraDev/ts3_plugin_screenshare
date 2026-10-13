@@ -338,15 +338,10 @@ test('próbka dokładnie na granicy wieku zostaje', () => {
 })
 
 test('cofnięty zegar systemowy nie wyrzuca ani historii, ani nowej próbki', () => {
-  // Synchronizacja czasu w trakcie sesji potrafi cofnąć zegar. Są tu dwie
-  // pułapki, każda gorsza od drugiej:
-  //   - gdyby granica liczyła się od próbki PRZYCHODZĄCEJ, cofnięta wartość
-  //     poluzowałaby okno i zostawiała w buforze dane starsze niż dozwolony wiek
-  //     (osobny test poniżej);
-  //   - gdyby nowa próbka podlegała filtrowi wieku, to po cofnięciu zegara
-  //     ODRZUCANA byłaby każda kolejna próbka i zapis cicho by umarł.
-  // Dlatego nowa próbka zostaje ZAWSZE, a ograniczenie rozmiaru bierze na
-  // siebie sufit liczby wpisów (osobny test poniżej).
+  // Synchronizacja czasu w trakcie sesji potrafi cofnąć zegar. Granica wieku
+  // liczy się od próbki właśnie dokładanej, więc cofnięta próbka nie wyrzuca
+  // starszych wpisów: wypycha je dopiero sufit liczby wpisów (test poniżej).
+  // Nowa próbka zostaje zawsze, bo jej wiek względem granicy wynosi zero.
   let buffer = appendSample([], sample(100_000), 5_000, 600)
   buffer = appendSample(buffer, sample(101_000), 5_000, 600)
   buffer = appendSample(buffer, sample(1_000), 5_000, 600)
@@ -354,13 +349,30 @@ test('cofnięty zegar systemowy nie wyrzuca ani historii, ani nowej próbki', ()
   expect(buffer.map((entry) => entry.at)).toContain(100_000)
 })
 
-test('granicę wieku wyznacza najnowszy znacznik w buforze, nie cofnięta próbka', () => {
-  // Starsza próbka wypada względem 7000 (7000 - 1000 > 5000). Cofnięta próbka
-  // z 1500 sama by ją zostawiła, bo liczona od 1500 granica sięga wstecz.
-  // Granica ma liczyć się od 7000.
+test('granicę wieku wyznacza próbka właśnie dokładana, nie najnowszy znacznik w buforze', () => {
+  // Względem najnowszego znacznika 7000 wpis z 1000 wypadłby (6000 > 5000).
+  // Granica liczy się jednak od cofniętej próbki 1500: 1500 - 1000 = 500 mieści
+  // się w oknie, więc wpis zostaje. Wpis z 7000 ma różnicę ujemną i też zostaje.
   const buffer = [sample(1_000), sample(7_000)]
   const next = appendSample(buffer, sample(1_500), 5_000, 600)
-  expect(next.map((entry) => entry.at)).toEqual([7_000, 1_500])
+  expect(next.map((entry) => entry.at)).toEqual([1_000, 7_000, 1_500])
+})
+
+test('cofnięcie zegara większe niż okno odzyskuje świeżość w granicach sufitu', () => {
+  // Gdyby granica liczyła się od największego znacznika, każda nowa próbka
+  // wypadałaby przy następnym dopisaniu jako starsza od okna liczonego względem
+  // starej epoki i bufor zostałby w większości ze starą epoką. Przy granicy od
+  // próbki przychodzącej nowe narastają, a stare wypycha sufit liczby wpisów.
+  let buffer: DiagnosticsSample[] = []
+  for (let at = 1_000_000; at < 1_000_000 + 5 * 1_000; at += 1_000) {
+    buffer = appendSample(buffer, sample(at), 5_000, 4)
+  }
+  // Zegar cofa się o niemal tysiąc sekund, czyli daleko poza okno pięciu sekund.
+  for (let at = 1_000; at <= 4 * 1_000; at += 1_000) {
+    buffer = appendSample(buffer, sample(at), 5_000, 4)
+  }
+  // Po czterech taktach nowej epoki bufor ma wyłącznie nowe próbki.
+  expect(buffer.map((entry) => entry.at)).toEqual([1_000, 2_000, 3_000, 4_000])
 })
 
 test('dopisanie nie zmienia przekazanego bufora', () => {
@@ -375,8 +387,13 @@ test('sufit liczby wpisów ogranicza bufor niezależnie od zegara', () => {
   // przykład po cofnięciu zegara, gdy w buforze siedzą dwie epoki naraz.
   // Wiek jest tu ogromny, więc o wycięciu decyduje wyłącznie sufit liczby.
   let buffer: DiagnosticsSample[] = []
-  for (let at = 1; at <= 10; at++) buffer = appendSample(buffer, sample(at), 10_000_000, 4)
-  expect(buffer.length).toBe(4)
+  for (let at = 1; at <= 10; at++) {
+    buffer = appendSample(buffer, sample(at), 10_000_000, 4)
+    // Długość sprawdzana po każdym dopisaniu. Sam stan końcowy przepuszcza
+    // bufor oscylujący między trzema a czterema wpisami, bo przy dziesięciu
+    // dopisaniach akurat wypada cztery.
+    expect(buffer.length).toBe(Math.min(at, 4))
+  }
   expect(buffer.map((entry) => entry.at)).toEqual([7, 8, 9, 10])
 })
 
@@ -401,9 +418,20 @@ test('pasek zużycia podaje pamięć karty w gigabajtach z przecinkiem', () => {
   expect(text).toBe('CPU 23% · RAM 412 MB · GPU 99% · VRAM 9,8/12,0 GB')
 })
 
-test('pasek zużycia zaokrągla procenty i megabajty do całości', () => {
-  const text = formatResourceBadge({ cpuPercent: 23.6, memoryMb: 411.4, gpu: null })
-  expect(text).toBe('CPU 24% · RAM 411 MB · GPU —')
+test('pasek zużycia zaokrągla procent CPU do najbliższej całości', () => {
+  // 23,4 odróżnia zaokrąglanie od sufitu, a 23,6 od podłogi.
+  const below = formatResourceBadge({ cpuPercent: 23.4, memoryMb: 411, gpu: null })
+  const above = formatResourceBadge({ cpuPercent: 23.6, memoryMb: 411, gpu: null })
+  expect(below).toBe('CPU 23% · RAM 411 MB · GPU —')
+  expect(above).toBe('CPU 24% · RAM 411 MB · GPU —')
+})
+
+test('pasek zużycia zaokrągla megabajty RAM do najbliższej całości', () => {
+  // 411,4 odróżnia zaokrąglanie od sufitu, a 411,6 od podłogi.
+  const below = formatResourceBadge({ cpuPercent: 23, memoryMb: 411.4, gpu: null })
+  const above = formatResourceBadge({ cpuPercent: 23, memoryMb: 411.6, gpu: null })
+  expect(below).toBe('CPU 23% · RAM 411 MB · GPU —')
+  expect(above).toBe('CPU 23% · RAM 412 MB · GPU —')
 })
 
 test('zero z odczytu GPU pokazuje się jako zero, nie jako kreska', () => {
