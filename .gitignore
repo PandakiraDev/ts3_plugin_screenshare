@@ -25,3 +25,6 @@ audio-native/build/
 
 # Makiety z burzy mozgow (superpowers) — robocze, nie wchodza do repo
 .superpowers/
+
+# Zapis surowy z pomiaru sesji (e2e:sesja) — dane lokalne, nie do repo
+.pomiar-sesji.jsonl

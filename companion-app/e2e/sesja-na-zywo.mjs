@@ -36,21 +36,31 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { attach, launchApp } from './cdp.mjs'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-const LEAD_IN_MS = Number(process.env.LEAD_IN_MS ?? 20_000)
-const DURATION_MS = Number(process.env.DURATION_MS ?? 300_000)
+// Rozbieg musi wystarczyć na przełączenie się do gry i wejście do rozgrywki,
+// a nie tylko na alt-tab: pierwszy przebieg przepadł, bo pomiar wystartował,
+// gdy człowiek jeszcze nie był w grze.
+const LEAD_IN_MS = Number(process.env.LEAD_IN_MS ?? 30_000)
+const DURATION_MS = Number(process.env.DURATION_MS ?? 240_000)
 const SAMPLE_EVERY_MS = Number(process.env.SAMPLE_EVERY_MS ?? 1_000)
 const CHANNEL = process.env.CHANNEL ?? `sesja-${Date.now()}`
 const SCREEN_PATTERN = process.env.SCREEN ?? 'Ekran'
 const PORT_A = 9411
 const PORT_B = 9412
 
-const LOG_PATH =
-  process.env.LOG_PATH ?? join(tmpdir(), `ts3-sesja-${new Date().toISOString().slice(0, 10)}.jsonl`)
+/*
+ * Domyślnie w korzeniu repozytorium (plik jest w .gitignore), a nie w katalogu
+ * tymczasowym: dzięki temu ścieżka jest przewidywalna i człowiek uruchamiający
+ * pomiar nie musi przepisywać nikomu nazwy pliku. Dopisujemy, nie nadpisujemy —
+ * kolejne sesje zostają, a rozdziela je przerwa w znacznikach czasu.
+ */
+const LOG_PATH = process.env.LOG_PATH ?? join(__dirname, '..', '..', '.pomiar-sesji.jsonl')
 
 /*
  * Świadomie BEZ `--use-fake-device-for-media-stream` i bez flag przeciw
@@ -134,23 +144,50 @@ async function waitReady(cdp, label) {
   throw new Error(`${label}: nie doczekałem się połączenia z serwerem sygnalizacyjnym`)
 }
 
+/**
+ * Czeka, aż wyrażenie zwróci prawdę. Sztywny `sleep` po kliknięciu nie
+ * wystarcza: lista źródeł pulpitu potrzebuje tyle, ile potrzebuje —
+ * generuje miniatury wszystkich ekranów i okien. Pierwsza wersja czekała
+ * 2,5 s na sztywno i raz na kilka przebiegów dostawała „BRAK KARTY".
+ */
+async function waitFor(cdp, expression, label, attempts = 40) {
+  for (let i = 0; i < attempts; i++) {
+    if (await cdp.evaluate(expression)) return
+    await sleep(500)
+  }
+  throw new Error(`${label}: nie doczekałem się (${attempts * 0.5} s)`)
+}
+
 async function shareScreen(cdp) {
   await cdp.evaluate(
     `[...document.querySelectorAll('button')].find(b=>/Udostępnij ekran/.test(b.textContent)).click()`
   )
-  await sleep(2_500)
+
+  const matcher = `new RegExp(${JSON.stringify(SCREEN_PATTERN)}).test(c.textContent)`
+  await waitFor(
+    cdp,
+    `[...document.querySelectorAll('.source-card')].some(c => ${matcher})`,
+    'lista źródeł pulpitu'
+  )
+
   const picked = await cdp.evaluate(`(() => {
-    const card = [...document.querySelectorAll('.source-card')]
-      .find(c => ${JSON.stringify(SCREEN_PATTERN)} && new RegExp(${JSON.stringify(SCREEN_PATTERN)}).test(c.textContent))
-    if (!card) return 'BRAK KARTY'
+    const card = [...document.querySelectorAll('.source-card')].find(c => ${matcher})
     card.click()
     return card.textContent.trim()
   })()`)
-  await sleep(2_500)
+
+  // Przycisk startu bywa nieaktywny, dopóki podgląd nie wstanie.
+  await waitFor(
+    cdp,
+    `(() => {
+      const b = [...document.querySelectorAll('button')].find(x=>/Rozpocznij udostępnianie/.test(x.textContent))
+      return !!b && !b.disabled
+    })()`,
+    'przycisk rozpoczęcia udostępniania'
+  )
+
   const started = await cdp.evaluate(`(() => {
     const b = [...document.querySelectorAll('button')].find(x=>/Rozpocznij udostępnianie/.test(x.textContent))
-    if (!b) return 'BRAK PRZYCISKU'
-    if (b.disabled) return 'NIEAKTYWNY'
     b.click(); return 'ok'
   })()`)
   return { picked, started }
