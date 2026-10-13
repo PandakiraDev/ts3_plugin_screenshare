@@ -121,9 +121,10 @@ export async function readGpu(
  * Przyrost jednego licznika na sekundę.
  *
  * `null` oznacza „nie wiem" i wychodzi w trzech przypadkach: licznika brakuje
- * po którejkolwiek stronie, poszedł w tył albo nie jest liczbą. Cofnięcie jest
- * realne — WebRTC zeruje liczniki przy przełączeniu kodeka — a bez tej reguły
- * panel pokazywałby ujemne tempo, czyli bzdurę wyglądającą na pomiar.
+ * po którejkolwiek stronie, poszedł w tył albo nie jest skończoną liczbą.
+ * Cofnięcie jest realne — WebRTC zeruje liczniki przy przełączeniu kodeka — a
+ * bez tej reguły panel pokazywałby ujemne tempo, czyli bzdurę wyglądającą na
+ * pomiar.
  */
 function deltaPerSecond(
   previous: number | null,
@@ -131,9 +132,10 @@ function deltaPerSecond(
   elapsedMs: number
 ): number | null {
   if (previous === null || next === null) return null
-  // Negacja zamiast `<`: NaN nie jest ani mniejszy, ani większy od niczego,
-  // więc zwykłe porównanie przepuściłoby go dalej jako wynik.
-  if (!(next >= previous)) return null
+  // Tylko skończone liczby. NaN i nieskończoność nie są pomiarem: nieskończoność
+  // odjęta od siebie daje NaN, a nieskończony licznik daje nieskończone tempo.
+  if (!Number.isFinite(previous) || !Number.isFinite(next)) return null
+  if (next < previous) return null
   return ((next - previous) * 1000) / elapsedMs
 }
 
@@ -142,8 +144,8 @@ function deltaPerSecond(
  *
  * Zwraca `null` jako CAŁOŚĆ tylko wtedy, gdy nie ma czego liczyć: brak
  * poprzedniej próbki (strumień właśnie się pojawił) albo odstęp czasu, który
- * nie jest dodatnią liczbą (zero, wartość ujemna lub NaN). Pojedyncze pola
- * mogą być `null` niezależnie od siebie — patrz `deltaPerSecond`.
+ * nie jest dodatnią, skończoną liczbą. Pojedyncze pola mogą być `null`
+ * niezależnie od siebie — patrz `deltaPerSecond`.
  */
 export function ratesBetween(
   previous: StreamStats | undefined,
@@ -151,8 +153,8 @@ export function ratesBetween(
   elapsedMs: number
 ): StreamRates | null {
   if (previous === undefined) return null
-  // Negacja łapie też NaN, którego samo `elapsedMs <= 0` by nie złapało.
-  if (!(elapsedMs > 0)) return null
+  // Skończoność odrzuca NaN i nieskończoność, a `<= 0` zero i wartości ujemne.
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return null
 
   const bytesPerSecond = deltaPerSecond(previous.bytes, next.bytes, elapsedMs)
   return {

@@ -174,16 +174,36 @@ test('zerowy i ujemny odstęp czasu unieważnia cały odczyt', () => {
   expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), -5)).toBeNull()
 })
 
-test('NaN w odstępie czasu albo w liczniku nie trafia do wyniku', () => {
+test('NaN i nieskończoność nie trafiają do wyniku', () => {
   // NaN nie jest ani większy, ani mniejszy od czegokolwiek, więc zwykłe
-  // porównania `<` i `<=` przepuszczałyby go dalej. Reguła mówi: nigdy NaN.
+  // porównania przepuściłyby go dalej. Nieskończoność z kolei daje NaN przy
+  // odjęciu od samej siebie, a skończony licznik minus nieskończoność daje
+  // nieskończone tempo. Reguła mówi: nigdy NaN ani nieskończoność.
   expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), Number.NaN)).toBeNull()
-  const rates = ratesBetween(
+  expect(
+    ratesBetween(inbound(), inbound({ framesReceived: 10 }), Number.POSITIVE_INFINITY)
+  ).toBeNull()
+
+  const nanCounter = ratesBetween(
     inbound({ framesReceived: Number.NaN }),
     inbound({ framesReceived: 10 }),
     1_000
   )
-  expect(rates?.receivedPerS).toBeNull()
+  expect(nanCounter?.receivedPerS).toBeNull()
+
+  const infiniteCounter = ratesBetween(
+    inbound({ framesReceived: 10 }),
+    inbound({ framesReceived: Number.POSITIVE_INFINITY }),
+    1_000
+  )
+  expect(infiniteCounter?.receivedPerS).toBeNull()
+
+  const bothInfinite = ratesBetween(
+    inbound({ framesReceived: Number.POSITIVE_INFINITY }),
+    inbound({ framesReceived: Number.POSITIVE_INFINITY }),
+    1_000
+  )
+  expect(bothInfinite?.receivedPerS).toBeNull()
 })
 
 test('brak poprzedniej próbki unieważnia cały odczyt', () => {
@@ -223,11 +243,60 @@ test('pole brakujące po którejkolwiek stronie daje null, nie NaN', () => {
     1_000
   )
   expect(rates?.presentedPerS).toBeNull()
-  expect(Number.isNaN(rates?.presentedPerS as unknown as number)).toBe(false)
 })
 
 test('pola drugiego kierunku zostają null, gdy strumień ich nie ma', () => {
   const rates = ratesBetween(inbound(), inbound({ framesReceived: 30 }), 1_000)
   expect(rates?.encodedPerS).toBeNull()
   expect(rates?.sentPerS).toBeNull()
+})
+
+test('niezmieniony licznik daje zero, nie „nie wiem"', () => {
+  // Zatrzymany strumień to 0 klatek na sekundę i panel ma to pokazać. Gdyby
+  // guard odrzucał równe liczniki, zwykła cisza dawałaby `null`, czyli „nie
+  // wiem", i zniknęłaby najważniejsza informacja: że obraz stoi.
+  const rates = ratesBetween(
+    inbound({ framesDecoded: 500, bytes: 1_000 }),
+    inbound({ framesDecoded: 500, bytes: 1_000 }),
+    1_000
+  )
+  expect(rates?.decodedPerS).toBe(0)
+  expect(rates?.kilobitsPerS).toBe(0)
+})
+
+test('każde pole bierze dane ze swojego licznika, nie z sąsiedniego', () => {
+  // Wartości są rozłączne celowo: gdyby którekolwiek pole było podpięte pod
+  // sąsiedni licznik, asercja pokazałaby liczbę z innego pola zamiast błędu
+  // typu. Cztery mutacje podpięcia przeżyły dotąd wszystkie testy.
+  const previous: StreamStats = {
+    peerId: 'p1',
+    kind: 'screen',
+    direction: 'outbound',
+    framesReceived: 0,
+    framesDecoded: 0,
+    framesPresented: 0,
+    framesDropped: 0,
+    framesEncoded: 0,
+    framesSent: 0,
+    bytes: 0,
+    qualityLimitationReason: null
+  }
+  const next: StreamStats = {
+    ...previous,
+    framesReceived: 1,
+    framesDecoded: 2,
+    framesPresented: 3,
+    framesDropped: 4,
+    framesEncoded: 5,
+    framesSent: 6,
+    bytes: 125_000
+  }
+  const rates = ratesBetween(previous, next, 1_000)
+  expect(rates?.receivedPerS).toBe(1)
+  expect(rates?.decodedPerS).toBe(2)
+  expect(rates?.presentedPerS).toBe(3)
+  expect(rates?.droppedPerS).toBe(4)
+  expect(rates?.encodedPerS).toBe(5)
+  expect(rates?.sentPerS).toBe(6)
+  expect(rates?.kilobitsPerS).toBe(1_000)
 })
