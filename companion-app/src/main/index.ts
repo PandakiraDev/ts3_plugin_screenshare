@@ -11,6 +11,7 @@ import {
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 import { registerAppAudio } from './audio'
+import { registerDiagnostics } from './diagnosticsRecorder'
 import { registerUpdates } from './update'
 
 /**
@@ -164,6 +165,8 @@ app.whenReady().then(() => {
     writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
   registerAppAudio()
+  // Przy wyłączonej fladze nie rejestruje nic: ani zegara, ani IPC, ani pliku.
+  registerDiagnostics(launch.ok && launch.options.diagnostics)
   // Getter, a nie referencja do okna: `activate` na macOS potrafi utworzyć nowe
   // okno, a rejestracja uchwytów IPC może się odbyć tylko raz.
   registerUpdates(() => BrowserWindow.getAllWindows()[0] ?? null)
