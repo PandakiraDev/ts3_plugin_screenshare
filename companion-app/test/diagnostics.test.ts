@@ -47,3 +47,39 @@ test('brak odczytu nigdy nie udaje bezczynnej karty', () => {
     expect(reading, `wejście ${JSON.stringify(bad)}`).toBeNull()
   }
 })
+
+test('puste pole między przecinkami daje brak odczytu, nie zero', () => {
+  // Bez tego przypadku regex osłabiony z `\d+` na `\d*` przechodzi wszystkie
+  // testy, a puste pole daje `Number('')` === 0 — czyli dokładnie to fałszywe
+  // zero, którego ta funkcja ma nie produkować.
+  expect(parseNvidiaSmi('1, , 3', 1)).toBeNull()
+  expect(parseNvidiaSmi('1, 2,', 1)).toBeNull()
+  expect(parseNvidiaSmi(',,', 1)).toBeNull()
+})
+
+test('za dużo pól daje brak odczytu', () => {
+  // Pilnuje `parts.length !== 3`: przy osłabieniu do `< 3` cztery pola
+  // dawałyby odczyt złożony z pierwszych trzech, bez śladu, że coś nie gra.
+  expect(parseNvidiaSmi('1, 2, 3, 4', 1)).toBeNull()
+})
+
+test('[N/A] w ostatnim polu też daje brak odczytu', () => {
+  // Osobny przypadek, bo sprawdzanie tylko dwóch pierwszych pól przechodziło
+  // dotąd na zielono — trzecie było pokryte wyłącznie wejściem z trzema [N/A].
+  expect(parseNvidiaSmi('99, 10034, [N/A]', 1)).toBeNull()
+})
+
+test('zakończenie CRLF z Windowsa nie przeszkadza', () => {
+  // Zmierzone na prawdziwym nvidia-smi: zwraca "70, 10268, 12282\r\n", więc
+  // po split('\n') pierwsza linia kończy się znakiem CR. Oba trim() zdejmują go
+  // niezależnie, więc osłabienie jednego z nich nie psuje odczytu. Test łapie
+  // dopiero osłabienie obu naraz: wtedy każdy odczyt z Windowsa dawałby brak
+  // odczytu, czyli ciche „GPU —".
+  const reading = parseNvidiaSmi('70, 10268, 12282\r\n', 9)
+  expect(reading).toEqual({
+    utilizationPercent: 70,
+    memoryUsedMb: 10268,
+    memoryTotalMb: 12282,
+    at: 9
+  })
+})

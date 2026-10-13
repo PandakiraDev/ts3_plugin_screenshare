@@ -53,8 +53,13 @@ export interface StreamRates {
 
 export const SAMPLE_INTERVAL_MS = 1_000
 export const BUFFER_MAX_AGE_MS = 10 * 60 * 1_000
-/** Sufit liczby wpisów: dziesięć minut przy 1 Hz, plus zapas na cofnięty zegar. */
-export const BUFFER_MAX_SAMPLES = 600
+/**
+ * Tyle próbek mieści się w oknie wieku przy interwale próbkowania: dokładnie
+ * dziesięć minut przy 1 Hz. Sam sufit nie zostawia zapasu. Istnieje jako
+ * zabezpieczenie na wypadek, gdy filtr wieku zawiedzie, na przykład po cofnięciu
+ * zegara, gdy w buforze siedzą dwie epoki naraz.
+ */
+export const BUFFER_MAX_SAMPLES = BUFFER_MAX_AGE_MS / SAMPLE_INTERVAL_MS
 export const LOG_SIZE_CEILING_BYTES = 8 * 1024 * 1024
 export const ROOM_FINGERPRINT_LENGTH = 8
 
@@ -76,7 +81,14 @@ export function parseNvidiaSmi(stdout: string, at: number): GpuReading | null {
   const parts = firstLine.split(',').map((part) => part.trim())
   if (parts.length !== 3) return null
 
-  const numbers = parts.map((part) => (/^\d+(\.\d+)?$/.test(part) ? Number(part) : null))
+  // Całkowitość wynika z `--format=csv,noheader,nounits`: bez jednostek i bez
+  // części dziesiętnej. `Number.isFinite` łapie liczby z ponad 308 cyframi,
+  // które `Number` zamienia na `Infinity`.
+  const numbers = parts.map((part) => {
+    if (!/^\d+$/.test(part)) return null
+    const value = Number(part)
+    return Number.isFinite(value) ? value : null
+  })
   if (numbers.some((value) => value === null)) return null
 
   const [utilizationPercent, memoryUsedMb, memoryTotalMb] = numbers as number[]
