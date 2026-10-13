@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { parseNvidiaSmi, readGpu } from '../src/shared/diagnostics'
+import { parseNvidiaSmi, readGpu, ratesBetween, type StreamStats } from '../src/shared/diagnostics'
 
 test('poprawny odczyt jednej karty', () => {
   const reading = parseNvidiaSmi('99, 10034, 12282', 1000)
@@ -125,4 +125,109 @@ test('synchroniczny wyjątek uruchamiacza też daje brak odczytu', async () => {
     throw new Error('spawnSync nvidia-smi ENOENT')
   }, 7)
   expect(reading).toBeNull()
+})
+
+function inbound(overrides: Partial<StreamStats> = {}): StreamStats {
+  return {
+    peerId: 'p1',
+    kind: 'screen',
+    direction: 'inbound',
+    framesReceived: 0,
+    framesDecoded: 0,
+    framesPresented: 0,
+    framesDropped: 0,
+    framesEncoded: null,
+    framesSent: null,
+    bytes: 0,
+    qualityLimitationReason: null,
+    ...overrides
+  }
+}
+
+test('zwykły przyrost daje tempo na sekundę', () => {
+  const rates = ratesBetween(
+    inbound({ framesReceived: 100, bytes: 1_000 }),
+    inbound({ framesReceived: 160, bytes: 126_000 }),
+    1_000
+  )
+  expect(rates?.receivedPerS).toBe(60)
+  // 125 000 bajtów = 1 000 000 bitów = 1 000 kilobitów na sekundę
+  expect(rates?.kilobitsPerS).toBe(1_000)
+})
+
+test('tempo to przyrost podzielony przez czas, a nie przez liczbę próbek', () => {
+  // Przy odstępie równym sekundzie dzielenie przez czas i mnożenie przez czas
+  // dają ten sam wynik, więc błąd w przeliczniku byłby niewidoczny. Dwie
+  // sekundy to rozstrzygają.
+  const rates = ratesBetween(
+    inbound({ framesReceived: 100, bytes: 0 }),
+    inbound({ framesReceived: 160, bytes: 250_000 }),
+    2_000
+  )
+  expect(rates?.receivedPerS).toBe(30)
+  // 250 000 bajtów w 2 s to 125 000 bajtów na sekundę = 1 000 kilobitów
+  expect(rates?.kilobitsPerS).toBe(1_000)
+})
+
+test('zerowy i ujemny odstęp czasu unieważnia cały odczyt', () => {
+  expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), 0)).toBeNull()
+  expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), -5)).toBeNull()
+})
+
+test('NaN w odstępie czasu albo w liczniku nie trafia do wyniku', () => {
+  // NaN nie jest ani większy, ani mniejszy od czegokolwiek, więc zwykłe
+  // porównania `<` i `<=` przepuszczałyby go dalej. Reguła mówi: nigdy NaN.
+  expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), Number.NaN)).toBeNull()
+  const rates = ratesBetween(
+    inbound({ framesReceived: Number.NaN }),
+    inbound({ framesReceived: 10 }),
+    1_000
+  )
+  expect(rates?.receivedPerS).toBeNull()
+})
+
+test('brak poprzedniej próbki unieważnia cały odczyt', () => {
+  // Tak wygląda strumień, który właśnie się pojawił: nie ma od czego liczyć
+  // przyrostu, a liczenie od zera pokazałoby fałszywy skok.
+  expect(ratesBetween(undefined, inbound({ framesReceived: 500 }), 1_000)).toBeNull()
+})
+
+test('cofnięty licznik zeruje SWOJE pole, nie cały odczyt', () => {
+  // WebRTC zeruje liczniki przy przełączeniu kodeka. Bez tej reguły panel
+  // pokazałby minus czterdzieści klatek na sekundę.
+  const rates = ratesBetween(
+    inbound({ framesReceived: 100, framesDecoded: 100 }),
+    inbound({ framesReceived: 5, framesDecoded: 160 }),
+    1_000
+  )
+  expect(rates?.receivedPerS).toBeNull()
+  expect(rates?.decodedPerS).toBe(60)
+})
+
+test('cofnięty licznik bajtów zeruje tylko kilobity', () => {
+  // Kilobity liczone są z bajtów, więc cofnięty licznik bajtów musi zerować
+  // właśnie je, a nie cały odczyt.
+  const rates = ratesBetween(
+    inbound({ framesReceived: 100, bytes: 500_000 }),
+    inbound({ framesReceived: 160, bytes: 1_000 }),
+    1_000
+  )
+  expect(rates?.kilobitsPerS).toBeNull()
+  expect(rates?.receivedPerS).toBe(60)
+})
+
+test('pole brakujące po którejkolwiek stronie daje null, nie NaN', () => {
+  const rates = ratesBetween(
+    inbound({ framesPresented: null }),
+    inbound({ framesPresented: 60 }),
+    1_000
+  )
+  expect(rates?.presentedPerS).toBeNull()
+  expect(Number.isNaN(rates?.presentedPerS as unknown as number)).toBe(false)
+})
+
+test('pola drugiego kierunku zostają null, gdy strumień ich nie ma', () => {
+  const rates = ratesBetween(inbound(), inbound({ framesReceived: 30 }), 1_000)
+  expect(rates?.encodedPerS).toBeNull()
+  expect(rates?.sentPerS).toBeNull()
 })

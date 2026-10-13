@@ -116,3 +116,52 @@ export async function readGpu(
     return null
   }
 }
+
+/**
+ * Przyrost jednego licznika na sekundę.
+ *
+ * `null` oznacza „nie wiem" i wychodzi w trzech przypadkach: licznika brakuje
+ * po którejkolwiek stronie, poszedł w tył albo nie jest liczbą. Cofnięcie jest
+ * realne — WebRTC zeruje liczniki przy przełączeniu kodeka — a bez tej reguły
+ * panel pokazywałby ujemne tempo, czyli bzdurę wyglądającą na pomiar.
+ */
+function deltaPerSecond(
+  previous: number | null,
+  next: number | null,
+  elapsedMs: number
+): number | null {
+  if (previous === null || next === null) return null
+  // Negacja zamiast `<`: NaN nie jest ani mniejszy, ani większy od niczego,
+  // więc zwykłe porównanie przepuściłoby go dalej jako wynik.
+  if (!(next >= previous)) return null
+  return ((next - previous) * 1000) / elapsedMs
+}
+
+/**
+ * Tempo wszystkich liczników strumienia między dwiema próbkami.
+ *
+ * Zwraca `null` jako CAŁOŚĆ tylko wtedy, gdy nie ma czego liczyć: brak
+ * poprzedniej próbki (strumień właśnie się pojawił) albo odstęp czasu, który
+ * nie jest dodatnią liczbą (zero, wartość ujemna lub NaN). Pojedyncze pola
+ * mogą być `null` niezależnie od siebie — patrz `deltaPerSecond`.
+ */
+export function ratesBetween(
+  previous: StreamStats | undefined,
+  next: StreamStats,
+  elapsedMs: number
+): StreamRates | null {
+  if (previous === undefined) return null
+  // Negacja łapie też NaN, którego samo `elapsedMs <= 0` by nie złapało.
+  if (!(elapsedMs > 0)) return null
+
+  const bytesPerSecond = deltaPerSecond(previous.bytes, next.bytes, elapsedMs)
+  return {
+    receivedPerS: deltaPerSecond(previous.framesReceived, next.framesReceived, elapsedMs),
+    decodedPerS: deltaPerSecond(previous.framesDecoded, next.framesDecoded, elapsedMs),
+    presentedPerS: deltaPerSecond(previous.framesPresented, next.framesPresented, elapsedMs),
+    droppedPerS: deltaPerSecond(previous.framesDropped, next.framesDropped, elapsedMs),
+    encodedPerS: deltaPerSecond(previous.framesEncoded, next.framesEncoded, elapsedMs),
+    sentPerS: deltaPerSecond(previous.framesSent, next.framesSent, elapsedMs),
+    kilobitsPerS: bytesPerSecond === null ? null : (bytesPerSecond * 8) / 1000
+  }
+}
