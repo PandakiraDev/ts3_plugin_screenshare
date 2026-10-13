@@ -141,8 +141,23 @@ test('obsługa flag logicznych nie psuje flag z wartością', () => {
 test('puste --signaling cofa się do adresu domyślnego, nie do pustego', () => {
   // Naprawa flag logicznych wprowadziła tu pułapkę: `--signaling` bez wartości
   // trafia do mapy jako pusty łańcuch, a `??` cofa się do domyślnego tylko przy
-  // `null`. Bez tego aplikacja próbowałaby łączyć się z pustym adresem.
+  // `null` i `undefined`. Bez tego aplikacja próbowałaby łączyć się z pustym adresem.
   const result = parseLaunchArgs(['--signaling', '--ts3-server=a:1', '--channel=2'])
   if (!result.ok) throw new Error('spodziewano się powodzenia')
   expect(result.options.signalingUrl).toBe(DEFAULT_SIGNALING_URL)
+})
+
+test('wejścia pokoju zostają w postaci surowej, nie znormalizowanej', () => {
+  // Wartości dobrane tak, żeby normalizacja w `deriveRoomId` je ZMIENIŁA:
+  // wielkie litery w adresie i spacje wokół numeru kanału. Poprzedni test
+  // tego nie pilnował, bo używał wartości, których normalizacja nie dotyka —
+  // przechodził także wtedy, gdy pola zapisywano znormalizowane.
+  const result = parseLaunchArgs(['--ts3-server=TS.Serwer.PL:9987', '--channel= 42 '])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.ts3ServerAddress).toBe('TS.Serwer.PL:9987')
+  expect(result.options.channelId).toBe(' 42 ')
+  // Skrót liczy się nadal ze znormalizowanych wejść — to jest w porządku
+  // i ma tak zostać; surowa postać służy wyłącznie pokazaniu człowiekowi,
+  // co naprawdę podał.
+  expect(result.options.roomId).toBe(deriveRoomId('TS.Serwer.PL:9987', ' 42 '))
 })

@@ -85,6 +85,9 @@ function readFlags(argv: string[]): Map<string, string> {
 
 export function parseLaunchArgs(argv: string[]): LaunchParseResult {
   const flags = readFlags(argv)
+  // `||`, a nie `??`: po naprawie flag logicznych puste `--signaling` trafia do mapy
+  // jako pusty łańcuch, a `??` cofa się do wartości domyślnej tylko przy `null`
+  // i `undefined`. Puste ma znaczyć „użyj domyślnego", tak jak puste `--nick` niżej.
   const signalingUrl = flags.get('signaling') || DEFAULT_SIGNALING_URL
   const ts3Server = flags.get('ts3-server')
   const channel = flags.get('channel')
