@@ -1,5 +1,15 @@
 import { expect, test } from 'vitest'
-import { parseNvidiaSmi, readGpu, ratesBetween, type StreamStats } from '../src/shared/diagnostics'
+import {
+  appendSample,
+  formatResourceBadge,
+  parseNvidiaSmi,
+  readGpu,
+  ratesBetween,
+  shortRoomFingerprint,
+  shouldAppendLine,
+  type DiagnosticsSample,
+  type StreamStats
+} from '../src/shared/diagnostics'
 
 test('poprawny odczyt jednej karty', () => {
   const reading = parseNvidiaSmi('99, 10034, 12282', 1000)
@@ -299,4 +309,119 @@ test('każde pole bierze dane ze swojego licznika, nie z sąsiedniego', () => {
   expect(rates?.encodedPerS).toBe(5)
   expect(rates?.sentPerS).toBe(6)
   expect(rates?.kilobitsPerS).toBe(1_000)
+})
+
+function sample(at: number): DiagnosticsSample {
+  return { at, system: { cpuPercent: 1, memoryMb: 2, gpu: null }, streams: [] }
+}
+
+test('bufor zachowuje kolejność i to, co się mieści', () => {
+  let buffer = appendSample([], sample(1_000), 10_000, 600)
+  buffer = appendSample(buffer, sample(2_000), 10_000, 600)
+  buffer = appendSample(buffer, sample(3_000), 10_000, 600)
+  expect(buffer.map((entry) => entry.at)).toEqual([1_000, 2_000, 3_000])
+})
+
+test('bufor przycina próbki starsze niż podany wiek', () => {
+  let buffer = appendSample([], sample(1_000), 5_000, 600)
+  buffer = appendSample(buffer, sample(3_000), 5_000, 600)
+  buffer = appendSample(buffer, sample(7_000), 5_000, 600)
+  // Granica liczona względem najnowszej próbki: 7000 - 5000 = 2000,
+  // więc próbka z 1000 wypada, a ta z 3000 zostaje.
+  expect(buffer.map((entry) => entry.at)).toEqual([3_000, 7_000])
+})
+
+test('próbka dokładnie na granicy wieku zostaje', () => {
+  let buffer = appendSample([], sample(2_000), 5_000, 600)
+  buffer = appendSample(buffer, sample(7_000), 5_000, 600)
+  expect(buffer.map((entry) => entry.at)).toEqual([2_000, 7_000])
+})
+
+test('cofnięty zegar systemowy nie wyrzuca ani historii, ani nowej próbki', () => {
+  // Synchronizacja czasu w trakcie sesji potrafi cofnąć zegar. Są tu dwie
+  // pułapki, każda gorsza od drugiej:
+  //   - gdyby granica liczyła się od próbki PRZYCHODZĄCEJ, cofnięta wartość
+  //     poluzowałaby okno i zostawiała w buforze dane starsze niż dozwolony wiek
+  //     (osobny test poniżej);
+  //   - gdyby nowa próbka podlegała filtrowi wieku, to po cofnięciu zegara
+  //     ODRZUCANA byłaby każda kolejna próbka i zapis cicho by umarł.
+  // Dlatego nowa próbka zostaje ZAWSZE, a ograniczenie rozmiaru bierze na
+  // siebie sufit liczby wpisów (osobny test poniżej).
+  let buffer = appendSample([], sample(100_000), 5_000, 600)
+  buffer = appendSample(buffer, sample(101_000), 5_000, 600)
+  buffer = appendSample(buffer, sample(1_000), 5_000, 600)
+  expect(buffer.length).toBe(3)
+  expect(buffer.map((entry) => entry.at)).toContain(100_000)
+})
+
+test('granicę wieku wyznacza najnowszy znacznik w buforze, nie cofnięta próbka', () => {
+  // Starsza próbka wypada względem 7000 (7000 - 1000 > 5000). Cofnięta próbka
+  // z 1500 sama by ją zostawiła, bo liczona od 1500 granica sięga wstecz.
+  // Granica ma liczyć się od 7000.
+  const buffer = [sample(1_000), sample(7_000)]
+  const next = appendSample(buffer, sample(1_500), 5_000, 600)
+  expect(next.map((entry) => entry.at)).toEqual([7_000, 1_500])
+})
+
+test('dopisanie nie zmienia przekazanego bufora', () => {
+  const buffer = [sample(1_000)]
+  const next = appendSample(buffer, sample(2_000), 10_000, 600)
+  expect(buffer.map((entry) => entry.at)).toEqual([1_000])
+  expect(next.map((entry) => entry.at)).toEqual([1_000, 2_000])
+})
+
+test('sufit liczby wpisów ogranicza bufor niezależnie od zegara', () => {
+  // To jest zabezpieczenie na wypadek, gdy filtr wieku nie wystarczy — na
+  // przykład po cofnięciu zegara, gdy w buforze siedzą dwie epoki naraz.
+  // Wiek jest tu ogromny, więc o wycięciu decyduje wyłącznie sufit liczby.
+  let buffer: DiagnosticsSample[] = []
+  for (let at = 1; at <= 10; at++) buffer = appendSample(buffer, sample(at), 10_000_000, 4)
+  expect(buffer.length).toBe(4)
+  expect(buffer.map((entry) => entry.at)).toEqual([7, 8, 9, 10])
+})
+
+test('sufit pliku wstrzymuje dopisywanie, gdy linia by go przekroczyła', () => {
+  expect(shouldAppendLine(0, 100, 1_000)).toBe(true)
+  expect(shouldAppendLine(900, 100, 1_000)).toBe(true)
+  expect(shouldAppendLine(901, 100, 1_000)).toBe(false)
+  expect(shouldAppendLine(5_000, 1, 1_000)).toBe(false)
+})
+
+test('pasek zużycia pokazuje brak odczytu GPU kreską, nie zerem', () => {
+  const text = formatResourceBadge({ cpuPercent: 23, memoryMb: 412, gpu: null })
+  expect(text).toBe('CPU 23% · RAM 412 MB · GPU —')
+})
+
+test('pasek zużycia podaje pamięć karty w gigabajtach z przecinkiem', () => {
+  const text = formatResourceBadge({
+    cpuPercent: 23,
+    memoryMb: 412,
+    gpu: { utilizationPercent: 99, memoryUsedMb: 10_034, memoryTotalMb: 12_282, at: 1 }
+  })
+  expect(text).toBe('CPU 23% · RAM 412 MB · GPU 99% · VRAM 9,8/12,0 GB')
+})
+
+test('pasek zużycia zaokrągla procenty i megabajty do całości', () => {
+  const text = formatResourceBadge({ cpuPercent: 23.6, memoryMb: 411.4, gpu: null })
+  expect(text).toBe('CPU 24% · RAM 411 MB · GPU —')
+})
+
+test('zero z odczytu GPU pokazuje się jako zero, nie jako kreska', () => {
+  // Odwrotna strona reguły o kresce: gdy odczyt istnieje, zero jest pomiarem
+  // i ma zostać zerem. Inaczej bezczynna karta wyglądałaby jak brak danych.
+  const text = formatResourceBadge({
+    cpuPercent: 0,
+    memoryMb: 0,
+    gpu: { utilizationPercent: 0, memoryUsedMb: 0, memoryTotalMb: 12_288, at: 1 }
+  })
+  expect(text).toBe('CPU 0% · RAM 0 MB · GPU 0% · VRAM 0,0/12,0 GB')
+})
+
+test('odcisk palca lobby to osiem pierwszych znaków skrótu', () => {
+  expect(shortRoomFingerprint('3f9a2c1b4d5e6f70' + 'a'.repeat(48))).toBe('3f9a2c1b')
+})
+
+test('odcisk palca krótszego wejścia nie wywraca funkcji', () => {
+  expect(shortRoomFingerprint('abc')).toBe('abc')
+  expect(shortRoomFingerprint('')).toBe('')
 })

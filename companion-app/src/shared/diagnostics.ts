@@ -167,3 +167,79 @@ export function ratesBetween(
     kilobitsPerS: bytesPerSecond === null ? null : (bytesPerSecond * 8) / 1000
   }
 }
+
+/**
+ * Dokłada próbkę i przycina bufor — po wieku, a na końcu po liczbie wpisów.
+ *
+ * Oba ograniczenia są parametrami, nie stałymi w środku: inaczej test bufora
+ * musiałby czekać dziesięć minut i wstawiać sześćset próbek.
+ *
+ * Dwie reguły, obie wymuszone przez cofnięcie zegara systemowego
+ * (synchronizacja czasu zdarza się w środku sesji):
+ *
+ * 1. **Granicę wieku liczymy od największego znacznika czasu**, a nie od
+ *    znacznika próbki właśnie dokładanej. Cofnięta próbka nie może poluzować
+ *    okna: granica liczona od niej zostawiałaby w buforze dane starsze niż
+ *    dozwolony wiek względem najnowszego pomiaru.
+ * 2. **Nowa próbka nie podlega filtrowi wieku i zostaje zawsze.** Inaczej po
+ *    cofnięciu zegara każda kolejna próbka byłaby starsza od okna liczonego
+ *    względem starej epoki — i zapis cicho by umarł.
+ *
+ * Skutkiem drugiej reguły bufor może przez chwilę trzymać dwie epoki czasu.
+ * Dlatego ograniczenie rozmiaru bierze na siebie `maxCount`: filtr wieku nie
+ * jest w tym przypadku żadną gwarancją, a bufor musi być skończony.
+ */
+export function appendSample(
+  buffer: readonly DiagnosticsSample[],
+  sample: DiagnosticsSample,
+  maxAgeMs: number,
+  maxCount: number
+): DiagnosticsSample[] {
+  const newest = buffer.reduce((largest, entry) => Math.max(largest, entry.at), sample.at)
+  const kept = buffer.filter((entry) => newest - entry.at <= maxAgeMs)
+  const next = [...kept, sample]
+  return next.length > maxCount ? next.slice(next.length - maxCount) : next
+}
+
+/** Czy linia zmieści się pod sufitem rozmiaru pliku. */
+export function shouldAppendLine(
+  currentBytes: number,
+  lineBytes: number,
+  ceilingBytes: number
+): boolean {
+  return currentBytes + lineBytes <= ceilingBytes
+}
+
+/** Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski. */
+function formatGigabytes(megabytes: number): string {
+  return (megabytes / 1024).toFixed(1).replace('.', ',')
+}
+
+/**
+ * Tekst paska w rogu okna. Brak odczytu GPU pokazujemy kreską, bo zero
+ * znaczyłoby „karta nic nie robi", a my po prostu nie wiemy.
+ */
+export function formatResourceBadge(system: SystemStats): string {
+  const parts = [
+    `CPU ${Math.round(system.cpuPercent)}%`,
+    `RAM ${Math.round(system.memoryMb)} MB`
+  ]
+  if (system.gpu === null) {
+    parts.push('GPU —')
+  } else {
+    parts.push(`GPU ${Math.round(system.gpu.utilizationPercent)}%`)
+    parts.push(
+      `VRAM ${formatGigabytes(system.gpu.memoryUsedMb)}/${formatGigabytes(system.gpu.memoryTotalMb)} GB`
+    )
+  }
+  return parts.join(' · ')
+}
+
+/**
+ * Skrót identyfikatora pokoju do porównania przez telefon. Osiem znaków
+ * z szesnastkowego skrótu to 32 bity — na dwie osoby w jednym kanale
+ * z zapasem, a da się to przeczytać na głos bez pomyłki.
+ */
+export function shortRoomFingerprint(roomId: string): string {
+  return roomId.slice(0, ROOM_FINGERPRINT_LENGTH)
+}
