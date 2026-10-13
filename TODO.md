@@ -512,6 +512,72 @@ końcowego, żadne nie blokowało wydania):
 Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
 Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
 
+## 5. Zgłoszenia po kilku miesiącach używania 0.3.2 (2026-10-13)
+
+Siedem rzeczy od właściciela projektu, rozłożonych na cztery niezależne
+kawałki, bo mieszanie ich w jedno wydanie skończyłoby się tym, że żadna nie
+zostałaby zrobiona porządnie:
+
+| | Co | Zgłoszenia |
+|---|---|---|
+| **A** | Lagowanie, gdy aplikacja działa obok gry | 2 |
+| **B** | Panel diagnostyczny i wskaźniki zużycia | 6, 7 |
+| **C** | Powrót do lobby i zacinanie transmisji | 1, 3 |
+| **D** | Chowanie strumieni i układ ekranów | 4, 5 |
+
+Kolejność A → B → C → D, z jednym zastrzeżeniem, które wyszło w praniu:
+**B jest przyrządem pomiarowym dla A i C**, a nie tylko wygodną kolejnością.
+
+### A — lagowanie obok gry: hipoteza ODRZUCONA (2026-10-13)
+
+Pierwsza diagnoza wyglądała mocno i była błędna. W oknie produkcyjnym brakuje
+`backgroundThrottling: false` oraz flag `--disable-backgrounding-occluded-windows`
+i `--disable-renderer-backgrounding`, które nasz własny harness e2e ma od dawna
+z komentarzem o dławieniu zasłoniętego renderera. Wniosek wydawał się oczywisty.
+
+**Nie przeżył pomiaru.** Osiem przebiegów `npm run e2e:dlawienie` na bezczynnej
+maszynie — minimalizacja oraz prawdziwe zasłonięcie okna drugim oknem — dało od
+98% do 139% tempa widocznego okna. Jedyny przebieg pokazujący spadek (61%) nie
+powtórzył się ani razu. Zegary chodziły równo wszędzie: 1000–1014 ms przy
+nominalnym tysiącu.
+
+Dwie pomyłki warte zapamiętania, obo moje:
+
+- **Pierwsza wersja pomiaru sprawdzała nie tę ścieżkę, co trzeba.** Flaga
+  dotyczy okien ZASŁONIĘTYCH, a skrypt minimalizował okno — w Chromium to
+  osobna ścieżka, której ta flaga nie dotyka.
+- **Nie zapytałem, GDZIE stoi to okno.** Dopytałem „co laguje", a sedno było
+  w czymś, o co nie spytałem: okno stoi na **drugim monitorze i jest widoczne
+  cały czas**. Żadnego dławienia w tle u zgłaszającego nie ma. Cała ścieżka
+  dochodzenia była obok problemu.
+
+**Flagi świadomie NIE zostały wprowadzone.** Nie ma dowodu, że pomagają, a obie
+mają koszt dokładnie tam, gdzie boli: każą składać obraz i mielić zegary, choć
+nikt nie patrzy, czyli zabierają zasoby grze.
+
+Co zostało w repozytorium: `npm run e2e:dlawienie` (zasłania okno jednej
+instancji oknem drugiej, mierzy osobno zegary, dekodowanie i rysowanie) oraz
+`npm run e2e:sesja` (próbkuje OBIE strony naraz podczas prawdziwej sesji, żeby
+rozdzielić „nadawca mniej wysłał" od „odbiorca mniej narysował"). Oba przyrządy
+są dobre, tylko pytanie było złe.
+
+**Stan: OTWARTE.** Gra chodzi w oknie bez ramki, więc łatwa przyczyna — tryb
+pełnoekranowy wyłączny głodzący odtwarzanie wideo — jest wykluczona. Zostaje
+zwykła konkurencja o kartę graficzną, a tego nie da się zmierzyć lokalnie: Twój
+przypadek to ZDALNY nadawca, prawdziwa sieć i 1080p60, a lokalnie są dwie
+instancje na jednej karcie. Wraca po B, z pomiarem z prawdziwej sesji.
+
+**Rzecz niewyjaśniona, do sprawdzenia przy okazji:** w sesji pomiarowej nadawca
+kodował 0–1 klatkę na sekundę, przechwytując monitor, na którym szła gra w oknie
+bez ramki. Powinien był widzieć pełno ruchu. Podejrzenie padło najpierw na tryb
+wyłączny (znane blokowanie przechwytywania), ale zgłaszający gra w oknie bez
+ramki, więc to nie to. Przyczyna nieznana. Jeśli to się potwierdzi jako
+powtarzalne, jest to osobna usterka i prawdopodobnie część zgłoszenia 3.
+
+**Miara, która odpowiada słowu „laguje":** `droppedVideoFrames` z
+`getVideoPlaybackQuality()` — w sesji pomiarowej 61 porzuconych klatek na ~240
+wystawionych. Musi trafić do panelu z B.
+
 ## 4. Drobne
 
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset
