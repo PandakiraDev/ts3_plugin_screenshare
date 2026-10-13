@@ -83,3 +83,13 @@ test('zakończenie CRLF z Windowsa nie przeszkadza', () => {
     at: 9
   })
 })
+
+test('liczba zbyt duża, by być skończoną, daje brak odczytu', () => {
+  // 400 cyfr przechodzi regex `^\d+$`, ale Number() daje Infinity.
+  // Nieskończoność nie jest ani poprawnym odczytem, ani brakiem odczytu, więc
+  // bez tego sprawdzenia wyciekałaby do reszty aplikacji jako „prawdziwa" wartość.
+  // Z nvidia-smi to się nie zdarzy — to zabezpieczenie na wypadek, gdyby
+  // ktoś kiedyś podstawił tu inne źródło danych.
+  const absurd = '9'.repeat(400)
+  expect(parseNvidiaSmi(`${absurd}, 100, 200`, 1)).toBeNull()
+})
