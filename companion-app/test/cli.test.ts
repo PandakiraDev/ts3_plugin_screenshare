@@ -137,3 +137,12 @@ test('obsługa flag logicznych nie psuje flag z wartością', () => {
   expect(result.options.channelId).toBe('2')
   expect(result.options.displayName).toBe('Marek')
 })
+
+test('puste --signaling cofa się do adresu domyślnego, nie do pustego', () => {
+  // Naprawa flag logicznych wprowadziła tu pułapkę: `--signaling` bez wartości
+  // trafia do mapy jako pusty łańcuch, a `??` cofa się do domyślnego tylko przy
+  // `null`. Bez tego aplikacja próbowałaby łączyć się z pustym adresem.
+  const result = parseLaunchArgs(['--signaling', '--ts3-server=a:1', '--channel=2'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.signalingUrl).toBe(DEFAULT_SIGNALING_URL)
+})

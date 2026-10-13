@@ -85,7 +85,7 @@ function readFlags(argv: string[]): Map<string, string> {
 
 export function parseLaunchArgs(argv: string[]): LaunchParseResult {
   const flags = readFlags(argv)
-  const signalingUrl = flags.get('signaling') ?? DEFAULT_SIGNALING_URL
+  const signalingUrl = flags.get('signaling') || DEFAULT_SIGNALING_URL
   const ts3Server = flags.get('ts3-server')
   const channel = flags.get('channel')
 
