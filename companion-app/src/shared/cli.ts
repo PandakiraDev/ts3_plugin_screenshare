@@ -26,6 +26,16 @@ export interface LaunchOptions {
   mode: AppMode
   /** null tylko w trybie standalone. */
   roomId: string | null
+  /**
+   * Wejścia, z których wyliczono `roomId`. Oba `null` w trybie standalone.
+   * Trzymamy je w postaci SUROWEJ, a nie znormalizowanej przez `deriveRoomId`:
+   * to właśnie surowa postać różni się między maszynami (raz nazwa domeny,
+   * raz adres IP tego samego serwera) i o niej trzeba rozmawiać przez telefon.
+   */
+  ts3ServerAddress: string | null
+  channelId: string | null
+  /** Flaga `--diagnostics`: zapis diagnostyczny, panel i wskaźniki zużycia. */
+  diagnostics: boolean
   signalingUrl: string
   /**
    * Nick z TS3, przekazywany później przez plugin. Gdy go brak, serwer nada
@@ -54,12 +64,21 @@ function readFlags(argv: string[]): Map<string, string> {
       continue
     }
     // Postać `--klucz wartość`: wartością jest następny argument, o ile
-    // sam nie jest kolejną flagą (wtedy to flaga bez wartości, np. --inspect).
+    // sam nie jest kolejną flagą.
     const next = argv[i + 1]
     if (next !== undefined && !next.startsWith('--')) {
       flags.set(arg.slice(2), next)
       i++
+      continue
     }
+    /*
+     * Flaga bez wartości (`--diagnostics`, `--inspect`). Wcześniej była tu
+     * cisza: `flags.set` nie wykonywało się wcale, więc flaga logiczna
+     * milcząco nie działała. Pusty łańcuch pozwala sprawdzić jej OBECNOŚĆ
+     * przez `flags.has`, a flagom Electrona nie szkodzi, bo czytamy tylko
+     * znane nam klucze.
+     */
+    flags.set(arg.slice(2), '')
   }
   return flags
 }
@@ -72,11 +91,20 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
 
   // Bez danych z TS3 nie ma do czego dołączać — działamy jak w kroku 1.
   const displayName = flags.get('nick')?.trim() || null
+  const diagnostics = flags.has('diagnostics')
 
   if (!ts3Server && !channel) {
     return {
       ok: true,
-      options: { mode: 'standalone', roomId: null, signalingUrl, displayName }
+      options: {
+        mode: 'standalone',
+        roomId: null,
+        ts3ServerAddress: null,
+        channelId: null,
+        diagnostics,
+        signalingUrl,
+        displayName
+      }
     }
   }
 
@@ -91,6 +119,9 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
       options: {
         mode: 'lobby',
         roomId: deriveRoomId(ts3Server, channel),
+        ts3ServerAddress: ts3Server,
+        channelId: channel,
+        diagnostics,
         signalingUrl,
         displayName
       }

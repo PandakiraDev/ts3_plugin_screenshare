@@ -84,3 +84,56 @@ test('brak nicku zostawia null — zastępnik nada serwer', () => {
   if (!result.ok) throw new Error(result.error)
   expect(result.options.displayName).toBeNull()
 })
+
+test('tryb samodzielny nie ma wejść pokoju ani diagnostyki', () => {
+  const result = parseLaunchArgs([])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.mode).toBe('standalone')
+  expect(result.options.ts3ServerAddress).toBeNull()
+  expect(result.options.channelId).toBeNull()
+  expect(result.options.diagnostics).toBe(false)
+})
+
+test('wejścia pokoju przeżywają drogę do opcji', () => {
+  // Bez tego odcisk palca lobby pokazywałby wartości, z których skrótu
+  // NIE wyliczono — czyli diagnostykę gorszą niż jej brak.
+  const result = parseLaunchArgs(['--ts3-server=ts.serwer.pl:9987', '--channel=42'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.ts3ServerAddress).toBe('ts.serwer.pl:9987')
+  expect(result.options.channelId).toBe('42')
+})
+
+test('identyfikator pokoju nadal zgadza się ze skrótem z tych samych wejść', () => {
+  const result = parseLaunchArgs(['--ts3-server=ts.serwer.pl:9987', '--channel=42'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.roomId).toBe(deriveRoomId('ts.serwer.pl:9987', '42'))
+})
+
+test('flaga diagnostyki działa jako ostatni argument', () => {
+  // Pułapka: readFlags gubił flagi bez wartości, więc samo `--diagnostics`
+  // na końcu wiersza nigdy nie trafiało do mapy.
+  const result = parseLaunchArgs(['--ts3-server=a:1', '--channel=2', '--diagnostics'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.diagnostics).toBe(true)
+})
+
+test('flaga diagnostyki działa przed inną flagą', () => {
+  const result = parseLaunchArgs(['--diagnostics', '--ts3-server=a:1', '--channel=2'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.diagnostics).toBe(true)
+})
+
+test('flaga diagnostyki działa też w trybie samodzielnym', () => {
+  const result = parseLaunchArgs(['--diagnostics'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.mode).toBe('standalone')
+  expect(result.options.diagnostics).toBe(true)
+})
+
+test('obsługa flag logicznych nie psuje flag z wartością', () => {
+  const result = parseLaunchArgs(['--ts3-server', 'a:1', '--channel', '2', '--nick', 'Marek'])
+  if (!result.ok) throw new Error('spodziewano się powodzenia')
+  expect(result.options.ts3ServerAddress).toBe('a:1')
+  expect(result.options.channelId).toBe('2')
+  expect(result.options.displayName).toBe('Marek')
+})
