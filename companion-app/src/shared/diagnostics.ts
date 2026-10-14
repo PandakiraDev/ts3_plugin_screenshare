@@ -180,6 +180,68 @@ export function ratesBetween(
 }
 
 /**
+ * Po tym czasie uznajemy dane o strumieniach za przestarzałe.
+ *
+ * Trzy okresy próbkowania, nie jeden: zdrowy renderer przysyła raz na sekundę,
+ * więc w chwili tyknięcia jego dane mają od zera do około sekundy, plus drżenie
+ * zegara. Próg równy jednemu okresowi zapalałby się więc przy normalnej pracy.
+ * Ten sam wzorzec co QUALITY_STALE_AFTER_MS w wydaniu 0.3.1.
+ */
+export const STREAMS_STALE_AFTER_MS = 3 * SAMPLE_INTERVAL_MS
+
+export type StreamsFreshness = 'fresh' | 'stale' | 'never'
+
+/**
+ * Czy liczbom o strumieniach w tej próbce można wierzyć.
+ *
+ * `never` znaczy, że renderer nie odezwał się ani razu — inaczej niż `stale`,
+ * które znaczy, że się odezwał i zamilkł. Rozróżnienie jest istotne: pierwsze
+ * to tryb bez pokoju albo start aplikacji, drugie to objaw, którego szukamy.
+ *
+ * Granica jest wyłączna od strony świeżości: wiek równy progowi jest już
+ * przestarzały. Ujemny wiek znaczy drżenie zegara, nie milczenie, więc jest
+ * świeży. Wiek, który nie jest liczbą (`NaN`), nie jest pomiarem, więc nie
+ * wolno za niego ręczyć — daje `stale`, tak samo jak nieskończoność.
+ */
+export function streamsFreshness(ageMs: number | null): StreamsFreshness {
+  if (ageMs === null) return 'never'
+  if (Number.isNaN(ageMs) || ageMs >= STREAMS_STALE_AFTER_MS) return 'stale'
+  return 'fresh'
+}
+
+/** Chwila, w której renderer zebrał dane o strumieniach tej próbki. */
+function streamsCapturedAt(sample: DiagnosticsSample): number | null {
+  return sample.streamsAgeMs === null ? null : sample.at - sample.streamsAgeMs
+}
+
+/**
+ * Ile milisekund dzieli dwa zestawy statystyk strumieni — liczone od chwili,
+ * gdy renderer je ZEBRAŁ, a nie od chwili tyknięcia rejestratora.
+ *
+ * Ta różnica ma znaczenie, gdy renderer milczy. Rejestrator tyka dalej i
+ * powtarza ostatnie liczby, więc odstęp między tyknięciami (sekunda) przy
+ * niezmienionych licznikach dałby tempo 0 klatek na sekundę, czyli wniosek
+ * „strumień stoi", któremu pole `streamsAgeMs` miało zapobiec. Licząc od
+ * chwili zebrania, dwie kopie tych samych danych dają odstęp zero, a
+ * `ratesBetween` odrzuca go jako „nie wiem". Po powrocie renderera odstęp
+ * obejmuje całą ciszę, więc tempo jest średnią z niej, a nie skokiem
+ * wielokrotnie za dużym.
+ *
+ * `null`, gdy po którejkolwiek stronie renderer nie odezwał się jeszcze ani
+ * razu. Wynik może być zerowy lub ujemny (te same dane widziane dwa razy,
+ * cofnięty zegar) — `ratesBetween` traktuje taki odstęp jako brak pomiaru.
+ */
+export function streamsIntervalMs(
+  previous: DiagnosticsSample,
+  next: DiagnosticsSample
+): number | null {
+  const from = streamsCapturedAt(previous)
+  const to = streamsCapturedAt(next)
+  if (from === null || to === null) return null
+  return to - from
+}
+
+/**
  * Dokłada próbkę i przycina bufor — po wieku, a na końcu po liczbie wpisów.
  *
  * Oba ograniczenia są parametrami, nie stałymi w środku: inaczej test bufora

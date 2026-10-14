@@ -1061,3 +1061,114 @@ h3 {
     animation: none;
   }
 }
+
+/* ---------- diagnostyka (tylko przy fladze --diagnostics) ---------- */
+
+/* Pasek zużycia: prawy dolny róg, nad całą zawartością, nieklikany — nie może
+   przechwytywać kliknięć w kafelki pod nim. */
+.resource-badge {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 40;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(30, 31, 34, 0.82);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.diag {
+  position: fixed;
+  inset: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(30, 31, 34, 0.97);
+  overflow: auto;
+}
+
+.diag__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.diag__hint,
+.diag__stamp,
+.diag__empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diag__time {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diag__time input {
+  flex: 1;
+}
+
+.diag__system {
+  margin: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag__table th,
+.diag__table td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.diag__table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Porzucone klatki wyróżnione, bo to jedyna z tych liczb, która odpowiada
+   słowu „laguje". */
+.diag__dropped {
+  color: #f0c674;
+  font-weight: 600;
+}
+
+/* Uwaga pod suwakiem: brak strumieni albo brak odzewu renderera. Wersja
+   `--stale` jest wyraźna, bo przestarzałość danych ma być widoczna, a nie
+   domyślna — kreski w tabeli same by jej nie wyjaśniły. */
+.diag__notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diag__notice--stale {
+  border-left-color: #f0c674;
+  background: rgba(240, 198, 116, 0.1);
+  color: var(--text);
+}
+
+/* Wiersze z przestarzałych danych: ostatnio znane, nie bieżące. */
+.diag__row--stale {
+  color: var(--text-muted);
+}

@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest'
 import {
+  SAMPLE_INTERVAL_MS,
+  STREAMS_STALE_AFTER_MS,
   appendSample,
   formatResourceBadge,
   parseNvidiaSmi,
@@ -7,6 +9,8 @@ import {
   ratesBetween,
   shortRoomFingerprint,
   shouldAppendLine,
+  streamsFreshness,
+  streamsIntervalMs,
   type DiagnosticsSample,
   type StreamStats
 } from '../src/shared/diagnostics'
@@ -457,4 +461,96 @@ test('odcisk palca lobby to osiem pierwszych znaków skrótu', () => {
 test('odcisk palca krótszego wejścia nie wywraca funkcji', () => {
   expect(shortRoomFingerprint('abc')).toBe('abc')
   expect(shortRoomFingerprint('')).toBe('')
+})
+
+test('brak jakiegokolwiek odezwania renderera daje never', () => {
+  // `never` to nie to samo co `stale`: pierwsze to tryb bez pokoju albo start
+  // aplikacji, drugie to objaw, którego szukamy.
+  expect(streamsFreshness(null)).toBe('never')
+})
+
+test('dane zebrane przed chwilą są świeże', () => {
+  expect(streamsFreshness(0)).toBe('fresh')
+})
+
+test('wiek równy progowi jest już przestarzały', () => {
+  expect(streamsFreshness(STREAMS_STALE_AFTER_MS)).toBe('stale')
+})
+
+test('wiek o milisekundę mniejszy od progu jest jeszcze świeży', () => {
+  // Razem z poprzednim testem przybija granicę z obu stron.
+  expect(streamsFreshness(STREAMS_STALE_AFTER_MS - 1)).toBe('fresh')
+})
+
+test('wiek dużo ponad progiem jest przestarzały', () => {
+  expect(streamsFreshness(STREAMS_STALE_AFTER_MS + 1)).toBe('stale')
+  expect(streamsFreshness(10 * 60 * 1_000)).toBe('stale')
+})
+
+test('ujemny wiek to drżenie zegara, nie milczenie renderera', () => {
+  expect(streamsFreshness(-1)).toBe('fresh')
+  expect(streamsFreshness(-5_000)).toBe('fresh')
+})
+
+test('zdrowy renderer nigdy nie zapala przestarzałości', () => {
+  // Renderer przysyła raz na okres próbkowania, więc w chwili tyknięcia jego
+  // dane mają od zera do około okresu, plus drżenie zegara. Gdyby próg wynosił
+  // jeden okres, ta normalna praca zapalałaby ostrzeżenie.
+  expect(STREAMS_STALE_AFTER_MS).toBeGreaterThan(SAMPLE_INTERVAL_MS)
+  expect(streamsFreshness(SAMPLE_INTERVAL_MS)).toBe('fresh')
+  expect(streamsFreshness(SAMPLE_INTERVAL_MS + 500)).toBe('fresh')
+})
+
+test('wiek, który nie jest liczbą, nie bywa świeży', () => {
+  // NaN nie jest pomiarem, więc nie wolno ręczyć za liczby, które do niego
+  // należą. Nieskończoność wypada poza próg sama.
+  expect(streamsFreshness(Number.NaN)).toBe('stale')
+  expect(streamsFreshness(Number.POSITIVE_INFINITY)).toBe('stale')
+})
+
+function sampleWithStreams(
+  at: number,
+  streamsAgeMs: number | null,
+  streams: StreamStats[]
+): DiagnosticsSample {
+  return { at, system: { cpuPercent: 1, memoryMb: 2, gpu: null }, streams, streamsAgeMs }
+}
+
+test('odstęp między statystykami liczy się od chwili ich zebrania, nie od tyknięcia', () => {
+  // Dane zebrane o 9 700 i o 10 100, choć próbki dzieli równa sekunda.
+  const previous = sampleWithStreams(10_000, 300, [])
+  const next = sampleWithStreams(11_000, 900, [])
+  expect(streamsIntervalMs(previous, next)).toBe(400)
+})
+
+test('dwie próbki z tymi samymi danymi dają odstęp zero, a stąd brak tempa, nie zero klatek', () => {
+  // Zagłodzony renderer: rejestrator tyka dalej i powtarza ostatnie liczby.
+  // Odstęp liczony od tyknięć dałby sekundę i tempo 0 klatek na sekundę,
+  // czyli wniosek „strumień stoi", którego pole wieku miało zabronić.
+  const frozen = inbound({ framesReceived: 500, framesDecoded: 500, bytes: 90_000 })
+  const previous = sampleWithStreams(40_000, 20_000, [frozen])
+  const next = sampleWithStreams(41_000, 21_000, [frozen])
+  const interval = streamsIntervalMs(previous, next)
+  expect(interval).toBe(0)
+  expect(ratesBetween(previous.streams[0], next.streams[0], interval ?? 0)).toBeNull()
+})
+
+test('po powrocie renderera tempo liczy się z całej ciszy, bez skoku', () => {
+  // Cisza 30 s: dane z 10 000 i z 40 900. Od tyknięć wyszłaby sekunda
+  // i tempo 927 klatek na sekundę; od chwili zebrania wychodzi uczciwe 30.
+  const before = inbound({ framesReceived: 0 })
+  const after = inbound({ framesReceived: 927 })
+  const previous = sampleWithStreams(40_000, 30_000, [before])
+  const next = sampleWithStreams(41_000, 100, [after])
+  const interval = streamsIntervalMs(previous, next)
+  expect(interval).toBe(30_900)
+  expect(ratesBetween(before, after, interval ?? 0)?.receivedPerS).toBeCloseTo(30, 5)
+})
+
+test('brak danych o strumieniach po którejkolwiek stronie daje brak odstępu', () => {
+  const never = sampleWithStreams(1_000, null, [])
+  const fresh = sampleWithStreams(2_000, 100, [])
+  expect(streamsIntervalMs(never, fresh)).toBeNull()
+  expect(streamsIntervalMs(fresh, never)).toBeNull()
+  expect(streamsIntervalMs(never, never)).toBeNull()
 })
