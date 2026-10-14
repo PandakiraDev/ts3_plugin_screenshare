@@ -3,6 +3,8 @@ import type { StreamKind } from '@shared/types'
 
 interface StreamTileProps {
   stream: MediaStream
+  /** Czyj to strumień — po tym hook diagnostyczny dopasowuje element `<video>`. */
+  peerId: string
   name: string
   /** Rodzaj strumienia — kamera nie ma i nie będzie miała ścieżki audio. */
   kind: StreamKind
@@ -20,6 +22,7 @@ interface StreamTileProps {
  */
 export function StreamTile({
   stream,
+  peerId,
   name,
   kind,
   isMe,
@@ -68,7 +71,20 @@ export function StreamTile({
         tabIndex={0}
         aria-label={zoomed ? `Wróć do siatki: ${name}` : `Powiększ: ${name}`}
       >
-        <video ref={videoRef} autoPlay playsInline className="tile__video" />
+        {/*
+          Atrybuty `data-*` czyta hook diagnostyczny: klatki wystawione na ekran
+          istnieją tylko na elemencie `<video>`, nie w `getStats()`. Sam
+          `peerId` nie wystarcza — ta sama osoba może nadawać ekran i kamerę
+          naraz, a to dwa osobne elementy i dwa osobne strumienie.
+        */}
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          className="tile__video"
+          data-peer-id={peerId}
+          data-stream-kind={kind}
+        />
       </div>
 
       <div className="tile__bar">

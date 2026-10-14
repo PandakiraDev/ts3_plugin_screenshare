@@ -18,6 +18,7 @@ import { ConnectionNotice } from './ConnectionNotice'
 import { allViewersStruggling } from '@shared/viewerQuality'
 import { buildParticipants } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
+import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -92,6 +93,14 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   })
   const participantRows = useLeaveTransition(participants, (view) => view.peerId)
   const tileRows = useLeaveTransition(tiles, (tile) => tile.tileKey)
+
+  /*
+   * UWAGA: musi stać tutaj, przed instrukcjami `return` niżej. LobbyView
+   * wychodzi wcześniej przy `bad-key` i przy otwartym oknie wyboru źródła,
+   * a hook wywołany po takim wyjściu łamie zasady Reacta i wywala aplikację
+   * przy pierwszym otwarciu pickera. Ta sama pułapka wystąpiła w 0.3.2.
+   */
+  useDiagnosticsReporter(lobby, options.diagnostics)
 
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
@@ -312,6 +321,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                   <StreamTile
                     key={row.item.tileKey}
                     stream={row.item.stream}
+                    peerId={row.item.peerId}
                     name={row.item.label}
                     kind={row.item.kind}
                     isMe={row.item.isMe}
