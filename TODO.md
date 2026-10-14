@@ -578,6 +578,104 @@ powtarzalne, jest to osobna usterka i prawdopodobnie część zgłoszenia 3.
 `getVideoPlaybackQuality()` — w sesji pomiarowej 61 porzuconych klatek na ~240
 wystawionych. Musi trafić do panelu z B.
 
+### B — panel diagnostyczny i wskaźniki zużycia (0.3.3, ZROBIONE)
+
+Zapis szeregu czasowego co sekundę, panel-podgląd z suwakiem czasu, pasek
+zużycia w rogu i odcisk palca lobby. Spec:
+`docs/superpowers/specs/2026-10-13-panel-diagnostyczny-design.md`.
+
+**Rzecz, która rządziła całym projektem:** objaw zdarza się wtedy, gdy nikt
+nie patrzy na aplikację. Dlatego zapis jest źródłem prawdy, a panel tylko
+jego podglądem — panel pokazujący wyłącznie teraźniejszość odpowiadałby na
+„czy laguje teraz", a pytanie brzmi „dlaczego lagało".
+
+**Rejestrator mieszka w procesie głównym, nie w rendererze**, bo renderer
+jest podejrzanym: dziennik prowadzony przez podejrzanego przestaje być
+dziennikiem dokładnie wtedy, gdy staje się potrzebny. Stąd też pole
+`streamsAgeMs` w każdej próbce: gdyby go nie było, zagłodzony renderer
+wyglądałby w zapisie jak działający, bo rejestrator powtarzałby jego stare
+liczby — i czytający wskazałby złe ogniwo łańcucha.
+
+**Odcisk palca lobby jest jedyną częścią POZA flagą.** Zgłoszenie 1 wymaga
+porównania dwóch wartości z dwóch maszyn; odcisk widoczny u jednej osoby nie
+rozstrzygnąłby niczego. Podpowiedź (atrybut `title`) pokazuje numer kanału
+i identyfikator serwera, z których skrót wyliczono. Pierwotnie zakładano, że
+różnić się będzie adres serwera (domena kontra IP), ale to **hipoteza
+odrzucona czytaniem wtyczki** (zob. spec): wtyczka nie przekazuje adresu,
+tylko `VIRTUALSERVER_UNIQUE_IDENTIFIER`, **identyczny u wszystkich na tym
+samym serwerze**, więc taki scenariusz nie może zajść. Jedyne wejście, które
+realnie różni się między osobami z jednego serwera, to **numer kanału** — i
+to kanału, **na którym kliknięto menu**, a niekoniecznie tego, w którym ktoś
+siedzi. Dlatego podpowiedź podaje kanał jako pierwszy, a serwer z dopiskiem,
+że u wszystkich jest taki sam. To jedyna wartość, o której warto rozmawiać
+przez telefon, gdy odciski się różnią: jeśli dwie osoby „z tego samego
+kanału" mają różne numery, przyczyna jest znaleziona.
+
+**Pułapka znaleziona przy okazji:** `readFlags` w `cli.ts` po cichu gubił
+flagi bez wartości — samo `--diagnostics` nigdy nie trafiało do mapy. Dla
+flag Electrona (`--inspect`) nie miało to znaczenia, bo nikt ich nie czyta,
+ale własna flaga logiczna milcząco nie działała. Obsługa flag bez wartości
+doszła więc świadomie (pusty łańcuch jako znacznik obecności), z testami na
+oba położenia flagi w wierszu poleceń: jako ostatni argument i przed inną
+flagą. Cena: liczy się sama obecność, wartość jest ignorowana, więc
+`--diagnostics=false` też włącza diagnostykę — udokumentowane przy polu
+`LaunchOptions.diagnostics`, bez zmiany zachowania. Ta poprawka wywołała
+też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
+jako pusty łańcuch, a `??` nie cofa się do wartości domyślnej przy pustym
+napisie (stąd `||`).
+
+**Odczyt GPU z wstrzykiwanym uruchamiaczem** (`readGpu`), żeby dała się
+przetestować ścieżka, która w praktyce zdarza się najczęściej: brak
+`nvidia-smi`. Brak odczytu to zawsze `null`, nigdy zero — zero znaczyłoby
+„karta nic nie robi".
+
+**Zasada, która wyszła trzy razy:** czas trwania mierzy się zegarem
+monotonicznym (`performance.now()`), znacznik czasu zegarem ściennym
+(`Date.now()`), a mianownik tempa musi pochodzić z tego samego źródła co
+licznik. Wyłapane w przeglądach przed zamknięciem wydania: (1) wiek danych
+liczony `Date.now()` dałby wynik ujemny po cofnięciu zegara i zawyżony po
+skoku w przód, czyli fałszywe „renderer milczy"; (2) odstęp liczony z tyknięć
+rejestratora, gdy liczniki klatek pochodzą z renderera, dawał 927 klatek na
+sekundę po powrocie z 30-sekundowej ciszy (zamiast 30) oraz „0,0 kl./s"
+oznaczone jako świeże, gdy ten sam push widziano w dwóch kolejnych
+tyknięciach; (3) poprawka z (2) zmieszała zegar ścienny (`at`) z
+monotonicznym (`streamsAgeMs`), a drżenie rzędu ±3 ms przywracało fałszywe
+zero w około 30% przypadków — stąd próg `STREAMS_MIN_INTERVAL_MS`.
+
+**Nie sprawdzone na żywo:** sprawdzian `npm run e2e:diagnostyka` jest
+napisany, ale w chwili zamknięcia wydania nie był uruchamiany (trzy prawdziwe
+okna Electrona i przechwytywanie pulpitu — to decyzja właściciela). Nikt też
+nie widział okiem odcisku w nagłówku panelu (11 px, Consolas) ani nie
+potwierdził, że `\n` w atrybucie `title` łamie linie w Chromium.
+
+**Następny krok:** wrócić do kawałka A z zapisem z prawdziwej sesji ze
+zdalnym nadawcą i odpowiedzieć, które ogniwo łańcucha siada.
+
+**Dla kawałka C — to, co wyszło przy okazji i czego nikt nie szukał** (to
+najcenniejszy wynik tego wydania):
+
+- **Kanał kliknięty, nie zajmowany, jako kandydat na przyczynę zgłoszenia 1.**
+  Wtyczka (`plugin/src/plugin.c:255-260`) bierze `selectedItemID` z menu
+  kanału, więc dwie osoby siedzące w jednym kanale, które kliknęły
+  „Udostępnij ekran" na różnych kanałach, dostaną dwa różne pokoje. Serwer
+  jest u wszystkich identyczny, więc kanał to jedyne wejście, które się
+  różni (spec, akapit o odcisku palca lobby).
+- **Brak `requestSingleInstanceLock()`.** `src/main/index.ts` nie woła go
+  nigdzie, a `createWindow()` leci bezwarunkowo po `whenReady`
+  (`index.ts:203`), więc każde kliknięcie menu w TS3 (`CreateProcessW`,
+  `plugin.c:237`) otwiera **nowe okno**. Jedna osoba może mieć naraz dwa okna
+  na różne kanały i patrzeć na niewłaściwe; odcisk jest per okno. Ten sam brak
+  wypłynął już przy instalatorze (§ 3.1).
+- **Okno zna tylko ID kanału**, którego klient TS3 nie pokazuje w zwykłym
+  widoku — rozmówcy porównają „42 kontra 57", ale nie sprawdzą tego z niczym,
+  co widzą w TS3. `--channel-name` przekazywane przez wtyczkę zrobiłoby
+  podpowiedź realnie użyteczną (zmiana w C++ i w `cli.ts`).
+- **Mylące nazwy.** `LaunchOptions.ts3ServerAddress` i parametr
+  `deriveRoomId(ts3ServerAddress)` w produkcji dostają identyfikator serwera,
+  nie adres (komentarz w `room.ts` też mówi o „adresie serwera TS3").
+  Przemianowanie dotyka pięciu plików (`cli.ts`, `cli.test.ts`, `room.ts`,
+  `room.test.ts`, `LobbyView.tsx`) i czeka na kawałek C.
+
 ## 4. Drobne
 
 - **Podpis kodu** — SmartScreen ostrzega przy instalacji. Certyfikat to kilkaset

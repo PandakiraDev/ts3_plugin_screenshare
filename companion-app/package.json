@@ -1,6 +1,6 @@
 {
   "name": "ts3-screenshare-companion",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Companion app for TS3 screen sharing: source picker + capture",
   "main": "./out/main/index.js",
   "author": "Konrad",
