@@ -1,21 +1,52 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   SAMPLE_INTERVAL_MS,
+  advancePanelTimeline,
+  columnAppliesTo,
   formatResourceBadge,
+  formatSilence,
+  formatSystemLine,
   ratesBetween,
   streamsFreshness,
   streamsIntervalMs,
-  type DiagnosticsSample
+  type DiagnosticsSample,
+  type PanelTimeline,
+  type StreamColumn,
+  type StreamDirection
 } from '@shared/diagnostics'
 
 function formatRate(value: number | null): string {
   return value === null ? '—' : value.toFixed(1)
 }
 
-/** Jak długo renderer milczy, w sekundach; wiek, który nie jest liczbą, nie ma zapisu. */
-function formatSilence(ageMs: number | null): string {
-  if (ageMs === null || !Number.isFinite(ageMs)) return 'nieznanego czasu'
-  return `${Math.round(ageMs / 1000)} s`
+interface StreamCellProps {
+  column: StreamColumn
+  direction: StreamDirection
+  className?: string
+  children: string
+}
+
+/**
+ * Komórka tabeli, która rozdziela dwa zupełnie różne braki liczby.
+ *
+ * `·` znaczy „ta kolumna nie dotyczy tego kierunku": pola nie ma
+ * strukturalnie i nie będzie go nigdy (reguła w `columnAppliesTo`). Kreska
+ * `—` z `formatRate` znaczy „pole dotyczy, ale nie ręczę za liczbę":
+ * przestarzałe dane, brak poprzedniej próbki, cofnięty licznik.
+ *
+ * Dawniej oba stany dawały kreskę, więc wiersz nadawania pokazywał cztery
+ * kreski z sześciu kolumn liczbowych i czytał się jako martwy przyrząd, a nie
+ * jako wiersz opisany z drugiej strony łańcucha.
+ */
+function StreamCell({ column, direction, className, children }: StreamCellProps): JSX.Element {
+  if (!columnAppliesTo(column, direction)) {
+    return (
+      <td className="diag__na" title="Ta kolumna nie dotyczy tego kierunku">
+        ·
+      </td>
+    )
+  }
+  return <td className={className}>{children}</td>
 }
 
 interface StreamsSectionProps {
@@ -33,6 +64,10 @@ interface StreamsSectionProps {
  *   strumienie), ale liczby zastępują kreski, a nad tabelą stoi wyraźne
  *   ostrzeżenie. Nie zera: zero mówiłoby, że strumień stoi, a my nie wiemy;
  * - `never`: renderer nie odezwał się ani razu — tabeli nie ma wcale.
+ *
+ * Jedna tabela na oba kierunki, a nie dwie obok siebie: główne pytanie tego
+ * panelu brzmi „czy nie wyrabia mój koder, czy cudzy dekoder", więc oba
+ * kierunki muszą stać w jednej siatce, porównywalne wiersz w wiersz.
  */
 function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
   const freshness = streamsFreshness(shown.streamsAgeMs)
@@ -99,10 +134,15 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
               <th>osoba</th>
               <th>rodzaj</th>
               <th>kierunek</th>
+              {/* Kolejność kolumn idzie łańcuchem: najpierw cztery etapy
+                  odbioru, potem dwa nadawania. Puste pola każdego wiersza
+                  wychodzą wtedy jednym blokiem, a nie w szachownicę. */}
               <th>odebrane</th>
               <th>zdekodowane</th>
               <th>wystawione</th>
               <th>porzucone</th>
+              <th>zakodowane</th>
+              <th>wysłane</th>
               <th>kb/s</th>
               <th>ograniczenie</th>
             </tr>
@@ -119,6 +159,7 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
               const rates =
                 trusted && interval !== null ? ratesBetween(before, stream, interval) : null
               const dropped = rates?.droppedPerS ?? null
+              const direction = stream.direction
               return (
                 <tr
                   key={`${stream.direction}:${stream.peerId}:${stream.kind}`}
@@ -126,15 +167,35 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
                 >
                   <td>{stream.peerId.slice(0, 8)}</td>
                   <td>{stream.kind === 'screen' ? 'ekran' : 'kamera'}</td>
-                  <td>{stream.direction === 'inbound' ? 'odbiór' : 'nadawanie'}</td>
-                  <td>{formatRate(rates?.receivedPerS ?? null)}</td>
-                  <td>{formatRate(rates?.decodedPerS ?? null)}</td>
-                  <td>{formatRate(rates?.presentedPerS ?? null)}</td>
-                  <td className={dropped !== null && dropped > 0 ? 'diag__dropped' : ''}>
+                  <td>{direction === 'inbound' ? 'odbiór' : 'nadawanie'}</td>
+                  <StreamCell column="receivedPerS" direction={direction}>
+                    {formatRate(rates?.receivedPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell column="decodedPerS" direction={direction}>
+                    {formatRate(rates?.decodedPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell column="presentedPerS" direction={direction}>
+                    {formatRate(rates?.presentedPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell
+                    column="droppedPerS"
+                    direction={direction}
+                    className={dropped !== null && dropped > 0 ? 'diag__dropped' : undefined}
+                  >
                     {formatRate(dropped)}
-                  </td>
-                  <td>{formatRate(rates?.kilobitsPerS ?? null)}</td>
-                  <td>{trusted ? (stream.qualityLimitationReason ?? '—') : '—'}</td>
+                  </StreamCell>
+                  <StreamCell column="encodedPerS" direction={direction}>
+                    {formatRate(rates?.encodedPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell column="sentPerS" direction={direction}>
+                    {formatRate(rates?.sentPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell column="kilobitsPerS" direction={direction}>
+                    {formatRate(rates?.kilobitsPerS ?? null)}
+                  </StreamCell>
+                  <StreamCell column="qualityLimitationReason" direction={direction}>
+                    {trusted ? (stream.qualityLimitationReason ?? '—') : '—'}
+                  </StreamCell>
                 </tr>
               )
             })}
@@ -159,8 +220,7 @@ export function Diagnostics(): JSX.Element | null {
   const [enabled, setEnabled] = useState(false)
   const [latest, setLatest] = useState<DiagnosticsSample | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [history, setHistory] = useState<DiagnosticsSample[]>([])
-  const [cursor, setCursor] = useState(0)
+  const [timeline, setTimeline] = useState<PanelTimeline>({ samples: [], cursor: 0 })
 
   useEffect(() => {
     let cancelled = false
@@ -172,14 +232,28 @@ export function Diagnostics(): JSX.Element | null {
     }
   }, [])
 
-  // Pasek w rogu potrzebuje jednej najnowszej próbki, nie całego bufora.
+  // Pasek w rogu potrzebuje jednej najnowszej próbki, nie całego bufora. Ta
+  // sama próbka trafia potem do historii panelu (efekt niżej), więc panel
+  // nadąża bez drugiego, grubego kanału.
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
     const tick = (): void => {
-      void window.companion.getLatestDiagnostics().then((sample) => {
-        if (!cancelled) setLatest(sample)
-      })
+      void window.companion
+        .getLatestDiagnostics()
+        .then((sample) => {
+          if (!cancelled) setLatest(sample)
+        })
+        .catch((err: unknown) => {
+          // Bronimy się przed nieobsłużonym odrzuceniem obietnicy CO SEKUNDĘ.
+          // Dziś ten kanał nie odrzuca, bo zegar montuje się wyłącznie przy
+          // fladze `--diagnostics`, a ta sama flaga rejestruje obsługę
+          // w procesie głównym. Gdy to bramkowanie kiedyś się rozjedzie, ten
+          // zegar — jedyny chodzący z częstotliwością 1 Hz — zasypie konsolę
+          // napisem „No handler registered" raz na sekundę i zagłuszy objaw,
+          // którego w tej konsoli szukamy.
+          console.debug('[diagnostyka] nieudany odczyt najnowszej próbki:', err)
+        })
     }
     tick()
     const timer = setInterval(tick, SAMPLE_INTERVAL_MS)
@@ -190,14 +264,34 @@ export function Diagnostics(): JSX.Element | null {
   }, [enabled])
 
   const openPanel = useCallback(() => {
-    void window.companion.readDiagnostics().then((samples) => {
-      setHistory(samples)
-      // Suwak staje na końcu: najpierw pokazujemy teraźniejszość, a przewijanie
-      // w tył jest czynnością świadomą.
-      setCursor(Math.max(0, samples.length - 1))
-      setPanelOpen(true)
-    })
+    void window.companion
+      .readDiagnostics()
+      .then((samples) => {
+        // Suwak staje na końcu: najpierw pokazujemy teraźniejszość, a przewijanie
+        // w tył jest czynnością świadomą.
+        setTimeline({ samples, cursor: Math.max(0, samples.length - 1) })
+        setPanelOpen(true)
+      })
+      .catch((err: unknown) => {
+        // Bronimy się przed skrótem, który wygląda na niedziałający: bez tego
+        // odrzucenie tego jednego wywołania zostawia panel zamknięty bez
+        // śladu w konsoli poza nieobsłużonym odrzuceniem obietnicy.
+        console.debug('[diagnostyka] nieudany odczyt bufora próbek:', err)
+      })
   }, [])
+
+  // Panel nadąża za teraźniejszością, dopóki suwak stoi na końcu; po
+  // przewinięciu w tył stoi na tej samej próbce (patrz `advancePanelTimeline`).
+  // Dopisujemy próbkę, którą zegar paska i tak już pobrał — `readDiagnostics()`
+  // co sekundę to 3,09 MB i 13,6 ms serializacji na każdy takt.
+  //
+  // Funkcja zwraca ten sam obiekt, gdy nie ma czego dopisać, więc React pomija
+  // przerysowanie, a podwójne wykonanie efektu w `StrictMode` nie dokłada
+  // duplikatu.
+  useEffect(() => {
+    if (!panelOpen || latest === null) return
+    setTimeline((current) => advancePanelTimeline(current, latest))
+  }, [panelOpen, latest])
 
   useEffect(() => {
     if (!enabled) return
@@ -215,8 +309,9 @@ export function Diagnostics(): JSX.Element | null {
 
   if (!enabled) return null
 
-  const shown = history[cursor] ?? null
-  const previous = cursor > 0 ? history[cursor - 1] : undefined
+  const { samples, cursor } = timeline
+  const shown = samples[cursor] ?? null
+  const previous = cursor > 0 ? samples[cursor - 1] : undefined
 
   return (
     <>
@@ -230,6 +325,12 @@ export function Diagnostics(): JSX.Element | null {
         <div className="diag" role="dialog" aria-label="Panel diagnostyczny">
           <header className="diag__header">
             <strong>Diagnostyka</strong>
+            {/* Legenda, bo kreska i kropka w tabeli znaczą zupełnie co innego,
+                a różnicy nie da się odgadnąć z samego wyglądu. */}
+            <span className="diag__legend">
+              <span className="diag__legend-mark">—</span> nie wiem,{' '}
+              <span className="diag__legend-mark">·</span> nie dotyczy tego kierunku
+            </span>
             <span className="diag__hint">Ctrl+Shift+D zamyka</span>
           </header>
 
@@ -241,19 +342,28 @@ export function Diagnostics(): JSX.Element | null {
                 <input
                   type="range"
                   min={0}
-                  max={history.length - 1}
+                  max={samples.length - 1}
                   value={cursor}
-                  onChange={(event) => setCursor(Number(event.target.value))}
+                  onChange={(event) => {
+                    // Wartość zdejmujemy ze zdarzenia PRZED wywołaniem
+                    // ustawiacza: funkcja aktualizująca wykonuje się później
+                    // (a w StrictMode dwa razy) i ma zależeć tylko od liczby.
+                    const moved = Number(event.target.value)
+                    setTimeline((current) => ({ ...current, cursor: moved }))
+                  }}
                   aria-label="Chwila w czasie"
                 />
                 <span className="diag__stamp">
                   {new Date(shown.at).toLocaleTimeString('pl-PL')}
                   {' · '}
-                  {cursor + 1}/{history.length}
+                  {cursor + 1}/{samples.length}
                 </span>
               </div>
 
-              <p className="diag__system">{formatResourceBadge(shown.system, shown.at)}</p>
+              {/* Linia panelu, nie pasek: tu godzina odczytu GPU jest widoczna
+                  zawsze, bo rzadsze odpytywanie karty powtarza te same liczby
+                  w pięciu kolejnych próbkach. */}
+              <p className="diag__system">{formatSystemLine(shown.system, shown.at)}</p>
 
               <StreamsSection shown={shown} previous={previous} />
             </>

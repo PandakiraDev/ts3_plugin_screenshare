@@ -1095,6 +1095,20 @@ h3 {
   pointer-events: none;
 }
 
+/* Pasek wisi w prawym dolnym rogu okna, a lista uczestników sięga prawej
+   krawędzi i pełnej wysokości, więc przykrywał jej ostatni wiersz. Kliknięcia
+   przechodziły (`pointer-events: none`), ale tekst był nieczytelny.
+   Odstęp robimy na dole LISTY, a nie przesuwamy paska: każde inne miejsce
+   w oknie też jest czyjeś (kafelki, podgląd, pasek tytułu), więc przesunięcie
+   zamieniłoby jedną kolizję na następną, a ta byłaby trudniejsza do
+   zauważenia. Odstęp mieści pasek (~21 px) wraz z jego marginesem od dołu
+   i działa też przy przewijaniu, bo `.peers` jest tu kontenerem przewijania.
+   Warunkowo przez `:has()`, bo pasek istnieje tylko przy fladze
+   `--diagnostics` — bez niej lista nie ma tracić miejsca na nic. */
+#root:has(.resource-badge) .peers {
+  padding-bottom: 40px;
+}
+
 .diag {
   position: fixed;
   inset: 24px;
@@ -1120,6 +1134,21 @@ h3 {
 .diag__empty {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* Legenda stoi przy tytule, nie przy prawej krawędzi: `margin-right: auto`
+   odpycha od niej podpowiedź o skrócie, bo nagłówek rozkłada trójkę przez
+   `space-between`, a legenda należy do tabeli, nie do skrótu. */
+.diag__legend {
+  margin-right: auto;
+  padding-left: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.diag__legend-mark {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .diag__time {
@@ -1162,6 +1191,18 @@ h3 {
 .diag__dropped {
   color: #f0c674;
   font-weight: 600;
+}
+
+/* „Nie dotyczy tego kierunku": kolumna strukturalnie nie istnieje dla tego
+   wiersza (klatki odbioru w wierszu nadawania i odwrotnie). Wyciszona, bo ma
+   się czytać jako puste miejsce w siatce, a nie jako brak odczytu — kreska
+   „nie wiem" zostaje w normalnym kolorze i to ona ma przyciągać wzrok.
+   Sam znak i tak różni się od kreski; kolor jest wzmocnieniem, nie jedynym
+   nośnikiem różnicy. */
+.diag__na {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: help;
 }
 
 /* Uwaga pod suwakiem: brak strumieni albo brak odzewu renderera. Wersja

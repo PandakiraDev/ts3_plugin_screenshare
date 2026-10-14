@@ -1,5 +1,7 @@
 import { expect, test } from 'vitest'
 import {
+  BUFFER_MAX_AGE_MS,
+  BUFFER_MAX_SAMPLES,
   GPU_POLL_INTERVAL_MS,
   GPU_STALE_AFTER_MS,
   LOG_FILES_KEPT,
@@ -7,9 +9,13 @@ import {
   SAMPLE_INTERVAL_MS,
   STREAMS_MIN_INTERVAL_MS,
   STREAMS_STALE_AFTER_MS,
+  advancePanelTimeline,
   appendSample,
+  columnAppliesTo,
   emptyStreamStats,
   formatResourceBadge,
+  formatSilence,
+  formatSystemLine,
   logFilesToDelete,
   parseNvidiaSmi,
   readGpu,
@@ -19,6 +25,9 @@ import {
   streamsFreshness,
   streamsIntervalMs,
   type DiagnosticsSample,
+  type PanelTimeline,
+  type StreamColumn,
+  type StreamRates,
   type StreamStats
 } from '../src/shared/diagnostics'
 
@@ -843,4 +852,265 @@ test('zdrowe odpytywanie GPU nigdy nie zapala kreski', () => {
     GPU_READ_AT + GPU_POLL_INTERVAL_MS + 47
   )
   expect(healthy).toContain('GPU 97%')
+})
+
+/** Zużycie systemu bez odczytu karty — bierze go każdy test, który jej nie bada. */
+const SYSTEM = { cpuPercent: 23, memoryMb: 412 }
+
+test('linia panelu pokazuje godzinę odczytu GPU także przy świeżym odczycie', () => {
+  // Kartę odpytujemy rzadziej, niż próbkujemy, więc te same liczby GPU stoją
+  // w pięciu kolejnych próbkach. Właściciel przewijający suwak czasu widzi
+  // pięć identycznych odczytów pod rząd i bez godziny czyta to jako „karta
+  // przyklejona" — to samo złe wrażenie, które naprawiła gałąź z zamarłym
+  // sterownikiem.
+  const line = formatSystemLine({ ...SYSTEM, gpu: STUCK_GPU }, GPU_READ_AT + 1_000)
+  expect(line).toBe('CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB · odczyt z 22:03')
+})
+
+test('pasek w rogu milczy o godzinie, dopóki odczyt GPU jest świeży', () => {
+  // To jedyna różnica między paskiem a linią panelu, więc test trzyma je
+  // rozdzielone: pasek jest wąski i ma być cichy.
+  const at = GPU_READ_AT + 1_000
+  expect(formatResourceBadge({ ...SYSTEM, gpu: STUCK_GPU }, at)).toBe(
+    'CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB'
+  )
+  expect(formatSystemLine({ ...SYSTEM, gpu: STUCK_GPU }, at)).toContain('odczyt z 22:03')
+})
+
+test('po progu przestarzałości linia panelu i pasek mówią to samo', () => {
+  // Gałąź z zamarłym sterownikiem pokazywała godzinę od początku, więc wariant
+  // panelu nie ma jej dokładać po raz drugi.
+  const system = { ...SYSTEM, gpu: STUCK_GPU }
+  const at = GPU_READ_AT + GPU_STALE_AFTER_MS
+  expect(formatSystemLine(system, at)).toBe('CPU 23% · RAM 412 MB · GPU — (odczyt z 22:03)')
+  expect(formatSystemLine(system, at)).toBe(formatResourceBadge(system, at))
+})
+
+test('o milisekundę przed progiem linia panelu ma i liczby, i godzinę', () => {
+  // Razem z poprzednim testem przybija granicę z obu stron — dla wariantu
+  // panelu, nie tylko dla paska.
+  const line = formatSystemLine(
+    { ...SYSTEM, gpu: STUCK_GPU },
+    GPU_READ_AT + GPU_STALE_AFTER_MS - 1
+  )
+  expect(line).toBe('CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB · odczyt z 22:03')
+})
+
+test('bez odczytu GPU linia panelu nie ma godziny do pokazania', () => {
+  // Nie ma odczytu — nie ma też jego godziny, więc zostaje sama kreska. Tak
+  // samo przy znaczniku, którego nie da się umiejscowić w czasie.
+  expect(formatSystemLine({ ...SYSTEM, gpu: null }, GPU_READ_AT)).toBe(
+    'CPU 23% · RAM 412 MB · GPU —'
+  )
+  expect(
+    formatSystemLine({ ...SYSTEM, gpu: { ...STUCK_GPU, at: Number.NaN } }, GPU_READ_AT)
+  ).toBe('CPU 23% · RAM 412 MB · GPU —')
+})
+
+/**
+ * Wszystkie kolumny liczbowe tabeli strumieni.
+ *
+ * `Record` po `keyof StreamRates` jest tu strażnikiem kompilacji: nowe pole
+ * tempa wywali `npm run build`, dopóki nie trafi na tę listę — a wtedy
+ * `columnAppliesTo` musi mieć dla niego rozstrzygnięty kierunek.
+ */
+const RATE_COLUMNS: Record<keyof StreamRates, true> = {
+  receivedPerS: true,
+  decodedPerS: true,
+  presentedPerS: true,
+  droppedPerS: true,
+  encodedPerS: true,
+  sentPerS: true,
+  kilobitsPerS: true
+}
+const ALL_COLUMNS: StreamColumn[] = [
+  ...(Object.keys(RATE_COLUMNS) as (keyof StreamRates)[]),
+  'qualityLimitationReason'
+]
+
+test('kolumny odbioru nie dotyczą wiersza nadawania', () => {
+  // Klatki odebrane i zdekodowane pochodzą z wpisu `inbound-rtp`, a wystawione
+  // i porzucone z elementu `<video>`. Na połączeniu wychodzącym nie ma ani
+  // jednego, ani drugiego — i nie będzie nigdy, więc to nie jest brak odczytu,
+  // o którym panel miałby mówić kreską „nie wiem".
+  expect(columnAppliesTo('receivedPerS', 'outbound')).toBe(false)
+  expect(columnAppliesTo('decodedPerS', 'outbound')).toBe(false)
+  expect(columnAppliesTo('presentedPerS', 'outbound')).toBe(false)
+  expect(columnAppliesTo('droppedPerS', 'outbound')).toBe(false)
+  expect(columnAppliesTo('receivedPerS', 'inbound')).toBe(true)
+  expect(columnAppliesTo('decodedPerS', 'inbound')).toBe(true)
+  expect(columnAppliesTo('presentedPerS', 'inbound')).toBe(true)
+  expect(columnAppliesTo('droppedPerS', 'inbound')).toBe(true)
+})
+
+test('kolumny nadawania nie dotyczą wiersza odbioru', () => {
+  // Rozkład jest symetryczny: `framesEncoded` i `framesSent` pochodzą z wpisu
+  // `outbound-rtp`, którego na połączeniu przychodzącym nie ma.
+  expect(columnAppliesTo('encodedPerS', 'inbound')).toBe(false)
+  expect(columnAppliesTo('sentPerS', 'inbound')).toBe(false)
+  expect(columnAppliesTo('encodedPerS', 'outbound')).toBe(true)
+  expect(columnAppliesTo('sentPerS', 'outbound')).toBe(true)
+})
+
+test('powód ograniczenia jakości dotyczy tylko nadawania', () => {
+  // `qualityLimitationReason` to pole SAMEGO `outbound-rtp`: koder mówi, czemu
+  // zszedł z jakości. Odbierający takiego pola nie dostaje w ogóle, więc
+  // kreska w tej kolumnie znaczyłaby „nie wiem" o czymś, czego nie da się
+  // wiedzieć. Odczyt w `useDiagnosticsReporter` wypełnia je wyłącznie
+  // z gałęzi `outbound-rtp`.
+  expect(columnAppliesTo('qualityLimitationReason', 'outbound')).toBe(true)
+  expect(columnAppliesTo('qualityLimitationReason', 'inbound')).toBe(false)
+})
+
+test('tylko bajty liczą się w obie strony', () => {
+  // Jedyna kolumna wspólna dla obu kierunków: `bytesReceived` i `bytesSent`.
+  // Gdyby regułą domyślną było „dotyczy obu", test pokazałby to od razu.
+  const both = ALL_COLUMNS.filter(
+    (column) => columnAppliesTo(column, 'inbound') && columnAppliesTo(column, 'outbound')
+  )
+  expect(both).toEqual(['kilobitsPerS'])
+})
+
+test('każda kolumna dotyczy przynajmniej jednego kierunku', () => {
+  // Kolumna, która nie dotyczy żadnego kierunku, byłaby pusta w każdym
+  // wierszu, czyli zabierałaby miejsce i nie mówiła nic.
+  for (const column of ALL_COLUMNS) {
+    expect(
+      columnAppliesTo(column, 'inbound') || columnAppliesTo(column, 'outbound'),
+      `kolumna ${column} nie dotyczy żadnego kierunku`
+    ).toBe(true)
+  }
+})
+
+test('krótkie milczenie renderera liczy się w sekundach', () => {
+  expect(formatSilence(3_000)).toBe('3 s')
+  expect(formatSilence(59_400)).toBe('59 s')
+})
+
+test('milczenie dłuższe niż minuta przestaje być liczone w sekundach', () => {
+  expect(formatSilence(60_000)).toBe('1 min')
+  expect(formatSilence(90_000)).toBe('1 min 30 s')
+  expect(formatSilence(59 * 60 * 1_000)).toBe('59 min')
+})
+
+test('godzina milczenia jest godziną, nie 3600 sekundami', () => {
+  // Panel pokazuje teraz także zapis z dawnej chwili i nadąża przy otwartym
+  // oknie, więc ten napis trafia na ciszę mierzoną w godzinach. „Renderer
+  // milczy od 3600 s" wymaga przeliczania w głowie.
+  expect(formatSilence(60 * 60 * 1_000)).toBe('1 godz.')
+  expect(formatSilence(60 * 60 * 1_000 + 61_000)).toBe('1 godz. 1 min')
+  expect(formatSilence(3 * 60 * 60 * 1_000 + 25 * 60 * 1_000)).toBe('3 godz. 25 min')
+})
+
+test('zaokrąglamy raz, do pełnych sekund, a nie każdą jednostkę osobno', () => {
+  // Inaczej 119,6 s dałoby „1 min 60 s", a 59,6 s „0 min 60 s".
+  expect(formatSilence(119_600)).toBe('2 min')
+  expect(formatSilence(59_600)).toBe('1 min')
+})
+
+test('wiek milczenia, który nie jest liczbą, nie dostaje liczby', () => {
+  // Zachowanie przeniesione bez zmiany z `Diagnostics.tsx`: nie ma pomiaru,
+  // nie ma liczby.
+  expect(formatSilence(null)).toBe('nieznanego czasu')
+  expect(formatSilence(Number.NaN)).toBe('nieznanego czasu')
+  expect(formatSilence(Number.POSITIVE_INFINITY)).toBe('nieznanego czasu')
+})
+
+test('suwak stojący na końcu idzie za teraźniejszością', () => {
+  // Panel był zamrożony od chwili otwarcia, a pasek w tym samym oknie tykał co
+  // sekundę — właściciel otwiera panel właśnie dlatego, że coś się zacięło.
+  const start: PanelTimeline = { samples: [sample(1_000), sample(2_000)], cursor: 1 }
+  const next = advancePanelTimeline(start, sample(3_000))
+  expect(next.samples.map((entry) => entry.at)).toEqual([1_000, 2_000, 3_000])
+  expect(next.cursor).toBe(2)
+})
+
+test('pusta historia przyjmuje pierwszą próbkę i staje na niej', () => {
+  // Panel otwarty, gdy bufor był pusty: koniec pustej listy ma indeks −1, więc
+  // równość z położeniem suwaka nigdy nie zachodzi. Stąd nierówność w regule.
+  const next = advancePanelTimeline({ samples: [], cursor: 0 }, sample(1_000))
+  expect(next.samples).toHaveLength(1)
+  expect(next.cursor).toBe(0)
+})
+
+test('suwak poza listą wraca na koniec, a nie zostaje poza nią', () => {
+  // Takiego położenia panel dziś nie wyprodukuje (`max` suwaka to ostatni
+  // indeks), ale reguła, która na to liczy, zostawiałaby panel pokazujący
+  // „bufor jest pusty" przy historii pełnej próbek. Reguła jest całkowita, bo
+  // tak jest o jeden przypadek brzegowy taniej.
+  const next = advancePanelTimeline({ samples: [sample(1_000)], cursor: 7 }, sample(2_000))
+  expect(next.samples).toHaveLength(2)
+  expect(next.cursor).toBe(1)
+})
+
+test('próbka nie nowsza od ostatniej nie zmienia historii panelu', () => {
+  // Zegar paska pobiera tę samą najnowszą próbkę raz na sekundę, a rejestrator
+  // tyka niezależnie od niego, więc powtórzenia są normą. Zwracamy TEN SAM
+  // obiekt, żeby React pominął przerysowanie.
+  const start: PanelTimeline = { samples: [sample(1_000), sample(2_000)], cursor: 1 }
+  expect(advancePanelTimeline(start, sample(2_000))).toBe(start)
+  expect(advancePanelTimeline(start, sample(1_500))).toBe(start)
+})
+
+test('dopisanie tej samej próbki dwa razy nie daje duplikatu', () => {
+  // Efekty w StrictMode wykonują się w trybie rozwojowym podwójnie, więc
+  // drugie wywołanie z tą samą próbką musi być bezczynne.
+  const start: PanelTimeline = { samples: [sample(1_000)], cursor: 0 }
+  const once = advancePanelTimeline(start, sample(2_000))
+  expect(once.samples).toHaveLength(2)
+  expect(advancePanelTimeline(once, sample(2_000))).toBe(once)
+})
+
+test('suwak przewinięty w tył zostaje na swojej próbce', () => {
+  // Przewinięcie w tył jest czynnością świadomą; wyrywanie widoku byłoby wrogie.
+  const start: PanelTimeline = {
+    samples: [sample(1_000), sample(2_000), sample(3_000)],
+    cursor: 0
+  }
+  const next = advancePanelTimeline(start, sample(4_000))
+  expect(next.cursor).toBe(0)
+  expect(next.samples[next.cursor]).toBe(start.samples[0])
+})
+
+test('przycięcie historii nie przewija panelu pod ręką', () => {
+  // Przy pełnym buforze każde dopisanie wyrzuca wpis z POCZĄTKU listy, więc
+  // ten sam indeks wskazuje co sekundę inną, późniejszą chwilę. Przewinięty
+  // w tył panel przewijałby się sam, choć nikt go nie ruszał.
+  const samples = Array.from({ length: BUFFER_MAX_SAMPLES }, (_, index) =>
+    sample(index * SAMPLE_INTERVAL_MS)
+  )
+  const watched = samples[100]
+  const next = advancePanelTimeline(
+    { samples, cursor: 100 },
+    sample(BUFFER_MAX_SAMPLES * SAMPLE_INTERVAL_MS)
+  )
+  expect(next.samples).toHaveLength(BUFFER_MAX_SAMPLES)
+  expect(next.cursor).toBe(99)
+  expect(next.samples[next.cursor]).toBe(watched)
+})
+
+test('historia panelu nie przegania bufora procesu głównego', () => {
+  // Panel otwarty dłużej niż okno bufora pokazywałby inaczej okno czasu
+  // szersze niż zapis, z którego powstał.
+  let timeline: PanelTimeline = { samples: [], cursor: 0 }
+  for (let index = 0; index < BUFFER_MAX_SAMPLES + 50; index += 1) {
+    timeline = advancePanelTimeline(timeline, sample(index * SAMPLE_INTERVAL_MS))
+  }
+  expect(timeline.samples).toHaveLength(BUFFER_MAX_SAMPLES)
+  expect(timeline.cursor).toBe(BUFFER_MAX_SAMPLES - 1)
+})
+
+test('próbki starsze niż okno bufora wypadają z historii panelu', () => {
+  const start: PanelTimeline = { samples: [sample(0), sample(1_000)], cursor: 1 }
+  const next = advancePanelTimeline(start, sample(BUFFER_MAX_AGE_MS + 1))
+  expect(next.samples.map((entry) => entry.at)).toEqual([1_000, BUFFER_MAX_AGE_MS + 1])
+  expect(next.cursor).toBe(1)
+})
+
+test('dopisanie nie zmienia przekazanej historii', () => {
+  const samples = [sample(1_000)]
+  const start: PanelTimeline = { samples, cursor: 0 }
+  advancePanelTimeline(start, sample(2_000))
+  expect(samples).toHaveLength(1)
+  expect(start.cursor).toBe(0)
 })

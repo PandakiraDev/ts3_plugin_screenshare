@@ -17,9 +17,12 @@ export interface GpuReading {
    * źródła. Znacznik powstaje PO powrocie wywołania, więc opisuje chwilę, w
    * której wartości były znane, a nie chwilę, w której o nie zapytaliśmy.
    *
-   * Czytelnikiem jest `formatResourceBadge`: po `GPU_STALE_AFTER_MS` pokazuje
-   * kreskę z godziną tego odczytu zamiast liczb. Bez tego zawieszony
-   * `nvidia-smi` zamrażałby na pasku i w panelu ostatnie liczby na zawsze.
+   * Czytelnikami są `formatResourceBadge` (pasek) i `formatSystemLine`
+   * (panel): po `GPU_STALE_AFTER_MS` oba pokazują kreskę z godziną tego
+   * odczytu zamiast liczb. Bez tego zawieszony `nvidia-smi` zamrażałby na
+   * pasku i w panelu ostatnie liczby na zawsze. W panelu godzina jest
+   * widoczna zawsze, bo tam rzadsze odpytywanie karty daje pięć identycznych
+   * odczytów pod rząd i trzeba je czymś wyjaśnić.
    */
   at: number
 }
@@ -31,10 +34,19 @@ export interface SystemStats {
   gpu: GpuReading | null
 }
 
+/**
+ * Strona łańcucha, której dotyczy wpis.
+ *
+ * Alias, a nie literał powtórzony w sygnaturach: ta sama para wartości
+ * rozstrzyga teraz, które kolumny panelu mają dla wiersza sens
+ * (`columnAppliesTo`), więc jest regułą, a nie zapisem pola.
+ */
+export type StreamDirection = 'inbound' | 'outbound'
+
 export interface StreamStats {
   peerId: string
   kind: StreamKind
-  direction: 'inbound' | 'outbound'
+  direction: StreamDirection
   /** Pola nieobecne dla danego kierunku są `null`, a nie zerem. */
   framesReceived: number | null
   framesDecoded: number | null
@@ -95,6 +107,58 @@ export interface StreamRates {
   encodedPerS: number | null
   sentPerS: number | null
   kilobitsPerS: number | null
+}
+
+/**
+ * Kolumna liczbowa tabeli strumieni: tempo licznika albo powód ograniczenia
+ * jakości, który tempem nie jest, ale stoi w tej samej tabeli.
+ */
+export type StreamColumn = keyof StreamRates | 'qualityLimitationReason'
+
+/**
+ * Których kierunków dotyczy dana kolumna.
+ *
+ * Każdy wiersz ma STRUKTURALNIE puste cztery z sześciu kolumn klatkowych, bo
+ * liczniki pochodzą z trzech różnych źródeł, a na drugim kierunku tych źródeł
+ * nie ma wcale (patrz `useDiagnosticsReporter`):
+ *
+ * - `receivedPerS`, `decodedPerS` — z wpisu `inbound-rtp`, którego na
+ *   połączeniu wychodzącym nie ma;
+ * - `presentedPerS`, `droppedPerS` — z elementu `<video>`, który istnieje
+ *   tylko po stronie odbierającej;
+ * - `encodedPerS`, `sentPerS` — z wpisu `outbound-rtp`, którego na połączeniu
+ *   przychodzącym nie ma;
+ * - `qualityLimitationReason` — pole samego `outbound-rtp`: koder mówi, czemu
+ *   zszedł z jakości, a odbierający o cudzym koderze nie wie nic;
+ * - `kilobitsPerS` — bajty liczą się w obie strony
+ *   (`bytesReceived`/`bytesSent`).
+ *
+ * `Record` po `StreamColumn`, a nie dwie listy nazw: nowe pole w `StreamRates`
+ * wywali kompilację, dopóki ktoś nie rozstrzygnie, którego kierunku dotyczy —
+ * a cicho dołożona kolumna wróciłaby dokładnie do usterki, którą to zamyka.
+ */
+const COLUMN_DIRECTIONS: Record<StreamColumn, readonly StreamDirection[]> = {
+  receivedPerS: ['inbound'],
+  decodedPerS: ['inbound'],
+  presentedPerS: ['inbound'],
+  droppedPerS: ['inbound'],
+  encodedPerS: ['outbound'],
+  sentPerS: ['outbound'],
+  kilobitsPerS: ['inbound', 'outbound'],
+  qualityLimitationReason: ['outbound']
+}
+
+/**
+ * Czy ta kolumna w ogóle dotyczy tego kierunku.
+ *
+ * Panel ma dwa zupełnie różne komunikaty do przekazania i bez tej reguły
+ * pokazywał oba tą samą kreską: „tego pola tu nie ma" (strukturalnie, zawsze)
+ * i „pole jest, ale nie ręczę za liczbę" (przestarzałe dane, brak poprzedniej
+ * próbki, cofnięty licznik). Zlane w jedno, połowa każdego wiersza wyglądała
+ * na awarię przyrządu, a wiersz nadawania — na martwy.
+ */
+export function columnAppliesTo(column: StreamColumn, direction: StreamDirection): boolean {
+  return COLUMN_DIRECTIONS[column].includes(direction)
 }
 
 export const SAMPLE_INTERVAL_MS = 1_000
@@ -242,7 +306,7 @@ export async function readGpu(
 export function emptyStreamStats(
   peerId: string,
   kind: StreamKind,
-  direction: 'inbound' | 'outbound'
+  direction: StreamDirection
 ): StreamStats {
   return {
     peerId,
@@ -502,8 +566,9 @@ export const GPU_STALE_AFTER_MS = 2 * GPU_POLL_INTERVAL_MS
 
 /**
  * Tekst paska w rogu okna. Znacznik `at` to chwila PRÓBKI, nie chwila
- * rysowania: ten sam napis opisuje też próbkę wskazaną suwakiem czasu w panelu,
- * a wtedy „teraz" nie ma nic do rzeczy.
+ * rysowania — pasek pokazuje najnowszą próbkę, a nie „teraz". Linia w panelu
+ * ma własny wariant (`formatSystemLine`), bo opisuje próbkę wskazaną suwakiem
+ * czasu, czyli zwykle chwilę z przeszłości.
  *
  * Trzy stany GPU, celowo rozróżnialne:
  * - `GPU —` — nie mamy odczytu W OGÓLE (brak `nvidia-smi`, karta AMD, sterownik
@@ -518,6 +583,39 @@ export const GPU_STALE_AFTER_MS = 2 * GPU_POLL_INTERVAL_MS
  * - liczby — odczyt świeży. Zero jest wtedy pomiarem i zostaje zerem.
  */
 export function formatResourceBadge(system: SystemStats, at: number): string {
+  return formatSystemStats(system, at, 'when-stale')
+}
+
+/**
+ * Ta sama treść dla linii `diag__system` w panelu, ale z godziną odczytu GPU
+ * pokazywaną ZAWSZE, nie tylko po progu przestarzałości.
+ *
+ * Odpytujemy kartę co `GPU_POLL_INTERVAL_MS`, a próbkujemy co
+ * `SAMPLE_INTERVAL_MS`, więc te same liczby GPU powtarzają się w pięciu
+ * kolejnych próbkach. Właściciel przewijający suwak czasu widzi pięć
+ * identycznych odczytów pod rząd i bez godziny odczytuje to jako „karta
+ * przyklejona" — czyli to samo złe wrażenie, któremu zapobiega gałąź
+ * z zamarłym sterownikiem. Godzina jest wyjaśnieniem powtórzeń.
+ *
+ * W pasku w rogu okna zostaje `when-stale`: pasek jest wąski i ma być cichy,
+ * a przy nim „teraz" jest zawsze tą samą chwilą co próbka.
+ */
+export function formatSystemLine(system: SystemStats, at: number): string {
+  return formatSystemStats(system, at, 'always')
+}
+
+/**
+ * Kiedy pokazać godzinę odczytu GPU. Nazwany wariant, a nie flaga logiczna:
+ * `formatResourceBadge(system, at, true)` w miejscu wywołania nie mówi nic.
+ */
+type GpuClockVisibility = 'when-stale' | 'always'
+
+/** Wspólne ciało paska i linii panelu — jedno formatowanie, dwa warianty. */
+function formatSystemStats(
+  system: SystemStats,
+  at: number,
+  gpuClock: GpuClockVisibility
+): string {
   const parts = [
     `CPU ${Math.round(system.cpuPercent)}%`,
     `RAM ${Math.round(system.memoryMb)} MB`
@@ -525,7 +623,7 @@ export function formatResourceBadge(system: SystemStats, at: number): string {
   const gpu = system.gpu
   // Odczyt, którego nie da się umiejscowić w czasie (`at` nie jest skończoną
   // liczbą), traktujemy jak brak odczytu: nie wiemy, czy jest aktualny, i nie
-  // mamy godziny, którą moglibyśmy pokazać.
+  // mamy godziny, którą moglibyśmy pokazać — także w wariancie `always`.
   if (gpu === null || !Number.isFinite(gpu.at)) {
     parts.push('GPU —')
     return parts.join(' · ')
@@ -542,8 +640,110 @@ export function formatResourceBadge(system: SystemStats, at: number): string {
     parts.push(
       `VRAM ${formatGigabytes(gpu.memoryUsedMb)}/${formatGigabytes(gpu.memoryTotalMb)} GB`
     )
+    // Godzina idzie na koniec, po VRAM-ie: opisuje oba te pola naraz, bo oba
+    // pochodzą z tego samego wywołania `nvidia-smi`.
+    if (gpuClock === 'always') parts.push(`odczyt z ${formatClock(gpu.at)}`)
   }
   return parts.join(' · ')
+}
+
+/** Od tego progu milczenie renderera liczymy w minutach, nie w sekundach. */
+const SILENCE_MINUTES_FROM_S = 60
+/** A od tego w godzinach. */
+const SILENCE_HOURS_FROM_S = 60 * 60
+
+/**
+ * Jak długo renderer milczy, w jednostce dopasowanej do długości ciszy.
+ *
+ * Same sekundy wystarczały, dopóki panel był zrzutem z chwili otwarcia: cisza
+ * trwała wtedy kilka tyknięć. Przy panelu, który nadąża, i przy przewijaniu
+ * zapisu z całego wieczoru ta sama funkcja pisała „Renderer milczy od 3600 s",
+ * czyli liczbę, którą trzeba przeliczać w głowie, żeby zobaczyć, że to godzina.
+ *
+ * Reszta jest pomijana, gdy wychodzi zerowa: „1 godz." zamiast „1 godz. 0 min".
+ * Zaokrąglamy raz, do pełnych sekund, i dopiero z tego składamy jednostki —
+ * inaczej 119,6 s dałoby „1 min 60 s".
+ *
+ * Wiek, który nie jest skończoną liczbą (`null`, `NaN`, nieskończoność), nie
+ * jest pomiarem, więc nie dostaje liczby — tak samo jak przed przeniesieniem
+ * tej funkcji z `Diagnostics.tsx`. Wieku ujemnego tu nie obsługujemy osobno,
+ * bo `streamsFreshness` uznaje go za drżenie zegara i świeżość, więc do tego
+ * napisu nie dochodzi.
+ */
+export function formatSilence(ageMs: number | null): string {
+  if (ageMs === null || !Number.isFinite(ageMs)) return 'nieznanego czasu'
+
+  const totalSeconds = Math.round(ageMs / 1000)
+  if (totalSeconds < SILENCE_MINUTES_FROM_S) return `${totalSeconds} s`
+
+  if (totalSeconds < SILENCE_HOURS_FROM_S) {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return seconds === 0 ? `${minutes} min` : `${minutes} min ${seconds} s`
+  }
+
+  const hours = Math.floor(totalSeconds / SILENCE_HOURS_FROM_S)
+  const minutes = Math.floor((totalSeconds % SILENCE_HOURS_FROM_S) / 60)
+  return minutes === 0 ? `${hours} godz.` : `${hours} godz. ${minutes} min`
+}
+
+/**
+ * Historia pokazywana w panelu razem z położeniem suwaka czasu.
+ *
+ * Jeden stan, nie dwa: położenie suwaka ma sens tylko wobec konkretnej
+ * listy próbek, a reguła „suwak stoi na końcu" czyta oba pola naraz. Trzymane
+ * osobno rozjeżdżały się na jeden render przy każdym dopisaniu.
+ */
+export interface PanelTimeline {
+  samples: readonly DiagnosticsSample[]
+  cursor: number
+}
+
+/**
+ * Dopisuje najnowszą próbkę do historii panelu, jeśli jest nowsza od ostatniej.
+ *
+ * Panel był zamrożony od chwili otwarcia, a pasek w tym samym oknie tykał co
+ * sekundę — właściciel otwiera panel właśnie dlatego, że coś się ZACIĘŁO,
+ * i widział nieruchome liczby przy ruchomym pasku. Dopisujemy tę samą próbkę,
+ * którą i tak pobiera zegar paska: `readDiagnostics()` co sekundę to 3,09 MB
+ * i 13,6 ms serializacji na każdy takt, więc odpada.
+ *
+ * Trzy reguły, wszystkie wyliczane PRZED dopisaniem, bo po nim indeks końca
+ * jest już inny:
+ *
+ * - suwak stojący na końcu idzie dalej za teraźniejszością. Warunek jest
+ *   nierównością, nie równością: `>=` obejmuje też pustą historię (koniec ma
+ *   wtedy indeks −1) i suwak poza listą, więc żadne położenie, jakie poda
+ *   wywołujący, nie zostawia panelu zamrożonego na próbce, której nie ma;
+ * - suwak przewinięty w tył zostaje na TEJ SAMEJ próbce, a nie na tym samym
+ *   indeksie: przycięcie zabiera wpisy z początku listy, więc sam indeks
+ *   wędrowałby w czasie w przód i panel przewijałby się właścicielowi pod
+ *   ręką — a przewinięcie w tył jest czynnością świadomą;
+ * - próbka nie nowsza od ostatniej nie zmienia nic i funkcja zwraca TEN SAM
+ *   obiekt, żeby React mógł pominąć przerysowanie. To też strażnik podwójnego
+ *   wykonania efektów w `StrictMode`: drugie wywołanie nie dokłada duplikatu.
+ *
+ * Granice są te same, co w buforze procesu głównego (`appendSample`
+ * w `diagnosticsRecorder`), bo panel ma pokazywać to samo okno czasu co zapis;
+ * bez sufitu liczby wpisów historia panelu przegoniłaby bufor po dziesięciu
+ * minutach otwarcia.
+ */
+export function advancePanelTimeline(
+  timeline: PanelTimeline,
+  latest: DiagnosticsSample
+): PanelTimeline {
+  const { samples, cursor } = timeline
+  const last = samples[samples.length - 1]
+  if (last !== undefined && latest.at <= last.at) return timeline
+
+  const atEnd = cursor >= samples.length - 1
+  const next = appendSample(samples, latest, BUFFER_MAX_AGE_MS, BUFFER_MAX_SAMPLES)
+  if (atEnd) return { samples: next, cursor: next.length - 1 }
+
+  // Ile wpisów zabrało przycięcie: dołożyliśmy jeden, więc długość rośnie
+  // o jeden tylko wtedy, gdy nic nie wypadło.
+  const removed = samples.length + 1 - next.length
+  return { samples: next, cursor: Math.max(0, cursor - removed) }
 }
 
 /**
