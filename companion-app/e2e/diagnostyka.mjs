@@ -56,10 +56,12 @@ const PORT_C = 9423
 const SAMPLE_INTERVAL_MS = 1_000
 const STREAMS_STALE_AFTER_MS = 3 * SAMPLE_INTERVAL_MS
 
-// Przedział mediany odstępu między próbkami. Luźny celowo: sam pomiar GPU
-// zajmuje ~47 ms (metrics.ts), a zegar Node nie jest dokładny. Zacieśnianie
+// Przedział mediany odstępu między próbkami. Luźny celowo: zegar Node nie jest
+// dokładny, a tyknięcie dokłada do tego odczyt metryk Electrona. Zacieśnianie
 // tego dałoby sprawdzian, który mruga. Mediana, a nie każdy odstęp, żeby
-// pojedynczy przeciągnięty takt nie przesądzał o wyniku.
+// pojedynczy przeciągnięty takt nie przesądzał o wyniku. (Odczyt GPU, 46,5 ms,
+// nie wchodzi tu w ogóle: idzie osobnym, rzadszym zegarem i nie blokuje
+// tyknięcia — patrz GPU_POLL_INTERVAL_MS.)
 const MEDIAN_GAP_MIN_MS = 0.8 * SAMPLE_INTERVAL_MS
 const MEDIAN_GAP_MAX_MS = 1.3 * SAMPLE_INTERVAL_MS
 
@@ -259,6 +261,12 @@ function sampleProblems(entry) {
   if (entry === null || typeof entry !== 'object') return ['wpis nie jest obiektem']
   const problems = []
   if (typeof entry.at !== 'number') problems.push('at nie jest liczbą')
+  // Znacznik instancji musi być w KAŻDEJ linii: dwa okna z flagą piszą do
+  // katalogu naraz (ta gałąź nie bierze requestSingleInstanceLock), a bez
+  // znacznika przeplecionych serii nie da się rozdzielić nawet ręcznie.
+  if (typeof entry.instanceId !== 'string' || entry.instanceId === '') {
+    problems.push('instanceId nie jest niepustym tekstem')
+  }
   if (entry.system === null || typeof entry.system !== 'object') {
     problems.push('brak system')
   } else {
@@ -446,10 +454,16 @@ try {
   // --- 1. plik zapisu ---
   // Katalog userData NIE jest tu domyślnym APPDATA: podajemy aplikacji własny
   // --user-data-dir, żeby przebiegi się nie mieszały, i czytamy z niego wprost.
+  // Nazwa pliku to data i godzina startu sesji (`YYYY-MM-DD-HHmmss.jsonl`),
+  // nie sama data: każda sesja dostaje własny plik, żeby mieć własny
+  // budżet sufitu rozmiaru. Wzorzec jest ścisły, bo to on pilnuje układu nazwy,
+  // na którym opiera się retencja (sortowanie leksykograficzne = sortowanie po
+  // czasie). Sort zostaje: dwa okna odpalone w tej samej sekundzie trafiają
+  // w jeden plik, a przy różnych sekundach plików jest kilka.
   const base = join(dataDirA, 'diagnostics')
   const files = existsSync(base)
     ? readdirSync(base)
-        .filter((name) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name))
+        .filter((name) => /^\d{4}-\d{2}-\d{2}-\d{6}\.jsonl$/.test(name))
         .sort()
     : []
   const lines = files.flatMap((name) =>
@@ -458,7 +472,7 @@ try {
   console.log(`\n=== ZAPIS === pliki: ${files.join(', ') || 'brak'}, linii: ${lines.length}`)
 
   if (files.length === 0) {
-    fail('[1 zapis] w userData/diagnostics nie powstał plik YYYY-MM-DD.jsonl')
+    fail('[1 zapis] w userData/diagnostics nie powstał plik YYYY-MM-DD-HHmmss.jsonl')
   } else if (lines.length === 0) {
     fail('[1 zapis] plik zapisu jest pusty')
   } else {

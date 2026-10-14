@@ -161,3 +161,67 @@ test('wejścia pokoju zostają w postaci surowej, nie znormalizowanej', () => {
   // co naprawdę podał.
   expect(result.options.roomId).toBe(deriveRoomId('TS.Serwer.PL:9987', ' 42 '))
 })
+
+test('powtórzona flaga bez wartości nie kasuje wartości podanej wcześniej', () => {
+  // Obsługa flag logicznych ustawiała znacznik obecności BEZWARUNKOWO, więc
+  // drugie `--signaling` cicho porzucało jawnie podany adres i aplikacja szła
+  // do serwera produkcyjnego. Realne przy ręcznym wywołaniu z dopiskiem, a
+  // ręczne wywołanie to jedyny tryb, w którym używa się `--diagnostics`.
+  const result = parseLaunchArgs([
+    '--signaling=ws://127.0.0.1:8080',
+    '--signaling',
+    '--ts3-server=a:1',
+    '--channel=2'
+  ])
+  if (!result.ok) throw new Error(result.error)
+  expect(result.options.signalingUrl).toBe('ws://127.0.0.1:8080')
+})
+
+test('powtórzona flaga bez wartości nie kasuje nicku', () => {
+  const result = parseLaunchArgs([
+    '--ts3-server=a:1',
+    '--channel=2',
+    '--nick',
+    'Marek',
+    '--nick',
+    '--diagnostics'
+  ])
+  if (!result.ok) throw new Error(result.error)
+  expect(result.options.displayName).toBe('Marek')
+  expect(result.options.diagnostics).toBe(true)
+})
+
+test('powtórzone flagi bez wartości nie zamieniają lobby na standalone', () => {
+  // Ta ścieżka jest wprost zabroniona komentarzem w cli.ts: cichy powrót do
+  // standalone dałby okno, które donikąd się nie łączy, bez śladu dlaczego.
+  const result = parseLaunchArgs([
+    '--channel=42',
+    '--ts3-server',
+    '-x',
+    '--channel',
+    '--ts3-server'
+  ])
+  if (!result.ok) throw new Error(result.error)
+  expect(result.options.mode).toBe('lobby')
+  expect(result.options.channelId).toBe('42')
+  expect(result.options.ts3ServerAddress).toBe('-x')
+})
+
+test('kolejność odwrotna nadal wygrywa wartością, nie obecnością', () => {
+  // Druga kolejność (`--klucz` przed `--klucz=wartość`) chodzi inną gałęzią:
+  // tu wartość ma nadpisać sam znacznik obecności, a nie odwrotnie.
+  const result = parseLaunchArgs([
+    '--nick',
+    '--nick=Marek',
+    '--ts3-server=a:1',
+    '--channel=2'
+  ])
+  if (!result.ok) throw new Error(result.error)
+  expect(result.options.displayName).toBe('Marek')
+})
+
+test('dwa razy ta sama flaga logiczna nadal ją włącza', () => {
+  const result = parseLaunchArgs(['--diagnostics', '--diagnostics'])
+  if (!result.ok) throw new Error(result.error)
+  expect(result.options.diagnostics).toBe(true)
+})

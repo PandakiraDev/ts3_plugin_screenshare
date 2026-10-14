@@ -1,12 +1,16 @@
 import { app, ipcMain } from 'electron'
-import { appendFileSync, mkdirSync, statSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
   BUFFER_MAX_AGE_MS,
   BUFFER_MAX_SAMPLES,
+  GPU_POLL_INTERVAL_MS,
+  LOG_FILES_KEPT,
   LOG_SIZE_CEILING_BYTES,
   SAMPLE_INTERVAL_MS,
   appendSample,
+  logFilesToDelete,
   shouldAppendLine,
   type DiagnosticsSample,
   type StreamStats
@@ -80,24 +84,67 @@ function appendLine(sample: DiagnosticsSample): void {
   }
 }
 
+/**
+ * Zostawia w katalogu `LOG_FILES_KEPT` najnowszych plików zapisu.
+ *
+ * Wołane PRZED otwarciem nowego pliku, więc nowy plik nie bierze udziału
+ * w liczeniu i nie da się go usunąć zaraz po utworzeniu.
+ *
+ * Nieudane usunięcie JEDNEGO pliku (otwarty przez drugie okno, podglądany
+ * w edytorze) nie przerywa usuwania pozostałych ani otwarcia nowego — stąd
+ * `try` wewnątrz pętli, a nie tylko wokół niej.
+ */
+function pruneOldLogs(directory: string): void {
+  try {
+    for (const name of logFilesToDelete(readdirSync(directory), LOG_FILES_KEPT)) {
+      try {
+        unlinkSync(join(directory, name))
+      } catch {
+        /* jeden plik został — katalog i tak się skurczy przy następnym starcie */
+      }
+    }
+  } catch {
+    /* nie dało się przeczytać katalogu: zapis jest ważniejszy niż porządki */
+  }
+}
+
 function openLog(): void {
   try {
     const directory = join(app.getPath('userData'), 'diagnostics')
     mkdirSync(directory, { recursive: true })
+    pruneOldLogs(directory)
     /*
-     * Nazwa pliku to data LOKALNA, nie UTC: `toISOString()` dałoby w Polsce
-     * między północą a 1:00 (zimą) lub 2:00 (latem) wczorajszą datę, a właściciel
-     * szuka „dzisiejszego" pliku właśnie wtedy, gdy wieczorem coś lagowało.
-     * Składamy `YYYY-MM-DD` z lokalnych getterów, a nie z `toLocaleDateString`,
-     * bo jego format zależy od ustawień regionalnych. `openLog` jest wołane RAZ
-     * przy starcie, więc sesja trwająca przez północ pisze cały czas do
-     * pierwszego pliku: dla narzędzia właściciela to w porządku (jedna sesja to
-     * jeden plik, wręcz wygodniej), ale nazwa pliku sugeruje inaczej.
+     * Nazwa pliku to lokalna data i godzina startu, czyli JEDEN PLIK NA SESJĘ.
+     * To jest cel tej nazwy, nie jej skutek uboczny: sufit rozmiaru
+     * (`LOG_SIZE_CEILING_BYTES`) liczy się per plik, bo `statSync` niżej dolicza
+     * to, co już w nim jest. Przy nazwie dziennej druga sesja tego samego
+     * wieczoru startowała więc z budżetem nadgryzionym przez pierwszą, a trzecia
+     * potrafiła zapisać samą notkę o sufcie. Każda sesja ma dostać pełny budżet,
+     * bo diagnozujemy pojedynczy wieczór, a nie dzień.
+     *
+     * Czas LOKALNY, nie UTC: `toISOString()` dałoby w Polsce między północą
+     * a 1:00 (zimą) lub 2:00 (latem) wczorajszą datę, a właściciel szuka
+     * „dzisiejszego" pliku właśnie wtedy, gdy wieczorem coś lagowało. Składamy
+     * z lokalnych getterów, a nie z `toLocaleString`, bo jego format zależy od
+     * ustawień regionalnych — a ta nazwa musi sortować się leksykograficznie
+     * zgodnie z czasem, na tym opiera się retencja wyżej.
+     *
+     * `openLog` jest wołane RAZ przy starcie, więc sesja trwająca przez północ
+     * pisze cały czas do pliku z datą swojego początku. Teraz nazwa już tego nie
+     * zaciemnia: mówi, kiedy sesja się ZACZĘŁA.
      */
     const now = new Date()
     const pad = (value: number): string => String(value).padStart(2, '0')
     const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-    const path = join(directory, `${day}.jsonl`)
+    const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+    const path = join(directory, `${day}-${time}.jsonl`)
+    /*
+     * Odczyt rozmiaru zostaje, choć po zmianie nazwy prawie zawsze powie „pliku
+     * nie ma": nazwa NIE jest unikalna. Dwa okna odpalone z flagą w tej samej
+     * sekundzie trafiają w ten sam plik (ta gałąź świadomie nie bierze
+     * `requestSingleInstanceLock`), a wtedy sufit musi obejmować to, co już tam
+     * jest. Rozplecenie takiego pliku na instancje umożliwia `instanceId`.
+     */
     let existing = 0
     try {
       existing = statSync(path).size
@@ -122,7 +169,17 @@ export function registerDiagnostics(enabled: boolean): void {
   if (!enabled) return
 
   openLog()
-  const stopGpu = startGpuPolling(SAMPLE_INTERVAL_MS)
+  /*
+   * Znacznik tego uruchomienia, nadawany RAZ i wpisywany w każdą linię.
+   * Osiem znaków skrótu UUID, nie PID: systemy recyklingują PID-y, więc po
+   * restarcie wtyczki dwa różne uruchomienia mogłyby dostać ten sam numer —
+   * a wtedy znacznik myli bardziej, niż pomaga.
+   */
+  const instanceId = randomUUID().slice(0, 8)
+  // Rzadziej niż próbkujemy: `nvidia-smi` jest jedynym niepomijalnym kosztem
+  // tego przyrządu i jedynym miejscem, w którym dotyka badanego obiektu
+  // (sterownika karty) — patrz `GPU_POLL_INTERVAL_MS`.
+  const stopGpu = startGpuPolling(GPU_POLL_INTERVAL_MS)
 
   /*
    * Renderer przysyła statystyki strumieni, a proces główny dokłada wiersz
@@ -144,6 +201,7 @@ export function registerDiagnostics(enabled: boolean): void {
       // zegarem (`performance.now()`), bo czas trwania mierzy się zegarem
       // monotonicznym, a znacznik czasu ściennym.
       at: Date.now(),
+      instanceId,
       system: readSystemStats(),
       streams: pendingStreams,
       // Wiek liczymy w procesie głównym: renderer jest podejrzanym i nie
@@ -155,8 +213,9 @@ export function registerDiagnostics(enabled: boolean): void {
   }, SAMPLE_INTERVAL_MS)
 
   // Oba zatrzymania są potrzebne: zegar próbek i odpytywanie GPU to dwa
-  // osobne zegary. Wywołanie `nvidia-smi` w toku w chwili zatrzymania zapisze
-  // jeszcze jeden odczyt, do trzech sekund później — to w porządku.
+  // osobne zegary, a teraz dzieli je też okres. Wywołanie `nvidia-smi`
+  // w toku w chwili zatrzymania wraca jeszcze do trzech sekund później, ale
+  // jego wynik jest już porzucany (patrz `startGpuPolling`).
   app.on('will-quit', () => {
     clearInterval(timer)
     stopGpu()

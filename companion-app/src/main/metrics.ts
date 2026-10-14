@@ -4,12 +4,13 @@ import { readGpu, type GpuReading, type SystemStats } from '@shared/diagnostics'
 
 /*
  * Odczyt GPU trzymamy osobno od zegara próbek. `nvidia-smi` to uruchomienie
- * procesu i mierzy ~47 ms (średnia z dziesięciu, min 43, max 54), czyli 4,7%
- * sekundy. Czekanie na niego w tyknięciu zablokowałoby proces główny i dałoby
- * zacinanie interfejsu — dokładnie to, czego w tej aplikacji szukamy.
+ * procesu i mierzy 46,5 ms (min 45,5, max 47,9), czyli 4,7% sekundy. Czekanie
+ * na niego w tyknięciu zablokowałoby proces główny i dałoby zacinanie
+ * interfejsu — dokładnie to, czego w tej aplikacji szukamy.
  *
- * Zamiast tego odpytujemy w tle, a tyknięcie bierze ostatni znany odczyt
- * razem z JEGO znacznikiem czasu.
+ * Zamiast tego odpytujemy w tle, rzadziej niż próbkujemy
+ * (`GPU_POLL_INTERVAL_MS`), a tyknięcie bierze ostatni znany odczyt razem
+ * z JEGO znacznikiem czasu.
  */
 let lastGpu: GpuReading | null = null
 
@@ -23,8 +24,12 @@ let lastGpu: GpuReading | null = null
  * Blokada trzyma się do POWROTU CALLBACKU `execFile`, a nie do upływu 3 s:
  * `timeout` tylko zabija proces, a znacznik zdejmuje dopiero wywołanie
  * callbacku. Osobnego watchdoga nie ma, więc callback, który nigdy nie wróci,
- * zatrzymałby odpytywanie do restartu aplikacji (odczyt starzałby się wtedy
- * razem ze swoim `at`).
+ * zatrzymałby odpytywanie do restartu aplikacji. Ten skutek jest WIDOCZNY:
+ * ostatni odczyt zostaje ze swoim znacznikiem, a `formatResourceBadge` po
+ * `GPU_STALE_AFTER_MS` pokazuje kreskę z jego godziną zamiast liczb. Do
+ * przeglądu przed scaleniem nie pokazywał tego nikt — `GpuReading.at` nie miał
+ * ani jednego czytelnika — więc zawieszony sterownik przyklejałby na pasku
+ * swoje ostatnie procenty do końca sesji.
  */
 let gpuPollInFlight = false
 
@@ -61,12 +66,22 @@ function runNvidiaSmi(): Promise<string> {
 
 /** Zwraca funkcję zatrzymującą odpytywanie. */
 export function startGpuPolling(intervalMs: number): () => void {
+  let stopped = false
   const tick = (): void => {
     if (gpuPollInFlight) return
     gpuPollInFlight = true
     const seq = ++gpuRequestSeq
-    void readGpu(runNvidiaSmi, Date.now())
+    // Znacznik czasu zdejmuje `readGpu` PO powrocie wywołania, nie tutaj przed
+    // nim: opisuje chwilę, w której wartości były znane, a nie chwilę, w której
+    // o nie zapytaliśmy. Te dwie dzieli 46,5 ms, czyli tyle, ile trwa
+    // `nvidia-smi` — przy progu rzędu sekund nieszkodliwie, ale jako stałe
+    // zaniżanie wieku, od którego zależy teraz kreska na pasku, już nie.
+    void readGpu(runNvidiaSmi, () => Date.now())
       .then((reading) => {
+        // Po zatrzymaniu nie zapisujemy nic: wynik w locie nadpisałby
+        // wyzerowany `lastGpu` odczytem, który od tej chwili już tylko się
+        // starzeje, bo nic go nie odświeży.
+        if (stopped) return
         if (seq > gpuStoredSeq) {
           gpuStoredSeq = seq
           lastGpu = reading
@@ -78,7 +93,15 @@ export function startGpuPolling(intervalMs: number): () => void {
   }
   tick()
   const timer = setInterval(tick, intervalMs)
-  return () => clearInterval(timer)
+  return () => {
+    stopped = true
+    clearInterval(timer)
+    // Zerujemy ostatni odczyt, bo po zatrzymaniu nikt go już nie odświeży:
+    // `latestGpu()` oddawałby coraz starszy odczyt jako bieżący. Dziś stop jest
+    // przy `will-quit`, ale wiek odczytu decyduje teraz o tym, co widać na
+    // pasku, więc „nieszkodliwe" przestało być prawdą.
+    lastGpu = null
+  }
 }
 
 export function latestGpu(): GpuReading | null {

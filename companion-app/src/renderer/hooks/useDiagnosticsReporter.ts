@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { SAMPLE_INTERVAL_MS, type StreamStats } from '@shared/diagnostics'
+import { SAMPLE_INTERVAL_MS, emptyStreamStats, type StreamStats } from '@shared/diagnostics'
 import type { Lobby } from './useLobby'
 
 /**
@@ -46,29 +46,21 @@ export function useDiagnosticsReporter(lobby: Lobby, enabled: boolean): void {
             // Połączenie mogło się zamknąć między pobraniem listy a odczytem.
             continue
           }
-          const entry: StreamStats = {
-            peerId,
-            kind,
-            direction,
-            framesReceived: null,
-            framesDecoded: null,
-            framesPresented: null,
-            framesDropped: null,
-            framesEncoded: null,
-            framesSent: null,
-            bytes: 0,
-            qualityLimitationReason: null
-          }
+          // Wszystkie liczniki startują jako `null`, bo przed odczytaniem wpisu
+          // RTP nie wiemy NIC — a zero znaczyłoby „strumień stoi". Wpisu RTP
+          // może nie być wcale: uzgadnianie ICE w toku albo połączenie zamknięte
+          // między pobraniem listy a odczytem statystyk.
+          const entry: StreamStats = emptyStreamStats(peerId, kind, direction)
           report.forEach((stat) => {
             if (stat.type === 'inbound-rtp' && stat.kind === 'video') {
               entry.framesReceived = stat.framesReceived ?? null
               entry.framesDecoded = stat.framesDecoded ?? null
-              entry.bytes = stat.bytesReceived ?? 0
+              entry.bytes = stat.bytesReceived ?? null
             }
             if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
               entry.framesEncoded = stat.framesEncoded ?? null
               entry.framesSent = stat.framesSent ?? null
-              entry.bytes = stat.bytesSent ?? 0
+              entry.bytes = stat.bytesSent ?? null
               entry.qualityLimitationReason =
                 stat.qualityLimitationReason && stat.qualityLimitationReason !== 'none'
                   ? stat.qualityLimitationReason

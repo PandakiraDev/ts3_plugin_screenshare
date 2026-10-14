@@ -222,7 +222,9 @@ export function Diagnostics(): JSX.Element | null {
     <>
       {/* Pasek dotyczy zużycia systemu, które mierzy proces główny, więc nie
           zależy od świeżości danych o strumieniach. */}
-      {latest && <div className="resource-badge">{formatResourceBadge(latest.system)}</div>}
+      {latest && (
+        <div className="resource-badge">{formatResourceBadge(latest.system, latest.at)}</div>
+      )}
 
       {panelOpen && (
         <div className="diag" role="dialog" aria-label="Panel diagnostyczny">
@@ -251,7 +253,7 @@ export function Diagnostics(): JSX.Element | null {
                 </span>
               </div>
 
-              <p className="diag__system">{formatResourceBadge(shown.system)}</p>
+              <p className="diag__system">{formatResourceBadge(shown.system, shown.at)}</p>
 
               <StreamsSection shown={shown} previous={previous} />
             </>

@@ -85,8 +85,17 @@ function readFlags(argv: string[]): Map<string, string> {
      * milcząco nie działała. Pusty łańcuch pozwala sprawdzić jej OBECNOŚĆ
      * przez `flags.has`, a flagom Electrona nie szkodzi, bo czytamy tylko
      * znane nam klucze.
+     *
+     * Tylko gdy klucza jeszcze NIE MA: bezwarunkowy `set` kasował wartość
+     * podaną wcześniej w tym samym `argv`. `--signaling=ws://x --signaling`
+     * cicho porzucało jawnie podany adres i wracało do serwera produkcyjnego,
+     * a `--channel=42 … --channel --ts3-server` zamieniało lobby na standalone
+     * bez jednego słowa — czyli dokładnie ten „cichy powrót do standalone",
+     * którego zabrania komentarz niżej. Powtórzona flaga BEZ wartości nie
+     * wnosi nic poza obecnością, a tę pierwsze wystąpienie już ustaliło.
      */
-    flags.set(arg.slice(2), '')
+    const key = arg.slice(2)
+    if (!flags.has(key)) flags.set(key, '')
   }
   return flags
 }

@@ -6,9 +6,20 @@ export interface GpuReading {
   memoryTotalMb: number
   /**
    * Własny znacznik czasu: odczyt GPU NIE jest jednoczesny z resztą próbki.
-   * Pochodzi z osobnego procesu, który wraca po ~47 ms, a zegar na niego nie
-   * czeka — blokada procesu głównego co sekundę dawałaby zacinanie interfejsu,
-   * czyli dokładnie to, czego w tej aplikacji szukamy.
+   * Pochodzi z osobnego procesu, który wraca po ~46,5 ms, a zegar na niego nie
+   * czeka — blokada procesu głównego dawałaby zacinanie interfejsu, czyli
+   * dokładnie to, czego w tej aplikacji szukamy. Odpytywanie jest przy tym
+   * rzadsze niż próbkowanie (`GPU_POLL_INTERVAL_MS`), więc odczyt starszy od
+   * próbki jest tu normą, a nie wyjątkiem.
+   *
+   * Zegar ścienny (`Date.now()`), ten sam co `DiagnosticsSample.at`: wiek
+   * odczytu liczy się jako różnica tych dwóch, więc muszą pochodzić z jednego
+   * źródła. Znacznik powstaje PO powrocie wywołania, więc opisuje chwilę, w
+   * której wartości były znane, a nie chwilę, w której o nie zapytaliśmy.
+   *
+   * Czytelnikiem jest `formatResourceBadge`: po `GPU_STALE_AFTER_MS` pokazuje
+   * kreskę z godziną tego odczytu zamiast liczb. Bez tego zawieszony
+   * `nvidia-smi` zamrażałby na pasku i w panelu ostatnie liczby na zawsze.
    */
   at: number
 }
@@ -31,12 +42,31 @@ export interface StreamStats {
   framesDropped: number | null
   framesEncoded: number | null
   framesSent: number | null
-  bytes: number
+  /**
+   * Ta sama reguła co dla liczników klatek: brak odczytu to `null`, nigdy zero.
+   * Bez wpisu `inbound-rtp`/`outbound-rtp` (uzgadnianie ICE w toku, połączenie
+   * zamknięte między pobraniem listy a odczytem statystyk) nie wiemy, ile
+   * bajtów poszło — a `0` czytałoby się jako „nadaję zero kilobitów", czyli
+   * fałszywa diagnoza w wierszu, w którym bajty są dziś JEDYNĄ liczbą.
+   */
+  bytes: number | null
   qualityLimitationReason: string | null
 }
 
 export interface DiagnosticsSample {
   at: number
+  /**
+   * Który proces zapisał tę linię. Nadawany raz przy starcie rejestratora.
+   *
+   * NIE USUWAJ tego pola „bo mamy jedno okno": ta gałąź świadomie nie bierze
+   * `requestSingleInstanceLock`, więc dwa okna z flagą `--diagnostics` piszą
+   * do katalogu naraz, a przy starcie w tej samej sekundzie nawet do jednego
+   * pliku. Bez znacznika w KAŻDEJ linii (nie w nagłówku pliku — linie się
+   * przeplatają) czytający widzi jedną sesję, w której co sekundę zmienia się
+   * komplet strumieni, i wnioskuje „połączenia zrywają się i wracają co
+   * sekundę". To ten sam błędny wniosek, któremu zapobiega `streamsAgeMs`.
+   */
+  instanceId: string
   system: SystemStats
   streams: StreamStats[]
   /**
@@ -76,7 +106,65 @@ export const BUFFER_MAX_AGE_MS = 10 * 60 * 1_000
  * zegara, gdy w buforze siedzą dwie epoki naraz.
  */
 export const BUFFER_MAX_SAMPLES = BUFFER_MAX_AGE_MS / SAMPLE_INTERVAL_MS
-export const LOG_SIZE_CEILING_BYTES = 8 * 1024 * 1024
+
+/**
+ * Jak często odpytujemy kartę graficzną — rzadziej niż próbkujemy.
+ *
+ * `nvidia-smi` to jedyne miejsce, w którym przyrząd dotyka badanego obiektu:
+ * odpytuje sterownik karty, czyli główny podejrzany w zgłoszeniu „laguje, gdy
+ * gram". Jedno wywołanie mierzy 46,5 ms (min 45,5, max 47,9; z tego ~10 ms to
+ * samo uruchomienie procesu) i jest o trzy rzędy wielkości droższe od
+ * wszystkiego innego w tym przyrządzie razem (zapis linii 0,164 ms,
+ * `JSON.stringify` 0,0067 ms, serializacja IPC 0,012 ms).
+ *
+ * Co sekundę to 4,6% rdzenia STALE, także gdy panel jest zamknięty, i 36 000
+ * uruchomień procesu na dziesięciogodzinny wieczór. Co pięć sekund to 0,9%
+ * rdzenia i 7 200 uruchomień.
+ *
+ * Rozrzedzenie jest darmowe projektowo, bo odczyt nigdy nie musiał być
+ * jednoczesny z próbką — po to właśnie `GpuReading.at` ma własny znacznik
+ * czasu. Częstotliwość równa `SAMPLE_INTERVAL_MS` wynikała wyłącznie z symetrii
+ * z zegarem próbek.
+ */
+export const GPU_POLL_INTERVAL_MS = 5 * SAMPLE_INTERVAL_MS
+
+/**
+ * Sufit rozmiaru jednego pliku zapisu.
+ *
+ * To nie jest budżet sesji, tylko bezpiecznik przed plikiem rosnącym bez końca
+ * (zapętlony zegar, zapis nie wiadomo jak długi). Jedna sesja musi się w nim
+ * zmieścić CAŁA, bo zapis jest źródłem prawdy: objaw zdarza się wtedy, gdy
+ * nikt nie patrzy, więc plik ucięty w połowie wieczoru milczy dokładnie o tej
+ * godzinie, o którą pytamy.
+ *
+ * Zmierzony rozmiar linii przy pełnych UUID-ach i realnych licznikach, oraz
+ * ile zajmie dziesięciogodzinny wieczór przy 1 Hz:
+ *
+ *   2 osoby, tylko ekran      (2 połączenia)    768 B/linia    26 MiB
+ *   2 osoby, ekran + kamera   (4 połączenia)  1 317 B/linia    45 MiB
+ *   4 osoby, ekran + kamera  (12 połączeń)   3 513 B/linia   121 MiB
+ *   6 osób, ekran + kamera   (20 połączeń)   5 709 B/linia   196 MiB
+ *
+ * 256 MiB bierze najgorszy wiersz z zapasem. Poprzednie 8 MiB kończyło się po
+ * 24,5 minuty przy sześciu osobach. Chudszy zapis tego nie ratował (też
+ * zmierzone): zaokrąglenie `cpuPercent` i `memoryMb` daje 99% rozmiaru,
+ * skrócenie `peerId` do ośmiu znaków 90%, wyrzucenie pól `null` 62% — czyli
+ * 39 minut zamiast 24,5.
+ */
+export const LOG_SIZE_CEILING_BYTES = 256 * 1024 * 1024
+
+/**
+ * Ile plików zapisu zostaje w katalogu `userData/diagnostics`.
+ *
+ * Nic dotąd nie usuwało tych plików, a przy stale włączonej fladze katalog
+ * rósł bez ograniczenia — tym bardziej po podniesieniu sufitu wyżej.
+ *
+ * Liczba plików, a NIE wiek: dwie reguły w jednej są zbędne, bo sama liczba
+ * ogranicza katalog, a do tego jest odporna na zegar — „starsze niż N dni"
+ * wyrzucałoby cały zapis po przestawieniu zegara w przód.
+ */
+export const LOG_FILES_KEPT = 20
+
 export const ROOM_FINGERPRINT_LENGTH = 8
 
 /**
@@ -127,12 +215,47 @@ export function parseNvidiaSmi(stdout: string, at: number): GpuReading | null {
  */
 export async function readGpu(
   run: () => Promise<string>,
-  at: number
+  now: () => number
 ): Promise<GpuReading | null> {
   try {
-    return parseNvidiaSmi(await run(), at)
+    const stdout = await run()
+    // Znacznik PO powrocie wywołania, nie przed nim. `nvidia-smi` mierzy
+    // 46,5 ms, więc znacznik zdjęty przed uruchomieniem procesu byłby o tyle
+    // starszy od wartości, którą opisuje — a ten wiek decyduje o tym, czy pasek
+    // pokaże liczby, czy kreskę, więc stałe zaniżanie go nie wchodzi w grę.
+    return parseNvidiaSmi(stdout, now())
   } catch {
     return null
+  }
+}
+
+/**
+ * Wpis strumienia przed odczytaniem czegokolwiek: wszystkie liczniki `null`.
+ *
+ * Istnieje jako funkcja, a nie literał w `useDiagnosticsReporter.ts`, żeby dało
+ * się sprawdzić testem regułę „brak odczytu nigdy nie udaje zera" także dla
+ * wartości POCZĄTKOWYCH. W tym repozytorium nie ma testów komponentów (vitest
+ * chodzi w gołym Node, bez `document`), więc wpis składany w hooku byłby polem
+ * bez żadnego strażnika — a `bytes: 0` przeżyło tam dwanaście zadań i jedenaście
+ * przeglądów właśnie dlatego.
+ */
+export function emptyStreamStats(
+  peerId: string,
+  kind: StreamKind,
+  direction: 'inbound' | 'outbound'
+): StreamStats {
+  return {
+    peerId,
+    kind,
+    direction,
+    framesReceived: null,
+    framesDecoded: null,
+    framesPresented: null,
+    framesDropped: null,
+    framesEncoded: null,
+    framesSent: null,
+    bytes: null,
+    qualityLimitationReason: null
   }
 }
 
@@ -328,26 +451,96 @@ export function shouldAppendLine(
   return currentBytes + lineBytes <= ceilingBytes
 }
 
+/**
+ * Które pliki zapisu usunąć, żeby zostało `keep` najnowszych.
+ *
+ * Sortujemy PO NAZWIE, nie po `mtime`, a wolno tak tylko dlatego, że nazwa to
+ * `YYYY-MM-DD-HHmmss.jsonl` — format, który porządkuje się leksykograficznie
+ * zgodnie z czasem. To jedyny powód; przy innym formacie nazwy trzeba by wrócić
+ * do czasu modyfikacji. Nazwa jest przy tym lepsza od `mtime`: `mtime` zmienia
+ * się przy każdym dopisaniu linii, więc długa sesja wyglądałaby jak najnowszy
+ * plik także wtedy, gdy zaczęła się przedwczoraj.
+ *
+ * Pliki o starej, dziennej nazwie (`YYYY-MM-DD.jsonl`) też tu wpadają: filtrem
+ * jest samo rozszerzenie, więc stary układ nazw da się sprzątnąć, a nie zostaje
+ * w katalogu na zawsze.
+ *
+ * Decyzja jest osobno od `node:fs`, bo to jedyna część tej retencji, w której
+ * da się pomylić stronę sortowania albo zgubić plik, który właśnie otwieramy.
+ */
+export function logFilesToDelete(names: readonly string[], keep: number): string[] {
+  const logs = names.filter((name) => name.endsWith('.jsonl')).sort()
+  return logs.slice(0, Math.max(logs.length - keep, 0))
+}
+
 /** Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski. */
 function formatGigabytes(megabytes: number): string {
   return (megabytes / 1024).toFixed(1).replace('.', ',')
 }
 
+/** Godzina HH:MM z lokalnych getterów, spójnie z nazwą pliku zapisu. */
+function formatClock(at: number): string {
+  const date = new Date(at)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 /**
- * Tekst paska w rogu okna. Brak odczytu GPU pokazujemy kreską, bo zero
- * znaczyłoby „karta nic nie robi", a my po prostu nie wiemy.
+ * Po tym czasie przestajemy ręczyć za liczby z odczytu GPU.
+ *
+ * Dwa okresy odpytywania, nie trzy jak w `STREAMS_STALE_AFTER_MS`: tam okres
+ * to sekunda, więc jeden okres zapasu znikał w drżeniu zegara. Tu okres ma pięć
+ * sekund, czyli zapas jednego okresu jest już o rzędy wielkości większy od
+ * drżenia, a mieści też jedno pominięte tyknięcie (wywołanie jeszcze nie
+ * wróciło, więc następne jest pomijane — patrz `gpuPollInFlight` w
+ * `metrics.ts`). Trzeci okres opóźniałby tylko wykrycie zamarłego sterownika,
+ * czyli dokładnie tego zjawiska, którego tu szukamy. Ten sam wzorzec co
+ * `QUALITY_STALE_AFTER_MS` z 0.3.1: próg wyrażony w okresach odpytywania, a nie
+ * liczbą milisekund, bo to okres decyduje, co jest normą.
  */
-export function formatResourceBadge(system: SystemStats): string {
+export const GPU_STALE_AFTER_MS = 2 * GPU_POLL_INTERVAL_MS
+
+/**
+ * Tekst paska w rogu okna. Znacznik `at` to chwila PRÓBKI, nie chwila
+ * rysowania: ten sam napis opisuje też próbkę wskazaną suwakiem czasu w panelu,
+ * a wtedy „teraz" nie ma nic do rzeczy.
+ *
+ * Trzy stany GPU, celowo rozróżnialne:
+ * - `GPU —` — nie mamy odczytu W OGÓLE (brak `nvidia-smi`, karta AMD, sterownik
+ *   w aktualizacji, nieczytelne wyjście). Kreska, bo zero znaczyłoby „karta nic
+ *   nie robi", a my po prostu nie wiemy.
+ * - `GPU — (odczyt z 22:03)` — odczyt BYŁ, ale zamarł: minęło co najmniej
+ *   `GPU_STALE_AFTER_MS`. Godzina jest tu całą informacją — mówi, kiedy
+ *   `nvidia-smi` przestał wracać, a to zwykle moment, w którym zaczęło się
+ *   zjawisko, o które pytamy. Bez tej gałęzi zawieszony sterownik pokazywałby
+ *   „GPU 97% · VRAM 11,2/12,0 GB" dla każdej kolejnej próbki aż do restartu, a
+ *   właściciel przewijający suwak odczytałby przyklejone 97% jako przyczynę.
+ * - liczby — odczyt świeży. Zero jest wtedy pomiarem i zostaje zerem.
+ */
+export function formatResourceBadge(system: SystemStats, at: number): string {
   const parts = [
     `CPU ${Math.round(system.cpuPercent)}%`,
     `RAM ${Math.round(system.memoryMb)} MB`
   ]
-  if (system.gpu === null) {
+  const gpu = system.gpu
+  // Odczyt, którego nie da się umiejscowić w czasie (`at` nie jest skończoną
+  // liczbą), traktujemy jak brak odczytu: nie wiemy, czy jest aktualny, i nie
+  // mamy godziny, którą moglibyśmy pokazać.
+  if (gpu === null || !Number.isFinite(gpu.at)) {
     parts.push('GPU —')
+    return parts.join(' · ')
+  }
+  // Granica włącznie od strony przestarzałości, tak samo jak w
+  // `streamsFreshness`. Wiek ujemny to drżenie albo cofnięty zegar, nie zamarły
+  // odczyt, więc zostaje świeży. Wiek, który nie jest liczbą, nie jest
+  // pomiarem, więc nie wolno za niego ręczyć — liczy się za przestarzały.
+  const ageMs = at - gpu.at
+  if (!Number.isFinite(ageMs) || ageMs >= GPU_STALE_AFTER_MS) {
+    parts.push(`GPU — (odczyt z ${formatClock(gpu.at)})`)
   } else {
-    parts.push(`GPU ${Math.round(system.gpu.utilizationPercent)}%`)
+    parts.push(`GPU ${Math.round(gpu.utilizationPercent)}%`)
     parts.push(
-      `VRAM ${formatGigabytes(system.gpu.memoryUsedMb)}/${formatGigabytes(system.gpu.memoryTotalMb)} GB`
+      `VRAM ${formatGigabytes(gpu.memoryUsedMb)}/${formatGigabytes(gpu.memoryTotalMb)} GB`
     )
   }
   return parts.join(' · ')
