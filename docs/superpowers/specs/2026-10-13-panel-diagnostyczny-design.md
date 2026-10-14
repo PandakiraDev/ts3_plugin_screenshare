@@ -314,8 +314,18 @@ Odcisk palca potrzebuje ich obu, żeby pokazać, z czego skrót powstał.
 ### Zapis
 
 Bufor kołowy w pamięci procesu głównego na ostatnie dziesięć minut (600 próbek
-przy 1 Hz) plus dopisywanie do `userData/diagnostics/YYYY-MM-DD.jsonl`, żeby sesja
-przeżyła restart i dała się przysłać jako plik.
+przy 1 Hz) plus dopisywanie do `userData/diagnostics/YYYY-MM-DD-HHmmss.jsonl`,
+żeby sesja przeżyła restart i dała się przysłać jako plik.
+
+**Nazwa jest per SESJA, nie per dzień, i to poprawka po przeglądzie całej
+gałęzi.** Pierwotnie plik nazywał się datą, a sufit rozmiaru liczy się per plik
+(`logBytes` startuje od `statSync(path).size`) — więc **druga sesja tego samego
+wieczoru ruszała z wyczerpanym budżetem**, a trzecia zapisałaby linię notki
+i nic więcej. Do tego zmierzony rozmiar linii to od 768 B (dwie osoby, ekran)
+do 5709 B (sześć osób, ekran i kamera), czyli sufit 8 MiB kończył się po
+**24 minutach** przy sześciu osobach — przed zjawiskiem, którego ten zapis
+szuka. Stąd sufit 256 MiB (dziesięć godzin przy sześciu osobach to ~196 MiB)
+i retencja dwudziestu najnowszych plików, bo nic ich dotąd nie usuwało.
 
 Sufit rozmiaru `LOG_SIZE_CEILING_BYTES`; po jego przekroczeniu dopisywanie
 ustaje z jedną linią adnotacji. **Każde wywołanie systemu plików w `try/catch`,

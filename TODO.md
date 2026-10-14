@@ -667,10 +667,18 @@ najcenniejszy wynik tego wydania):
   (`index.ts:203`), więc każde kliknięcie menu w TS3 (`CreateProcessW`,
   `plugin.c:237`) otwiera **nowe okno**. Jedna osoba może mieć naraz dwa okna
   na różne kanały i patrzeć na niewłaściwe; odcisk jest per okno. Ten sam brak
-  wypłynął już przy instalatorze (§ 3.1). Skutek uboczny dla diagnostyki: dwa
-  okna z flagą naraz piszą do **tego samego** pliku `<data>.jsonl`, a każdy
-  proces liczy `logBytes` osobno — sufit 8 MB nie obejmuje więc sumy, a linie
-  się przeplatają. Wynika z kodu, nie zmierzone.
+  wypłynął już przy instalatorze (§ 3.1). Skutek uboczny dla diagnostyki był
+  początkowo gorszy, niż tu pisało, i został **złagodzony** w rundzie poprawek
+  po przeglądzie całej gałęzi: nazwa pliku jest teraz per sesja
+  (`YYYY-MM-DD-HHmmss.jsonl`), więc dwa okna trafiają w jeden plik tylko wtedy,
+  gdy wystartują w tej samej sekundzie, a każda linia niesie `instanceId`, więc
+  przeplecione serie **dają się rozdzielić**. Bez `instanceId` czytający widziałby
+  jedną sesję, w której co sekundę zmienia się komplet strumieni, i wyciągnąłby
+  wniosek „połączenia zrywają się co sekundę" — dokładnie ten błędny wniosek,
+  któremu miało zapobiec pole `streamsAgeMs`. Zostaje reszta: `ceilingReported`
+  jest per proces, a sufit per plik, więc dwa okna w jednym pliku dopiszą dwie
+  notki, a zapis z dwóch procesów nie jest atomowy, więc może powstać linia
+  niebędąca poprawnym JSON-em.
 - **Okno zna tylko ID kanału**, którego klient TS3 nie pokazuje w zwykłym
   widoku — rozmówcy porównają „42 kontra 57", ale nie sprawdzą tego z niczym,
   co widzą w TS3. `--channel-name` przekazywane przez wtyczkę zrobiłoby
