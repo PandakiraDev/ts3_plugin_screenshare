@@ -509,8 +509,10 @@ końcowego, żadne nie blokowało wydania):
 - **`e2e/panel-uczestnikow.mjs` sprawdza sekcję i plakietkę niezależnie**, nie
   po tym samym wierszu. Dziurę zasłania test jednostkowy podziału na sekcje.
 
-Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
-Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
+Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) oraz
+powiadomienia w rogu przy wejściu i wyjściu osoby zostały ODŁOŻONE bez
+numeru wydania: 0.3.3 przejęły zgłoszenia z sekcji 5, które właściciel uznał za
+pilniejsze. Wracają po kawałkach C i D.
 
 ## 5. Zgłoszenia po kilku miesiącach używania 0.3.2 (2026-10-13)
 
@@ -541,7 +543,7 @@ maszynie — minimalizacja oraz prawdziwe zasłonięcie okna drugim oknem — da
 powtórzył się ani razu. Zegary chodziły równo wszędzie: 1000–1014 ms przy
 nominalnym tysiącu.
 
-Dwie pomyłki warte zapamiętania, obo moje:
+Dwie pomyłki warte zapamiętania, obie moje:
 
 - **Pierwsza wersja pomiaru sprawdzała nie tę ścieżkę, co trzeba.** Flaga
   dotyczy okien ZASŁONIĘTYCH, a skrypt minimalizował okno — w Chromium to
@@ -665,7 +667,10 @@ najcenniejszy wynik tego wydania):
   (`index.ts:203`), więc każde kliknięcie menu w TS3 (`CreateProcessW`,
   `plugin.c:237`) otwiera **nowe okno**. Jedna osoba może mieć naraz dwa okna
   na różne kanały i patrzeć na niewłaściwe; odcisk jest per okno. Ten sam brak
-  wypłynął już przy instalatorze (§ 3.1).
+  wypłynął już przy instalatorze (§ 3.1). Skutek uboczny dla diagnostyki: dwa
+  okna z flagą naraz piszą do **tego samego** pliku `<data>.jsonl`, a każdy
+  proces liczy `logBytes` osobno — sufit 8 MB nie obejmuje więc sumy, a linie
+  się przeplatają. Wynika z kodu, nie zmierzone.
 - **Okno zna tylko ID kanału**, którego klient TS3 nie pokazuje w zwykłym
   widoku — rozmówcy porównają „42 kontra 57", ale nie sprawdzą tego z niczym,
   co widzą w TS3. `--channel-name` przekazywane przez wtyczkę zrobiłoby
