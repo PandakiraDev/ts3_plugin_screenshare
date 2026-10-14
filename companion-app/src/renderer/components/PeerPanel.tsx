@@ -10,6 +10,11 @@ interface PeerPanelProps {
   rows: { item: ParticipantView; leaving: boolean }[]
   collapsed: boolean
   onToggle: () => void
+  /**
+   * Odcisk palca pokoju i opis, z czego go wyliczono. `null` w trybie
+   * standalone, gdzie żadnego pokoju nie ma.
+   */
+  roomFingerprint: { short: string; derivedFrom: string } | null
 }
 
 /**
@@ -17,7 +22,12 @@ interface PeerPanelProps {
  * obraz jest ważniejszy niż lista — ale zwinięta zostawia pasek z liczbą osób,
  * żeby nie znikała bez śladu.
  */
-export function PeerPanel({ rows, collapsed, onToggle }: PeerPanelProps): JSX.Element {
+export function PeerPanel({
+  rows,
+  collapsed,
+  onToggle,
+  roomFingerprint
+}: PeerPanelProps): JSX.Element {
   if (collapsed) {
     return (
       <aside className="peers peers--collapsed">
@@ -42,6 +52,14 @@ export function PeerPanel({ rows, collapsed, onToggle }: PeerPanelProps): JSX.El
     <aside className="peers">
       <header className="peers__header">
         <h2 className="peers__title">Uczestnicy</h2>
+        {/* Odcisk celowo tylko w rozwiniętym nagłówku: zwinięty pasek (52 px) mieści
+            wyłącznie licznik osób, a odcisk jest potrzebny jednorazowo, przy
+            porównywaniu przez telefon — wtedy panel można rozwinąć. */}
+        {roomFingerprint && (
+          <span className="peers__room" title={roomFingerprint.derivedFrom}>
+            lobby {roomFingerprint.short}
+          </span>
+        )}
         <button
           type="button"
           className="peers__toggle"

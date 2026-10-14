@@ -19,6 +19,7 @@ import { allViewersStruggling } from '@shared/viewerQuality'
 import { buildParticipants } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
+import { shortRoomFingerprint } from '@shared/diagnostics'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -101,6 +102,21 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * przy pierwszym otwarciu pickera. Ta sama pułapka wystąpiła w 0.3.2.
    */
   useDiagnosticsReporter(lobby, options.diagnostics)
+
+  /*
+   * Pokazujemy skrót ORAZ wejścia, z których powstał. Sam skrót powie tylko
+   * „różnimy się"; dopiero wejścia powiedzą dlaczego. Najbardziej prawdopodobny
+   * przypadek: jedna osoba ma w adresie nazwę domeny, druga adres IP tego
+   * samego serwera — `deriveRoomId` normalizuje wielkość liter i spacje, ale
+   * `ts.serwer.pl:9987` i `11.22.33.44:9987` to dwa różne pokoje.
+   */
+  const roomFingerprint =
+    options.roomId && options.ts3ServerAddress && options.channelId
+      ? {
+          short: shortRoomFingerprint(options.roomId),
+          derivedFrom: `Pokój wyliczony z: ${options.ts3ServerAddress} · kanał ${options.channelId}`
+        }
+      : null
 
   // Zmiana rozdzielczości albo FPS w trakcie nadawania: podmieniamy ścieżkę
   // zamiast zrywać połączenia (chwilowy null w trakcie restartu ignorujemy).
@@ -340,6 +356,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           rows={participantRows}
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
+          roomFingerprint={roomFingerprint}
         />
 
         {settingsOpen && (
