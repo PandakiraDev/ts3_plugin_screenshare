@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import {
   SAMPLE_INTERVAL_MS,
+  STREAMS_MIN_INTERVAL_MS,
   STREAMS_STALE_AFTER_MS,
   appendSample,
   formatResourceBadge,
@@ -516,28 +517,69 @@ function sampleWithStreams(
   return { at, system: { cpuPercent: 1, memoryMb: 2, gpu: null }, streams, streamsAgeMs }
 }
 
-test('odstęp między statystykami liczy się od chwili ich zebrania, nie od tyknięcia', () => {
-  // Dane zebrane o 9 700 i o 10 100, choć próbki dzieli równa sekunda.
+test('odstęp między statystykami liczy się od chwili ich odebrania, nie od tyknięcia', () => {
+  // Dane odebrane o 9 700 i o 10 900, choć próbki dzieli równa sekunda.
   const previous = sampleWithStreams(10_000, 300, [])
-  const next = sampleWithStreams(11_000, 900, [])
-  expect(streamsIntervalMs(previous, next)).toBe(400)
+  const next = sampleWithStreams(11_000, 100, [])
+  expect(streamsIntervalMs(previous, next)).toBe(1_200)
 })
 
-test('dwie próbki z tymi samymi danymi dają odstęp zero, a stąd brak tempa, nie zero klatek', () => {
+test('ten sam push widziany w dwóch tyknięciach nie daje tempa, a nie zero klatek', () => {
   // Zagłodzony renderer: rejestrator tyka dalej i powtarza ostatnie liczby.
   // Odstęp liczony od tyknięć dałby sekundę i tempo 0 klatek na sekundę,
   // czyli wniosek „strumień stoi", którego pole wieku miało zabronić.
+  // Liczby są realistyczne, nie wyidealizowane: dwa zegary nigdy nie zgadzają
+  // się co do milisekundy, więc odstęp wychodzi tu 3 ms, nie zero.
   const frozen = inbound({ framesReceived: 500, framesDecoded: 500, bytes: 90_000 })
   const previous = sampleWithStreams(40_000, 20_000, [frozen])
-  const next = sampleWithStreams(41_000, 21_000, [frozen])
-  const interval = streamsIntervalMs(previous, next)
-  expect(interval).toBe(0)
-  expect(ratesBetween(previous.streams[0], next.streams[0], interval ?? 0)).toBeNull()
+  const next = sampleWithStreams(41_000, 20_997, [frozen])
+  expect(streamsIntervalMs(previous, next)).toBeNull()
+})
+
+test('drżenie dwóch zegarów wokół zera nie robi z tego samego pusha pomiaru', () => {
+  // `at` idzie zegarem ściennym, a `streamsAgeMs` monotonicznym, i oba są
+  // czytane w różnych chwilach tyknięcia, więc dla TEGO SAMEGO pusha odstęp
+  // wychodzi od kilku ms na minus do kilku na plus. Przy dodatnim znaku
+  // `ratesBetween` policzyłby tempo z niezmienionych liczników i pokazał
+  // 0 klatek na sekundę jako dane świeże.
+  const frozen = inbound({ framesReceived: 500 })
+  for (const jitter of [-3, -2, -1, 0, 1, 2, 3]) {
+    const previous = sampleWithStreams(10_000, 300, [frozen])
+    const next = sampleWithStreams(11_000, 1_300 - jitter, [frozen])
+    expect(streamsIntervalMs(previous, next), `drżenie ${jitter} ms`).toBeNull()
+  }
+})
+
+test('drżenie zegarów nie psuje pomiaru między dwoma różnymi pushami', () => {
+  // Dwa kolejne pushe dzieli około sekundy; kilka ms drżenia w którąkolwiek
+  // stronę ma zostać pomiarem, a nie zamienić się w brak odstępu.
+  const previous = sampleWithStreams(10_000, 300, [])
+  for (const jitter of [-3, -2, -1, 0, 1, 2, 3]) {
+    const next = sampleWithStreams(11_000, 300 - jitter, [])
+    expect(streamsIntervalMs(previous, next)).toBe(1_000 + jitter)
+  }
+})
+
+test('próg odstępu: o milisekundę poniżej połowy okresu to brak pomiaru, równy już pomiar', () => {
+  const previous = sampleWithStreams(10_000, 0, [])
+  const below = sampleWithStreams(10_000 + STREAMS_MIN_INTERVAL_MS - 1, 0, [])
+  const at = sampleWithStreams(10_000 + STREAMS_MIN_INTERVAL_MS, 0, [])
+  expect(streamsIntervalMs(previous, below)).toBeNull()
+  expect(streamsIntervalMs(previous, at)).toBe(STREAMS_MIN_INTERVAL_MS)
+  // Próg leży między drżeniem (kilka ms) a okresem próbkowania (sekunda).
+  expect(STREAMS_MIN_INTERVAL_MS).toBeGreaterThan(10)
+  expect(STREAMS_MIN_INTERVAL_MS).toBeLessThan(SAMPLE_INTERVAL_MS)
+})
+
+test('odstęp ujemny, na przykład po cofnięciu zegara, nie jest pomiarem', () => {
+  const previous = sampleWithStreams(10_000, 100, [])
+  const next = sampleWithStreams(9_000, 100, [])
+  expect(streamsIntervalMs(previous, next)).toBeNull()
 })
 
 test('po powrocie renderera tempo liczy się z całej ciszy, bez skoku', () => {
   // Cisza 30 s: dane z 10 000 i z 40 900. Od tyknięć wyszłaby sekunda
-  // i tempo 927 klatek na sekundę; od chwili zebrania wychodzi uczciwe 30.
+  // i tempo 927 klatek na sekundę; od chwili odebrania wychodzi uczciwe 30.
   const before = inbound({ framesReceived: 0 })
   const after = inbound({ framesReceived: 927 })
   const previous = sampleWithStreams(40_000, 30_000, [before])

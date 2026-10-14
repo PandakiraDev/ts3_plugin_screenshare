@@ -209,36 +209,58 @@ export function streamsFreshness(ageMs: number | null): StreamsFreshness {
   return 'fresh'
 }
 
-/** Chwila, w której renderer zebrał dane o strumieniach tej próbki. */
-function streamsCapturedAt(sample: DiagnosticsSample): number | null {
+/**
+ * Odstęp krótszy niż połowa okresu próbkowania nie jest pomiarem.
+ *
+ * `at` idzie zegarem ściennym, a `streamsAgeMs` monotonicznym, i oba są
+ * odczytywane w różnych chwilach tyknięcia — dla TEGO SAMEGO pusha odstęp
+ * wychodzi więc od kilku milisekund na minus do kilku na plus, a nie zero.
+ * Przy dodatnim znaku `ratesBetween` policzyłby tempo z niezmienionych
+ * liczników i pokazał 0 klatek na sekundę jako dane świeże, czyli fałszywe
+ * „strumień stoi" — dokładnie to, czemu `streamsAgeMs` miało zapobiec.
+ */
+export const STREAMS_MIN_INTERVAL_MS = SAMPLE_INTERVAL_MS / 2
+
+/**
+ * Chwila, w której proces główny ODEBRAŁ dane o strumieniach tej próbki.
+ *
+ * To nie chwila odczytu w rendererze: różnica to czas `getStats()` plus kolejka
+ * IPC i rośnie przy głodzeniu renderera, czyli właśnie w badanym przypadku.
+ * Dokładny pomiar wymagałby znacznika czasu nadanego po stronie renderera.
+ */
+function streamsReceivedAt(sample: DiagnosticsSample): number | null {
   return sample.streamsAgeMs === null ? null : sample.at - sample.streamsAgeMs
 }
 
 /**
  * Ile milisekund dzieli dwa zestawy statystyk strumieni — liczone od chwili,
- * gdy renderer je ZEBRAŁ, a nie od chwili tyknięcia rejestratora.
+ * gdy proces główny je ODEBRAŁ od renderera, a nie od chwili tyknięcia
+ * rejestratora.
  *
  * Ta różnica ma znaczenie, gdy renderer milczy. Rejestrator tyka dalej i
  * powtarza ostatnie liczby, więc odstęp między tyknięciami (sekunda) przy
  * niezmienionych licznikach dałby tempo 0 klatek na sekundę, czyli wniosek
  * „strumień stoi", któremu pole `streamsAgeMs` miało zapobiec. Licząc od
- * chwili zebrania, dwie kopie tych samych danych dają odstęp zero, a
- * `ratesBetween` odrzuca go jako „nie wiem". Po powrocie renderera odstęp
+ * chwili odebrania, dwie kopie tego samego pusha dają odstęp bliski zeru, a
+ * ten odrzuca próg `STREAMS_MIN_INTERVAL_MS`. Po powrocie renderera odstęp
  * obejmuje całą ciszę, więc tempo jest średnią z niej, a nie skokiem
  * wielokrotnie za dużym.
  *
  * `null`, gdy po którejkolwiek stronie renderer nie odezwał się jeszcze ani
- * razu. Wynik może być zerowy lub ujemny (te same dane widziane dwa razy,
- * cofnięty zegar) — `ratesBetween` traktuje taki odstęp jako brak pomiaru.
+ * razu albo gdy odstęp nie jest skończoną liczbą co najmniej równą
+ * `STREAMS_MIN_INTERVAL_MS` (ten sam push widziany dwa razy, cofnięty zegar).
+ * Wynik, który nie jest `null`, jest więc zawsze dodatni.
  */
 export function streamsIntervalMs(
   previous: DiagnosticsSample,
   next: DiagnosticsSample
 ): number | null {
-  const from = streamsCapturedAt(previous)
-  const to = streamsCapturedAt(next)
+  const from = streamsReceivedAt(previous)
+  const to = streamsReceivedAt(next)
   if (from === null || to === null) return null
-  return to - from
+  const interval = to - from
+  if (!Number.isFinite(interval) || interval < STREAMS_MIN_INTERVAL_MS) return null
+  return interval
 }
 
 /**

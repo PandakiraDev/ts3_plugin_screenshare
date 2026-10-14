@@ -27,7 +27,8 @@ interface StreamsSectionProps {
  * Tabela strumieni w jednej z trzech postaci, zależnie od tego, czy liczbom
  * w tej próbce można wierzyć (`streamsFreshness`):
  *
- * - `fresh`: zwykła tabela z tempem klatek;
+ * - `fresh`: zwykła tabela z tempem klatek; jeśli poprzednia próbka była
+ *   przestarzała, z notką, że tempo jest średnią z okresu milczenia;
  * - `stale`: renderer się odezwał i zamilkł — wiersze zostają (ostatnio znane
  *   strumienie), ale liczby zastępują kreski, a nad tabelą stoi wyraźne
  *   ostrzeżenie. Nie zera: zero mówiłoby, że strumień stoi, a my nie wiemy;
@@ -55,10 +56,19 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
     )
   }
 
-  // Odstęp liczymy od chwili zebrania statystyk, nie od tyknięcia rejestratora
-  // (patrz `streamsIntervalMs`). `null` znaczy, że poprzednia próbka nie ma
-  // jeszcze danych o strumieniach, więc nie ma z czym porównać.
+  // Odstęp liczymy od chwili odebrania statystyk przez proces główny, nie od
+  // tyknięcia rejestratora (patrz `streamsIntervalMs`). `null` znaczy, że nie
+  // ma z czym porównać (poprzednia próbka bez danych o strumieniach) albo że
+  // to ten sam push widziany po raz drugi — w obu przypadkach kreski, nie zera.
   const interval = previous ? streamsIntervalMs(previous, shown) : null
+
+  // Pierwsza świeża próbka po ciszy niesie tempo uśrednione z całego okresu
+  // milczenia. Tej liczby NIE zastępujemy kreskami — mówi, czy obraz leciał,
+  // gdy renderer stał — ale nie wolno jej mylić z wartością chwilową.
+  const silenceSpanS =
+    trusted && interval !== null && previous && streamsFreshness(previous.streamsAgeMs) === 'stale'
+      ? Math.round(interval / 1000)
+      : null
 
   return (
     <>
@@ -69,6 +79,13 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
           {shown.streams.length > 0
             ? 'Poniżej ostatnio znane strumienie; liczby zastąpiono kreskami, bo zera skłamałyby, że obraz stoi.'
             : 'Ostatnio znana lista strumieni była pusta.'}
+        </p>
+      )}
+
+      {silenceSpanS !== null && (
+        <p className="diag__notice">
+          Poprzednia próbka miała przestarzałe dane, więc tempo w tej próbce jest średnią
+          z okresu milczenia renderera (ok. {silenceSpanS} s), a nie wartością chwilową.
         </p>
       )}
 
@@ -184,6 +201,8 @@ export function Diagnostics(): JSX.Element | null {
     const onKey = (event: KeyboardEvent): void => {
       if (!event.ctrlKey || !event.shiftKey || event.key.toLowerCase() !== 'd') return
       event.preventDefault()
+      // Przytrzymanie skrótu powtarza zdarzenie; bez tego panel migałby.
+      if (event.repeat) return
       if (panelOpen) setPanelOpen(false)
       else openPanel()
     }
