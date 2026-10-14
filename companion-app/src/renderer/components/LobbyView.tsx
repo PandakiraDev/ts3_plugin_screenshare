@@ -105,16 +105,30 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
 
   /*
    * Pokazujemy skrót ORAZ wejścia, z których powstał. Sam skrót powie tylko
-   * „różnimy się"; dopiero wejścia powiedzą dlaczego. Najbardziej prawdopodobny
-   * przypadek: jedna osoba ma w adresie nazwę domeny, druga adres IP tego
-   * samego serwera — `deriveRoomId` normalizuje wielkość liter i spacje, ale
-   * `ts.serwer.pl:9987` i `11.22.33.44:9987` to dwa różne pokoje.
+   * „różnimy się"; dopiero wejścia powiedzą dlaczego.
+   *
+   * Wtyczka TS3 przekazuje IDENTYFIKATOR wirtualnego serwera, nie jego adres
+   * (`plugin.c`, `VIRTUALSERVER_UNIQUE_IDENTIFIER`) — u wszystkich na jednym
+   * serwerze jest identyczny, więc „jedna osoba ma domenę, druga IP" tu nie
+   * zachodzi. Jedyne wejście, które realnie różni się między osobami z tego
+   * samego serwera, to numer kanału — a wtyczka bierze kanał, NA KTÓRYM
+   * KLIKNIĘTO menu (`selectedItemID`), niekoniecznie ten, w którym się siedzi.
+   * Dwie osoby z jednego kanału mogą więc trafić do dwóch różnych pokoi i to
+   * jest pierwsza rzecz do sprawdzenia, gdy odciski się różnią.
    */
+  // Trzy człony warunku zawężają typy pól z `string | null` do `string`; nie
+  // obsługują przypadku z czasu działania, bo w trybie lobby `parseLaunchArgs`
+  // nie przepuszcza pustych wejść.
   const roomFingerprint =
     options.roomId && options.ts3ServerAddress && options.channelId
       ? {
           short: shortRoomFingerprint(options.roomId),
-          derivedFrom: `Pokój wyliczony z: ${options.ts3ServerAddress} · kanał ${options.channelId}`
+          derivedFrom:
+            `Pokój wyliczony z:\n` +
+            `• kanał ${options.channelId} — ten, na którym kliknięto ` +
+            `„Udostępnij ekran", niekoniecznie ten, w którym siedzisz\n` +
+            `• serwer ${options.ts3ServerAddress} — u wszystkich ` +
+            `na tym serwerze identyczny`
         }
       : null
 

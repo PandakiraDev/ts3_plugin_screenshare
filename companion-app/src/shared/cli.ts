@@ -29,8 +29,10 @@ export interface LaunchOptions {
   /**
    * Wejścia, z których wyliczono `roomId`. Oba `null` w trybie standalone.
    * Trzymamy je w postaci SUROWEJ, a nie znormalizowanej przez `deriveRoomId`:
-   * to właśnie surowa postać różni się między maszynami (raz nazwa domeny,
-   * raz adres IP tego samego serwera) i o niej trzeba rozmawiać przez telefon.
+   * to surowa postać jest tym, o czym da się rozmawiać przez telefon przy
+   * porównywaniu odcisków. Uwaga na nazwę: `ts3ServerAddress` dostaje od
+   * wtyczki IDENTYFIKATOR serwera, nie adres (zob. `plugin.c`), więc między
+   * osobami z jednego serwera różni się wyłącznie `channelId`.
    */
   ts3ServerAddress: string | null
   channelId: string | null

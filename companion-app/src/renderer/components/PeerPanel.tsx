@@ -11,8 +11,8 @@ interface PeerPanelProps {
   collapsed: boolean
   onToggle: () => void
   /**
-   * Odcisk palca pokoju i opis, z czego go wyliczono. `null` w trybie
-   * standalone, gdzie żadnego pokoju nie ma.
+   * Odcisk palca pokoju i opis, z czego go wyliczono. `null` jest tu tylko dla
+   * typów: poza trybem lobby ten komponent się nie renderuje.
    */
   roomFingerprint: { short: string; derivedFrom: string } | null
 }

@@ -657,12 +657,17 @@ h3 {
 }
 
 /* Odcisk palca pokoju. Małym drukiem i wyciszony: to narzędzie diagnostyczne,
-   a nie informacja, na którą trzeba patrzeć przy każdym spojrzeniu na panel. */
+   a nie informacja, na którą trzeba patrzeć przy każdym spojrzeniu na panel.
+   Krój stałej szerokości, bo ten skrót się dyktuje przez telefon, a nie tylko
+   czyta: w kroju proporcjonalnym łatwo pomylić `3` z `8` i `b` z `6`.
+   `nowrap`, bo panel animuje szerokość i tekst nie może się na chwilę zawinąć. */
 .peers__room {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 10px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   cursor: help;
 }
 
