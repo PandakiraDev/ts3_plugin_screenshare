@@ -84,7 +84,20 @@ function openLog(): void {
   try {
     const directory = join(app.getPath('userData'), 'diagnostics')
     mkdirSync(directory, { recursive: true })
-    const path = join(directory, `${new Date().toISOString().slice(0, 10)}.jsonl`)
+    /*
+     * Nazwa pliku to data LOKALNA, nie UTC: `toISOString()` dałoby w Polsce
+     * między północą a 1:00 (zimą) lub 2:00 (latem) wczorajszą datę, a właściciel
+     * szuka „dzisiejszego" pliku właśnie wtedy, gdy wieczorem coś lagowało.
+     * Składamy `YYYY-MM-DD` z lokalnych getterów, a nie z `toLocaleDateString`,
+     * bo jego format zależy od ustawień regionalnych. `openLog` jest wołane RAZ
+     * przy starcie, więc sesja trwająca przez północ pisze cały czas do
+     * pierwszego pliku: dla narzędzia właściciela to w porządku (jedna sesja to
+     * jeden plik, wręcz wygodniej), ale nazwa pliku sugeruje inaczej.
+     */
+    const now = new Date()
+    const pad = (value: number): string => String(value).padStart(2, '0')
+    const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    const path = join(directory, `${day}.jsonl`)
     let existing = 0
     try {
       existing = statSync(path).size
@@ -127,6 +140,9 @@ export function registerDiagnostics(enabled: boolean): void {
 
   const timer = setInterval(() => {
     const sample: DiagnosticsSample = {
+      // Zegar ścienny, bo to znacznik czasu; `streamsAgeMs` niżej liczymy innym
+      // zegarem (`performance.now()`), bo czas trwania mierzy się zegarem
+      // monotonicznym, a znacznik czasu ściennym.
       at: Date.now(),
       system: readSystemStats(),
       streams: pendingStreams,

@@ -706,8 +706,11 @@ export class LobbySession {
    * Czyta tylko to, co już jest — żadnego nowego stanu ani zegara, zgodnie
    * z układem tej klasy: statystyki czytamy na żądanie.
    *
-   * Klucz ma postać `peerId:rodzaj`, a `peerId` jest UUID-em bez dwukropka,
-   * więc dzielimy na OSTATNIM dwukropku. Kierunku nie zgadujemy po zawartości
+   * Klucz ma postać `peerId:rodzaj`. Dzielimy go na OSTATNIM dwukropku, bo
+   * `rodzaj` (`screen` albo `camera`) nigdy dwukropka nie zawiera, więc rozbiór
+   * działa niezależnie od formatu `peerId`. Na tym, że `peerId` dwukropka nie
+   * ma, nie polegamy: serwer dziś nadaje UUID-y, ale — jak pisze `viewerPeerIds`
+   * — nikt nam tego nie obiecał. Kierunku nie zgadujemy po zawartości
    * połączenia — wiemy go z tego, z której mapy element pochodzi.
    */
   diagnosticConnections(): DiagnosticConnection[] {

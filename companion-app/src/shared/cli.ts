@@ -36,7 +36,13 @@ export interface LaunchOptions {
    */
   ts3ServerAddress: string | null
   channelId: string | null
-  /** Flaga `--diagnostics`: zapis diagnostyczny, panel i wskaźniki zużycia. */
+  /**
+   * Flaga `--diagnostics`: zapis diagnostyczny, panel i wskaźniki zużycia.
+   * Liczy się sama OBECNOŚĆ flagi, a wartość jest ignorowana, więc
+   * `--diagnostics=false` i `--diagnostics=0` też ją włączają — świadomie, bo
+   * to flaga właściciela projektu, a parsowanie wartości logicznych dałoby nową
+   * powierzchnię błędu za zysk bliski zeru.
+   */
   diagnostics: boolean
   signalingUrl: string
   /**

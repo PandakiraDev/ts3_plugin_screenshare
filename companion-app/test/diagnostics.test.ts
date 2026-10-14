@@ -134,8 +134,12 @@ test('nieczytelne wyjście uruchamiacza daje brak odczytu', async () => {
 })
 
 test('synchroniczny wyjątek uruchamiacza też daje brak odczytu', async () => {
-  // execSync rzuca wyjątek od razu, zamiast odrzucić obietnicę. Typ wymaga
-  // Promise, ale wstrzyknięty uruchamiacz może go nie dotrzymać.
+  // Typ `() => Promise<string>` obiecuje obietnicę, ale funkcja nieoznaczona
+  // jako `async` może rzucić, zanim ją zwróci, na przykład gdy przed
+  // `new Promise(...)` coś przygotowuje synchronicznie i to się nie powiedzie.
+  // To się kompiluje (ciało, które tylko rzuca, pasuje do każdego typu
+  // zwracanego) i nie jest odrzuceniem obietnicy, więc `.catch` na wyniku tego
+  // nie złapie — łapie dopiero `try` obejmujący samo wywołanie.
   const reading = await readGpu(() => {
     throw new Error('spawnSync nvidia-smi ENOENT')
   }, 7)
@@ -193,7 +197,11 @@ test('NaN i nieskończoność nie trafiają do wyniku', () => {
   // NaN nie jest ani większy, ani mniejszy od czegokolwiek, więc zwykłe
   // porównania przepuściłyby go dalej. Nieskończoność z kolei daje NaN przy
   // odjęciu od samej siebie, a skończony licznik minus nieskończoność daje
-  // nieskończone tempo. Reguła mówi: nigdy NaN ani nieskończoność.
+  // nieskończone tempo. Reguła dotyczy WEJŚCIA: licznik lub odstęp, który nie
+  // jest skończoną liczbą, nie trafia do wyniku jako pomiar. Skończony wynik
+  // nie jest przez to gwarantowany — licznik rzędu 1e308 przy odstępie
+  // 1000 ms przepełnia mnożenie i daje nieskończone tempo. Realne liczniki
+  // WebRTC (do 2^53) tego nie osiągają, więc kod zostaje taki, jaki jest.
   expect(ratesBetween(inbound(), inbound({ framesReceived: 10 }), Number.NaN)).toBeNull()
   expect(
     ratesBetween(inbound(), inbound({ framesReceived: 10 }), Number.POSITIVE_INFINITY)
@@ -351,7 +359,9 @@ test('cofnięty zegar systemowy nie wyrzuca ani historii, ani nowej próbki', ()
   // Synchronizacja czasu w trakcie sesji potrafi cofnąć zegar. Granica wieku
   // liczy się od próbki właśnie dokładanej, więc cofnięta próbka nie wyrzuca
   // starszych wpisów: wypycha je dopiero sufit liczby wpisów (test poniżej).
-  // Nowa próbka zostaje zawsze, bo jej wiek względem granicy wynosi zero.
+  // Nowa próbka zostaje zawsze, ale nie dlatego, że przeszła filtr wieku:
+  // filtr działa tylko na wpisach już będących w buforze, a `slice` przy
+  // `maxCount >= 1` zostawia ostatni.
   let buffer = appendSample([], sample(100_000), 5_000, 600)
   buffer = appendSample(buffer, sample(101_000), 5_000, 600)
   buffer = appendSample(buffer, sample(1_000), 5_000, 600)
@@ -575,6 +585,33 @@ test('odstęp ujemny, na przykład po cofnięciu zegara, nie jest pomiarem', () 
   const previous = sampleWithStreams(10_000, 100, [])
   const next = sampleWithStreams(9_000, 100, [])
   expect(streamsIntervalMs(previous, next)).toBeNull()
+})
+
+test('wiek NaN po którejkolwiek stronie nie daje odstępu', () => {
+  // Gałąź skończoności jest osobna od progu: NaN nie jest mniejszy od niczego,
+  // więc samo porównanie z progiem przepuściłoby go dalej jako „odstęp".
+  // Odrzuca go dopiero `Number.isFinite`.
+  const healthy = sampleWithStreams(10_000, 300, [])
+  const notANumber = sampleWithStreams(11_000, Number.NaN, [])
+  expect(streamsIntervalMs(healthy, notANumber)).toBeNull()
+  expect(streamsIntervalMs(notANumber, healthy)).toBeNull()
+  expect(streamsIntervalMs(notANumber, notANumber)).toBeNull()
+})
+
+test('nieskończony wiek po którejkolwiek stronie nie daje odstępu', () => {
+  // Wiek +Infinity w poprzedniej próbce daje początek w -Infinity, a więc
+  // odstęp +Infinity, który próg przepuszcza, bo jest większy od każdego progu.
+  // To samo daje wiek -Infinity w następnej próbce. Dwie nieskończoności naraz
+  // odejmują się do NaN. Pozostałe ustawienia (+Infinity w następnej, -Infinity
+  // w poprzedniej) dają odstęp -Infinity, który odrzuca już sam próg.
+  const healthy = sampleWithStreams(10_000, 300, [])
+  const infinitelyOld = sampleWithStreams(10_000, Number.POSITIVE_INFINITY, [])
+  const infinitelyYoung = sampleWithStreams(11_000, Number.NEGATIVE_INFINITY, [])
+  expect(streamsIntervalMs(infinitelyOld, healthy)).toBeNull()
+  expect(streamsIntervalMs(healthy, infinitelyYoung)).toBeNull()
+  expect(streamsIntervalMs(infinitelyOld, infinitelyOld)).toBeNull()
+  expect(streamsIntervalMs(healthy, infinitelyOld)).toBeNull()
+  expect(streamsIntervalMs(infinitelyYoung, healthy)).toBeNull()
 })
 
 test('po powrocie renderera tempo liczy się z całej ciszy, bez skoku', () => {

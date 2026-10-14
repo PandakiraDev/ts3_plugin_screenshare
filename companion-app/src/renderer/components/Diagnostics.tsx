@@ -58,8 +58,11 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
 
   // Odstęp liczymy od chwili odebrania statystyk przez proces główny, nie od
   // tyknięcia rejestratora (patrz `streamsIntervalMs`). `null` znaczy, że nie
-  // ma z czym porównać (poprzednia próbka bez danych o strumieniach) albo że
-  // to ten sam push widziany po raz drugi — w obu przypadkach kreski, nie zera.
+  // da się uczciwie policzyć tempa: nie ma z czym porównać (poprzednia próbka
+  // bez danych o strumieniach), to ten sam push widziany po raz drugi albo to
+  // dwa RÓŻNE pushe bliższe niż próg (zmienny czas `collect()` w rendererze).
+  // W każdym z trzech przypadków kreski, nie zera. Trzeci jest rzadki i
+  // jednorazowy, ale kreska obejmuje także jego.
   const interval = previous ? streamsIntervalMs(previous, shown) : null
 
   // Pierwsza świeża próbka po ciszy niesie tempo uśrednione z całego okresu

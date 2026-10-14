@@ -19,16 +19,28 @@ let lastGpu: GpuReading | null = null
  * sterowniku dokładanie procesów zmieniałoby to, co mierzymy. Znacznik zdejmujemy
  * zawsze, także po błędzie, bo inaczej jedna awaria zablokowałaby odpytywanie
  * na stałe.
+ *
+ * Blokada trzyma się do POWROTU CALLBACKU `execFile`, a nie do upływu 3 s:
+ * `timeout` tylko zabija proces, a znacznik zdejmuje dopiero wywołanie
+ * callbacku. Osobnego watchdoga nie ma, więc callback, który nigdy nie wróci,
+ * zatrzymałby odpytywanie do restartu aplikacji (odczyt starzałby się wtedy
+ * razem ze swoim `at`).
  */
 let gpuPollInFlight = false
 
 /*
  * Numer wywołania zamiast znacznika `at`: wynik starszego wywołania nie może
- * nadpisać nowszego. Przy blokadzie wyżej wywołania nie nakładają się, więc to
- * zwykle nie ma znaczenia, zostaje jako zabezpieczenie na wypadek zdjęcia blokady.
- * Porównujemy numery, a nie czas, bo zegar systemowy może się cofnąć i wtedy
- * porównanie znaczników zamroziłoby odczyt na czas cofnięcia. Odczyt `null`
- * też zapisujemy, jeśli jest nowszy: brak informacji zastępuje starą informację.
+ * nadpisać nowszego. Przy działającej blokadzie wyżej wywołania nie nakładają
+ * się, a wynik jest zapisywany, zanim blokada zostanie zdjęta (`then` przed
+ * `finally`), więc ten strażnik NIGDY nie zadziała. To obrona w głąb, nie
+ * czynny mechanizm: zadziałałby dopiero po usunięciu lub zepsuciu blokady.
+ *
+ * Porównujemy numery, a nie czas, z dwóch powodów. Zegar systemowy może się
+ * cofnąć i wtedy porównanie znaczników zamroziłoby odczyt na czas cofnięcia.
+ * Poza tym odczyt `null` (nieudany) NIE MA pola `at`, więc znaczniki w ogóle
+ * nie uporządkowałyby porażek względem udanych odczytów, a numer porządkuje
+ * jedne i drugie. Odczyt `null` też zapisujemy, jeśli jest nowszy: brak
+ * informacji zastępuje starą informację.
  */
 let gpuRequestSeq = 0
 let gpuStoredSeq = 0

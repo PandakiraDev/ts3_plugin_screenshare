@@ -41,7 +41,12 @@ export interface DiagnosticsSample {
   streams: StreamStats[]
   /**
    * Ile milisekund mają dane o strumieniach w tej próbce, licząc od chwili,
-   * gdy renderer je przysłał. `null` znaczy, że nie przysłał ich ani razu.
+   * gdy proces główny je ODEBRAŁ od renderera. `null` znaczy, że renderer nie
+   * przysłał ich ani razu.
+   *
+   * To wiek od odebrania, nie od odczytu w rendererze: różnica to czas
+   * `getStats()` plus kolejka IPC i rośnie przy głodzeniu renderera, czyli
+   * właśnie w badanym przypadku (patrz `streamsReceivedAt`).
    *
    * Bez tego pola nie da się odróżnić „nie ma strumieni" od „renderer
    * przestał się odzywać" — a to drugie jest objawem, którego szukamy:
@@ -114,8 +119,11 @@ export function parseNvidiaSmi(stdout: string, at: number): GpuReading | null {
  * `nvidia-smi` (karta AMD, narzędzie nie w `PATH`, sterownik w aktualizacji).
  * Proces główny wstrzykuje funkcję, która naprawdę uruchamia narzędzie.
  *
- * Łapiemy WSZYSTKO, bo odrzucona obietnica może nieść cokolwiek, nie tylko
- * `Error`. Diagnostyka jest dodatkiem: jej awaria nie może zatrzymać zapisu.
+ * Łapiemy WSZYSTKO, z dwóch powodów. Odrzucona obietnica może nieść
+ * cokolwiek, nie tylko `Error`. Uruchamiacz może też rzucić SYNCHRONICZNIE,
+ * zanim zwróci obietnicę, a to nie jest jej odrzucenie, więc nie złapie tego
+ * `.catch` na wyniku — łapie dopiero `try` obejmujący samo wywołanie.
+ * Diagnostyka jest dodatkiem: jej awaria nie może zatrzymać zapisu.
  */
 export async function readGpu(
   run: () => Promise<string>,
@@ -246,9 +254,16 @@ function streamsReceivedAt(sample: DiagnosticsSample): number | null {
  * obejmuje całą ciszę, więc tempo jest średnią z niej, a nie skokiem
  * wielokrotnie za dużym.
  *
- * `null`, gdy po którejkolwiek stronie renderer nie odezwał się jeszcze ani
- * razu albo gdy odstęp nie jest skończoną liczbą co najmniej równą
- * `STREAMS_MIN_INTERVAL_MS` (ten sam push widziany dwa razy, cofnięty zegar).
+ * `null` w trzech przypadkach:
+ * - po którejkolwiek stronie renderer nie odezwał się jeszcze ani razu;
+ * - odstęp nie jest skończoną liczbą;
+ * - odstęp jest krótszy niż `STREAMS_MIN_INTERVAL_MS` (także ujemny). Zalicza
+ *   się tu ten sam push widziany dwa razy i cofnięty zegar, ale też dwa RÓŻNE
+ *   pushe bliższe niż próg. To zdarza się, gdy czas `collect()` w rendererze
+ *   się zmienia: odczyt 800 ms, potem 50 ms daje pushe o 250 ms od siebie.
+ *   Uznajemy to za akceptowalny koszt: kreska znaczy „nie wiem", a błąd w
+ *   drugą stronę byłby fałszywym zerem.
+ *
  * Wynik, który nie jest `null`, jest więc zawsze dodatni.
  */
 export function streamsIntervalMs(
@@ -276,7 +291,11 @@ export function streamsIntervalMs(
  * próbka poluzowuje wtedy okno zamiast wyrzucać dane, a stare wpisy wypycha
  * sufit liczby wpisów. Ten wariant odzyskuje świeżość po `maxCount` dopisaniach,
  * niezależnie od wielkości cofnięcia, o ile takty nie są dłuższe niż okno.
- * Nowa próbka zostaje zawsze, bo jej wiek względem granicy wynosi zero.
+ *
+ * Nowa próbka zostaje zawsze, ale z budowy funkcji, a nie z arytmetyki wieku:
+ * filtr działa wyłącznie na wpisach, które już są w buforze, więc dokładana
+ * próbka w ogóle przez niego nie przechodzi, a `slice` przy `maxCount >= 1`
+ * zostawia ostatni wpis.
  *
  * Zakłada `maxCount >= 1` oraz że `maxCount` i `sample.at` są skończone.
  * Produkcja podaje stałą 600, więc to kontrakt, nie obsługa błędu.
