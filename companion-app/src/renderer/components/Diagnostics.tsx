@@ -3,6 +3,7 @@ import {
   SAMPLE_INTERVAL_MS,
   advancePanelTimeline,
   columnAppliesTo,
+  formatLimitation,
   formatResourceBadge,
   formatSilence,
   formatSystemLine,
@@ -194,7 +195,7 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
                     {formatRate(rates?.kilobitsPerS ?? null)}
                   </StreamCell>
                   <StreamCell column="qualityLimitationReason" direction={direction}>
-                    {trusted ? (stream.qualityLimitationReason ?? '—') : '—'}
+                    {trusted ? formatLimitation(stream.qualityLimitationReason) : '—'}
                   </StreamCell>
                 </tr>
               )

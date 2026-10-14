@@ -161,6 +161,30 @@ export function columnAppliesTo(column: StreamColumn, direction: StreamDirection
   return COLUMN_DIRECTIONS[column].includes(direction)
 }
 
+/**
+ * Powód ograniczenia jakości jako tekst dla człowieka.
+ *
+ * `'none'` to NIE brak odczytu, tylko odczyt o treści „nic mnie nie
+ * ogranicza" — i to jest pełnoprawna odpowiedź, często najważniejsza w całej
+ * tabeli. Przy zgłoszeniu „laguje, gdy gram" pytanie brzmi dokładnie „czy mój
+ * koder zszedł z jakości, i czemu", więc zdanie „nic go nie ogranicza"
+ * rozstrzyga tyle samo, co `cpu` albo `bandwidth`: przenosi podejrzenie na
+ * inne ogniwo łańcucha.
+ *
+ * Dlatego `'none'` dostaje własny napis, a kreska zostaje zarezerwowana dla
+ * braku wiedzy. Zlanie obu w kreskę było tą samą usterką, którą zamyka
+ * `columnAppliesTo`, tylko o jeden poziom głębiej — wewnątrz wartości pola.
+ *
+ * Pozostałe wartości przepuszczamy dosłownie, bez tłumaczenia na polskie
+ * nazwy: to terminy z wyliczenia WebRTC, które właściciel wpisze w
+ * wyszukiwarkę, szukając, co z nimi zrobić.
+ */
+export function formatLimitation(reason: string | null): string {
+  if (reason === null) return '—'
+  if (reason === 'none') return 'nic'
+  return reason
+}
+
 export const SAMPLE_INTERVAL_MS = 1_000
 export const BUFFER_MAX_AGE_MS = 10 * 60 * 1_000
 /**

@@ -13,6 +13,7 @@ import {
   appendSample,
   columnAppliesTo,
   emptyStreamStats,
+  formatLimitation,
   formatResourceBadge,
   formatSilence,
   formatSystemLine,
@@ -960,6 +961,25 @@ test('powód ograniczenia jakości dotyczy tylko nadawania', () => {
   // z gałęzi `outbound-rtp`.
   expect(columnAppliesTo('qualityLimitationReason', 'outbound')).toBe(true)
   expect(columnAppliesTo('qualityLimitationReason', 'inbound')).toBe(false)
+})
+
+test('„nic mnie nie ogranicza" to odczyt, nie brak odczytu', () => {
+  // `'none'` z `getStats()` znaczy „koder nie zszedł z jakości". To pełna
+  // odpowiedź i przy zgłoszeniu „laguje, gdy gram" często najważniejsza w całej
+  // tabeli: przenosi podejrzenie na inne ogniwo łańcucha. Kreska znaczy „nie
+  // wiem", więc zlanie obu w jedno kłamałoby o zdrowym koderze.
+  expect(formatLimitation('none')).toBe('nic')
+  expect(formatLimitation(null)).toBe('—')
+  expect(formatLimitation('none')).not.toBe(formatLimitation(null))
+})
+
+test('prawdziwy powód ograniczenia idzie do panelu bez zmian', () => {
+  // Wartości wyliczenia WebRTC przepuszczamy dosłownie, bez tłumaczenia na
+  // polskie nazwy: to terminy, które właściciel wpisze w wyszukiwarkę, szukając,
+  // co z nimi zrobić.
+  for (const reason of ['cpu', 'bandwidth', 'other']) {
+    expect(formatLimitation(reason)).toBe(reason)
+  }
 })
 
 test('tylko bajty liczą się w obie strony', () => {

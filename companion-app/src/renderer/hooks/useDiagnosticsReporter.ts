@@ -61,10 +61,12 @@ export function useDiagnosticsReporter(lobby: Lobby, enabled: boolean): void {
               entry.framesEncoded = stat.framesEncoded ?? null
               entry.framesSent = stat.framesSent ?? null
               entry.bytes = stat.bytesSent ?? null
-              entry.qualityLimitationReason =
-                stat.qualityLimitationReason && stat.qualityLimitationReason !== 'none'
-                  ? stat.qualityLimitationReason
-                  : null
+              // `'none'` zachowujemy, a nie zamieniamy na `null`: to odczyt
+              // o treści „nic mnie nie ogranicza", czyli pełna odpowiedź, a nie
+              // brak odpowiedzi. Zamiana na `null` kazałaby panelowi pokazać
+              // kreskę, czyli „nie wiem" — przy zdrowym koderze nieprawdę,
+              // i to w polu, które przy lagach pyta się o pierwsze.
+              entry.qualityLimitationReason = stat.qualityLimitationReason ?? null
             }
           })
           streams.push(entry)
