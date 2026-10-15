@@ -77,7 +77,16 @@ Treść:
 { kind: 'unsubscribe' | 'subscribe', streamKind: StreamKind }
 ```
 
-### Pole nazywa się `streamKind`, a NIE `stream` — to decyzja o zgodności
+### Pole nazywa się `streamKind`, a NIE `stream` — zasada domu, nie wynalazek
+
+**Ten wzorzec już istnieje w kodzie.** Wariant `quality` w `SignalPayload`
+(`session.ts`, okolice linii 98-107) nosi komentarz: „CELOWO bez pola `stream`
+— i to jest warunek zgodności wstecz, nie przeoczenie. (…) Z polem `stream`
+stary klient próbowałby dodać `undefined` jako kandydata ICE." Rezygnacja
+z odbioru idzie więc tą samą drogą co raport jakości z 0.3.1 — naśladujemy
+istniejącą zasadę, a nie wymyślamy nową.
+
+Poniżej pełne rozumowanie, bo wykonawca musi je znać, żeby nie „poprawić" nazwy.
 
 `SignalPayload` w `session.ts` nie ma gałęzi „nieznany rodzaj": wszystko, co nie
 jest `quality`, `offer` ani `answer`, spada na ścieżkę kandydata ICE. Klient
@@ -181,6 +190,28 @@ W `LobbyView`, bez zapisywania na dysk:
 
 Oba kluczowane istniejącym `tileKey`, czyli `connectionKey(peerId, kind)`.
 
+### Kolejność działań w potoku — rozstrzygnięta
+
+Dziś jest `tiles = buildTiles(…)`, a potem
+`tileRows = useLeaveTransition(tiles, (tile) => tile.tileKey)`. Nowe kroki
+wchodzą po obu stronach przejścia, i to nie jest dowolne:
+
+```
+buildTiles(…) → visibleTiles(_, hidden) → useLeaveTransition → applyTileOrder(rows, order, keyOf) → render
+```
+
+- **Odsiewanie ukrytych PRZED przejściem**: wtedy ukrycie wygląda jak każde
+  inne zniknięcie strumienia, czyli dostaje darmową animację wyjścia, a
+  odkrycie animację wejścia. Po przejściu ukrycie byłoby nagłym zniknięciem.
+- **Kolejność PO przejściu**: `useLeaveTransition` ma własną kolejność
+  (`visibleItems`), a my chcemy, żeby decydowała nasza. Gasnący kafelek
+  zachowuje swój klucz, więc zachowuje też miejsce — nie przeskakuje w trakcie
+  zanikania.
+
+Dlatego `applyTileOrder` jest **generyczna i bierze `keyOf`**, tak samo jak
+`useLeaveTransition`: pracuje na `Tile[]` przed przejściem i na
+`{ item, leaving }[]` po nim.
+
 ### Nowy plik: `src/shared/tileLayout.ts`
 
 Cała logika decyzyjna, zero importów poza typami — testowalna w gołym vitest.
@@ -196,10 +227,17 @@ export function visibleTiles(tiles: readonly Tile[], hidden: ReadonlySet<string>
  * ma prawa wskoczyć w ułożenie, które właśnie zrobiłeś. Klucz z `order`,
  * którego nie ma już wśród kafelków, jest pomijany i nie zostawia dziury.
  */
-export function applyTileOrder(tiles: readonly Tile[], order: readonly string[]): Tile[]
+export function applyTileOrder<T>(
+  items: readonly T[],
+  order: readonly string[],
+  keyOf: (item: T) => string
+): T[]
 
 /** Nowa kolejność po przeciągnięciu kafelka na pozycję `toIndex`. */
 export function moveTile(order: readonly string[], fromKey: string, toIndex: number): string[]
+
+/* UWAGA: `applyTileOrder` jest generyczna i bierze `keyOf` — patrz „Kolejność
+   działań w potoku". Pracuje raz na `Tile[]`, raz na wierszach z przejścia. */
 
 /**
  * Przycina ukryte i kolejność do kafelków, które nadal są nadawane.
@@ -274,6 +312,17 @@ przeskakiwałby **w trakcie** animacji, co jest gorsze.
 
 ## Obsługa błędów
 
+- **Pusta siatka przy ukrytych wszystkich strumieniach musi mówić prawdę.**
+  Dziś przy `tileRows.length === 0` widok pokazuje „Odbieranie obrazu…" albo
+  „Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy". To drugie **skłamałoby**,
+  gdy ludzie nadają, a Ty ukryłeś wszystkich. Potrzebny jest trzeci komunikat —
+  „Wszystkie strumienie są ukryte" wraz ze wskazaniem, że odkrywa się je oczkiem
+  w liście uczestników. Bez tego najłatwiejszy sposób zablokowania sobie obrazu
+  wygląda jak awaria i nie podpowiada wyjścia.
+- **Powiększenie wskazujące ukryty kafelek.** Stan `zoomed` trzyma `tileKey`
+  (`useState<string | null>`). Ukrycie powiększonego kafelka zostawiłoby
+  powiększenie na kluczu, którego nie ma w siatce. Ukrycie musi zdjąć
+  powiększenie, gdy dotyczy właśnie tego klucza.
 - **Rezygnacja z własnej woli nie jest awarią.** `unreachablePeerIds`
   i `useConnectionHealth` muszą pomijać pary, z których widz zrezygnował —
   inaczej każde ukrycie zapalałoby ostrzeżenie „Brak połączenia".
