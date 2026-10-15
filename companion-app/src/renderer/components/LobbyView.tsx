@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { UpdateState } from '@shared/update'
@@ -16,11 +16,16 @@ import { useConnectionHealth } from '../hooks/useConnectionHealth'
 import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
 import { allViewersStruggling } from '@shared/viewerQuality'
-import { buildParticipants, emptyGridMessage, type EmptyGridMessage } from '@shared/participants'
+import {
+  buildParticipants,
+  emptyGridMessage,
+  streamCountLabel,
+  type EmptyGridMessage
+} from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 import { shortRoomFingerprint } from '@shared/diagnostics'
-import { applyTileOrder, forgetMissingTiles, visibleTiles } from '@shared/tileLayout'
+import { applyTileOrder, pruneLayout, visibleTiles, type TileLayout } from '@shared/tileLayout'
 import { connectionKey } from '../webrtc/session'
 
 const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
@@ -63,16 +68,13 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * „za każdym razem będą inni użytkownicy strimać i inna ilość użytkowników".
    * Klucze to `tileKey`, czyli `connectionKey(peerId, kind)`.
    *
-   * Oba zbiory w JEDNYM stanie, bo `forgetMissingTiles` przycina je razem:
-   * jeden aktualizator i jedno wywołanie, zamiast dwóch stanów, których
-   * spójność trzymałoby tylko grupowanie aktualizacji w jednym efekcie.
-   * Zagnieżdżenie jednego ustawiacza w aktualizatorze drugiego odpada:
-   * aktualizator musi być czysty, a w StrictMode wykonuje się dwa razy.
+   * Oba zbiory w JEDNYM stanie, bo `pruneLayout` przycina je razem: jeden
+   * aktualizator i jedno wywołanie, zamiast dwóch stanów, których spójność
+   * trzymałoby tylko grupowanie aktualizacji w jednym efekcie. Zagnieżdżenie
+   * jednego ustawiacza w aktualizatorze drugiego odpada: aktualizator musi
+   * być czysty, a w StrictMode wykonuje się dwa razy.
    */
-  const [layout, setLayout] = useState<{ hidden: Set<string>; order: string[] }>(() => ({
-    hidden: new Set(),
-    order: []
-  }))
+  const [layout, setLayout] = useState<TileLayout>(() => ({ hidden: new Set(), order: [] }))
   const { hidden, order } = layout
 
   const capture = useCapture(selected, quality)
@@ -156,42 +158,44 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * kolejności, więc gdy wróci, jest nowym kafelkiem — widocznym i na końcu.
    *
    * `presentKeys` to `lobby.state.streams` i NIC więcej. Ta lista zawiera
-   * także nasze własne strumienie (serwer odsyła `stream-started` nadawcy),
-   * więc ukrycie własnego podglądu nie zdejmuje się samo w tej samej klatce.
-   * Nie wolno składać jej z `tiles` ani z `remoteStreams`: własnych kafelków
-   * nie ma w tym drugim, a ukryty cudzy strumień wypada z obu.
+   * także nasze własne strumienie: serwer odsyła `stream-started` nadawcy
+   * (przypięte testem „nadający dostaje zdarzenie także o własnej transmisji”
+   * w `test/signaling-client.test.ts`), więc ukrycie własnego podglądu nie
+   * zdejmuje się samo w tej samej klatce. Nie wolno składać jej z `tiles` ani
+   * z `remoteStreams`: własnych kafelków nie ma w tym drugim, a ukryty cudzy
+   * strumień wypada z obu.
    *
-   * Prawda z SYGNALIZACJI, nie ze stanu połączeń ani z DOM-u: kafelek znika
-   * z DOM-u na 400 ms animacji wyjścia i na czas ponownego uzgadniania.
+   * Prawda z SYGNALIZACJI, nie ze stanu połączeń ani z DOM-u, bo oba są
+   * przejściowe w DWÓCH kierunkach: kafelek wisi w DOM-ie jeszcze 400 ms
+   * animacji wyjścia po końcu strumienia, a połączenie bywa zrywane
+   * i zestawiane od nowa, choć strumień trwa.
+   *
    * Wyjątek dotyczy tylko kolejności: wiersze, które jeszcze stoją na ekranie
    * (`onScreenKeys`, czyli `transitioned`), zachowują w niej miejsce do końca
    * animacji, bo inaczej, jako nieznane, przeskoczyłyby na koniec w trakcie
    * zanikania. Bierzemy wszystkie, nie tylko dogasające: nie zależymy wtedy od
    * tego, czy przerysowanie po końcu strumienia zdążyło już oznaczyć wiersz
-   * jako dogasający.
+   * jako dogasający. Cena tego wyjątku, opisana przy `forgetMissingTiles`:
+   * strumień ogłoszony na nowo w ciągu 400 ms od końca wraca na stare miejsce.
+   *
+   * Bez `useMemo`: efekt niżej chodzi po każdym renderze, więc tożsamość tego
+   * zbioru nic nie znaczy, a zbudowanie go kosztuje ok. 2 µs przy 20
+   * strumieniach (zmierzone).
    */
-  const presentKeys = useMemo(
-    () => new Set(lobby.state.streams.map((ref) => connectionKey(ref.peerId, ref.kind))),
-    [lobby.state.streams]
-  )
+  const presentKeys = new Set(lobby.state.streams.map((ref) => connectionKey(ref.peerId, ref.kind)))
 
   /*
    * Bez tablicy zależności, tak jak efekt powiększenia niżej: `transitioned` to
    * nowa tablica w każdym renderze, więc jakakolwiek lista zależności i tak
-   * odpalałaby się za każdym razem. Pętli nie ma: przycinanie tylko ujmuje,
-   * a gdy nic nie wypada, aktualizator zwraca dotychczasowy stan i React pomija
-   * przerysowanie. Zależność `transitioned` od `hidden` też jej nie tworzy:
-   * zdjęcie klucza z ukrytych zmienia siatkę tylko wtedy, gdy kafelek tego
-   * klucza istnieje, a przy zakończonym strumieniu nie istnieje.
+   * odpalałaby się za każdym razem. Pętli nie ma dzięki tożsamości, którą
+   * pilnuje `pruneLayout` (gdy nic nie wypada, oddaje ten sam obiekt, a React
+   * pomija przerysowanie). Zależność `transitioned` od `hidden` też jej nie
+   * tworzy: zdjęcie klucza z ukrytych zmienia siatkę tylko wtedy, gdy kafelek
+   * tego klucza istnieje, a przy zakończonym strumieniu nie istnieje.
    */
   useEffect(() => {
     const onScreenKeys = new Set(transitioned.map((row) => row.item.tileKey))
-    setLayout((current) => {
-      const next = forgetMissingTiles(current.hidden, current.order, presentKeys, onScreenKeys)
-      const nothingForgotten =
-        next.hidden.size === current.hidden.size && next.order.length === current.order.length
-      return nothingForgotten ? current : next
-    })
+    setLayout((current) => pruneLayout(current, presentKeys, onScreenKeys))
   })
 
   /*
@@ -383,7 +387,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           {lobby.state.connection === 'ready' &&
             (streamCount === 0
               ? 'Nikt nie nadaje obrazu'
-              : `${streamCount} ${streamCount === 1 ? 'transmisja' : 'transmisje'}` +
+              : streamCountLabel(streamCount) +
                 (sharingScreen || sharingCamera
                   ? ` · Ty: ${
                       lobby.state.viewerPeerIds.length === 0

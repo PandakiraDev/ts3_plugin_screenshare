@@ -3,7 +3,9 @@ import {
   applyTileOrder,
   forgetMissingTiles,
   moveTile,
-  visibleTiles
+  pruneLayout,
+  visibleTiles,
+  type TileLayout
 } from '../src/shared/tileLayout'
 import type { Tile } from '../src/renderer/hooks/useLobby'
 import { connectionKey } from '../src/renderer/webrtc/session'
@@ -190,7 +192,8 @@ test('zapominanie usuwa klucz nieobecny z OBU zbiorów', () => {
   const result = forgetMissingTiles(
     new Set(['a:screen', 'znikniety:screen']),
     ['znikniety:screen', 'a:screen'],
-    new Set(['a:screen'])
+    new Set(['a:screen']),
+    new Set()
   )
   expect([...result.hidden]).toEqual(['a:screen'])
   expect(result.order).toEqual(['a:screen'])
@@ -204,7 +207,8 @@ test('zapominanie zostawia obecne klucze nietknięte', () => {
   const result = forgetMissingTiles(
     new Set(['b:screen', 'c:screen', 'a:screen']),
     ['b:camera', 'c:screen', 'a:screen'],
-    new Set(['c:screen', 'b:camera', 'a:screen', 'b:screen'])
+    new Set(['c:screen', 'b:camera', 'a:screen', 'b:screen']),
+    new Set()
   )
   expect([...result.hidden]).toEqual(['b:screen', 'c:screen', 'a:screen'])
   expect(result.order).toEqual(['b:camera', 'c:screen', 'a:screen'])
@@ -215,13 +219,18 @@ test('zapominanie zachowuje kolejność zapamiętaną, a nie kolejność obecnyc
   // ułożenie widza siedzi w `order`. Klucza `b` nie ma w `order`, więc nie
   // wolno go tam dopisać, i nic nie wolno przestawić. Kolejność `c, a, d` nie
   // jest ani rosnąca, ani malejąca, więc sortowanie jej nie przepuści.
-  const result = forgetMissingTiles(new Set(), ['c', 'a', 'd'], new Set(['a', 'b', 'c', 'd']))
+  const result = forgetMissingTiles(
+    new Set(),
+    ['c', 'a', 'd'],
+    new Set(['a', 'b', 'c', 'd']),
+    new Set()
+  )
   expect(result.order).toEqual(['c', 'a', 'd'])
   expect([...result.hidden]).toEqual([])
 })
 
 test('brak obecnych strumieni czyści wszystko', () => {
-  const result = forgetMissingTiles(new Set(['a:screen']), ['a:screen'], new Set())
+  const result = forgetMissingTiles(new Set(['a:screen']), ['a:screen'], new Set(), new Set())
   expect([...result.hidden]).toEqual([])
   expect(result.order).toEqual([])
 })
@@ -243,7 +252,8 @@ test('własny kafelek nie jest zapominany, gdy jego klucz jest w presentKeys', (
   const result = forgetMissingTiles(
     new Set(['me:screen']),
     ['me:screen'],
-    new Set(['me:screen'])
+    new Set(['me:screen']),
+    new Set()
   )
   expect([...result.hidden]).toEqual(['me:screen'])
   expect(result.order).toEqual(['me:screen'])
@@ -257,29 +267,93 @@ test('kafelek wciąż na ekranie zachowuje miejsce w kolejności, ale nie w ukry
    * — i kafelek przeskakiwałby w trakcie zanikania. Ukryte nie mają takiego
    * powodu: kafelka ukrytego i tak nie ma w siatce.
    *
-   * Kolejność `c, b, a` nie jest ani rosnąca, ani malejąca, więc sortowanie
-   * jej nie przepuści. Klucz `x:camera` w `onScreenKeys` nie stoi w `order`,
-   * więc pilnuje, że ta lista tylko ZATRZYMUJE klucze, a nie dopisuje ich.
+   * Kolejność `b, c, a` nie jest ani rosnąca, ani malejąca, więc sortowanie
+   * wyniku w którąkolwiek stronę ją zmieni (zmierzone: ten test zabija oba
+   * kierunki). Wcześniej stała tu `c, b, a`, czyli malejąca, i mutacja
+   * sortująca malejąco przechodziła przez ten test bez szwanku. Drugi test
+   * z tej pary ma CELOWO inny kształt (wynik rosnący): zabija sortowanie
+   * malejące niezależnie od tego. Nie ujednolicać ich do jednego kształtu —
+   * test, którego wynik jest już ułożony w którąś stronę, nie wykryje
+   * sortowania w tę stronę.
+   *
+   * Klucz `x:camera` w `onScreenKeys` nie stoi w `order`, więc pilnuje, że ta
+   * lista tylko ZATRZYMUJE klucze, a nie dopisuje ich.
    */
   const result = forgetMissingTiles(
     new Set(['b:screen', 'a:screen']),
-    ['c:screen', 'b:screen', 'a:screen'],
+    ['b:screen', 'c:screen', 'a:screen'],
     new Set(['a:screen', 'c:screen']),
     new Set(['b:screen', 'x:camera'])
   )
-  expect(result.order).toEqual(['c:screen', 'b:screen', 'a:screen'])
+  expect(result.order).toEqual(['b:screen', 'c:screen', 'a:screen'])
   expect([...result.hidden]).toEqual(['a:screen'])
 })
 
 test('gdy wiersz zniknie z ekranu, klucz wypada z kolejności', () => {
   // Ta sama sytuacja, co w teście wyżej, ale wiersz już zniknął z DOM-u
   // (`onScreenKeys` puste): od tej chwili wygrywa reguła „zakończony strumień
-  // zapomina o sobie wszystko".
+  // zapomina o sobie wszystko". Wynik `a, c` jest rosnący CELOWO: sortowanie
+  // malejące zmieniłoby go na `c, a`, a rosnące go nie rusza, więc ten test
+  // zabija tylko jeden kierunek (rosnący zabija test wyżej). Nie ujednolicać
+  // z testem wyżej, patrz tamten komentarz.
   const result = forgetMissingTiles(
     new Set(),
-    ['c:screen', 'b:screen', 'a:screen'],
+    ['b:screen', 'a:screen', 'c:screen'],
     new Set(['a:screen', 'c:screen']),
     new Set()
   )
-  expect(result.order).toEqual(['c:screen', 'a:screen'])
+  expect(result.order).toEqual(['a:screen', 'c:screen'])
+})
+
+/*
+ * `pruneLayout`: tożsamość wyniku jest warunkiem zatrzymania pętli przerysowań
+ * w `LobbyView` (efekt chodzi po każdym renderze), więc ma własne testy, a nie
+ * tylko opis w komentarzu. Fixtury celowo nieposortowane w żadną stronę.
+ */
+function layout(hidden: string[], order: string[]): TileLayout {
+  return { hidden: new Set(hidden), order }
+}
+
+test('pruneLayout oddaje TEN SAM obiekt, gdy nic nie wypada', () => {
+  // `toBe`, nie `toEqual`: kopia o tej samej zawartości jest nowym stanem
+  // Reacta i uruchamia kolejny render, a z nim ten sam efekt — nieskończoną
+  // pętlę. Klucz `b` stoi w `order` tylko dzięki `onScreenKeys`, więc jego
+  // zatrzymanie też nie jest zmianą.
+  const before = layout(['c:screen', 'a:screen'], ['b:screen', 'c:screen', 'a:screen'])
+  const after = pruneLayout(before, new Set(['a:screen', 'c:screen']), new Set(['b:screen']))
+  expect(after).toBe(before)
+})
+
+test('pruneLayout zwraca nowy układ, gdy ubywa tylko z ukrytych', () => {
+  // Zmiana TYLKO w `hidden` wyłapuje warunek liczony wyłącznie po `order`,
+  // a ukryte muszą być naprawdę przefiltrowane, nie przepuszczone dalej.
+  const before = layout(['x:screen', 'a:screen'], ['b:screen', 'a:screen'])
+  const after = pruneLayout(before, new Set(['a:screen', 'b:screen']), new Set())
+  expect(after).not.toBe(before)
+  expect([...after.hidden]).toEqual(['a:screen'])
+  expect(after.order).toEqual(['b:screen', 'a:screen'])
+})
+
+test('pruneLayout zwraca nowy układ, gdy ubywa tylko z kolejności', () => {
+  // Zmiana TYLKO w `order` wyłapuje warunek liczony wyłącznie po `hidden`,
+  // a przycięta kolejność musi do wyniku naprawdę trafić, nie zostać
+  // przepisana ze starego układu.
+  const before = layout(['a:screen'], ['b:screen', 'x:screen', 'a:screen'])
+  const after = pruneLayout(before, new Set(['a:screen', 'b:screen']), new Set())
+  expect(after).not.toBe(before)
+  expect(after.order).toEqual(['b:screen', 'a:screen'])
+  expect([...after.hidden]).toEqual(['a:screen'])
+})
+
+test('pruneLayout przycina OBA zbiory i nie rusza wejścia', () => {
+  const before = layout(
+    ['c:screen', 'x:screen', 'a:screen'],
+    ['b:screen', 'y:camera', 'c:screen', 'a:screen']
+  )
+  const after = pruneLayout(before, new Set(['a:screen', 'b:screen', 'c:screen']), new Set())
+  expect([...after.hidden]).toEqual(['c:screen', 'a:screen'])
+  expect(after.order).toEqual(['b:screen', 'c:screen', 'a:screen'])
+  // Wejście zostaje takie, jakie było: stan Reacta nie może być mutowany.
+  expect([...before.hidden]).toEqual(['c:screen', 'x:screen', 'a:screen'])
+  expect(before.order).toEqual(['b:screen', 'y:camera', 'c:screen', 'a:screen'])
 })

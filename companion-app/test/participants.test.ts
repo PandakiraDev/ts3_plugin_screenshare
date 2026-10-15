@@ -7,7 +7,8 @@ import {
   buildParticipants,
   emptyGridMessage,
   hiddenKindsFor,
-  splitByStreaming
+  splitByStreaming,
+  streamCountLabel
 } from '../src/shared/participants'
 import { connectionKey } from '../src/renderer/webrtc/session'
 import type { RemoteStream, Tile } from '../src/renderer/hooks/useLobby'
@@ -359,4 +360,42 @@ test('ukryte rodzaje są szukane pod tym samym kluczem, pod którym ukrywa kafel
   const hidden = new Set([connectionKey('a', 'screen'), connectionKey('b', 'camera')])
   expect(hiddenKindsFor('a', hidden)).toEqual({ screen: true, camera: false })
   expect(hiddenKindsFor('b', hidden)).toEqual({ screen: false, camera: true })
+})
+
+test('liczba transmisji w nagłówku odmienia się po polsku', () => {
+  /*
+   * Pełna reguła, nie „1 albo reszta": w lobby z dziesięcioma osobami i dwoma
+   * rodzajami strumieni dwadzieścia transmisji jest osiągalne. Formy 2-4 biorą
+   * się z ostatniej cyfry, ale nie dla 12-14 (dwanaście transmisji), a „jeden"
+   * dotyczy wyłącznie liczby 1 — 21 to już „transmisji", nie „transmisja".
+   */
+  const expected: [number, string][] = [
+    [0, '0 transmisji'],
+    [1, '1 transmisja'],
+    [2, '2 transmisje'],
+    [3, '3 transmisje'],
+    [4, '4 transmisje'],
+    [5, '5 transmisji'],
+    [9, '9 transmisji'],
+    [11, '11 transmisji'],
+    [12, '12 transmisji'],
+    [13, '13 transmisji'],
+    [14, '14 transmisji'],
+    [15, '15 transmisji'],
+    [20, '20 transmisji'],
+    [21, '21 transmisji'],
+    [22, '22 transmisje'],
+    [24, '24 transmisje'],
+    [25, '25 transmisji'],
+    [32, '32 transmisje'],
+    [101, '101 transmisji'],
+    [102, '102 transmisje'],
+    [111, '111 transmisji'],
+    [112, '112 transmisji'],
+    [114, '114 transmisji'],
+    [122, '122 transmisje']
+  ]
+  for (const [count, label] of expected) {
+    expect(streamCountLabel(count)).toBe(label)
+  }
 })

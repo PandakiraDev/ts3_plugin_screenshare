@@ -195,6 +195,22 @@ export function emptyGridMessage(input: {
 }
 
 /**
+ * Liczba transmisji z odmienionym rzeczownikiem, np. „5 transmisji”.
+ *
+ * Pełna polska reguła: „transmisja” tylko dla 1; „transmisje” dla liczb
+ * kończących się na 2-4, ale NIE na 12-14; w pozostałych przypadkach
+ * „transmisji” (w tym 0, 5-21, 25-31 i 112). Samo `count === 1 ? … : …`
+ * dawało „5 transmisje”.
+ */
+export function streamCountLabel(count: number): string {
+  const lastDigit = count % 10
+  const lastTwoDigits = count % 100
+  const isFew = lastDigit >= 2 && lastDigit <= 4 && !(lastTwoDigits >= 12 && lastTwoDigits <= 14)
+  const noun = count === 1 ? 'transmisja' : isFew ? 'transmisje' : 'transmisji'
+  return `${count} ${noun}`
+}
+
+/**
  * Które rodzaje strumieni tej osoby są u nas ukryte.
  *
  * Klucz `peerId:rodzaj` składamy tu ręcznie, bo `shared` nie importuje

@@ -74,6 +74,12 @@ export function moveTile(
   return [...rest.slice(0, target), fromKey, ...rest.slice(target)]
 }
 
+/** Układ wybrany przez widza: co ukrył i w jakiej kolejności ułożył resztę. */
+export interface TileLayout {
+  hidden: Set<string>
+  order: string[]
+}
+
 /**
  * Przycina ukryte i kolejność do strumieni, które nadal są nadawane.
  *
@@ -97,16 +103,52 @@ export function moveTile(
  * widoczny.
  *
  * `onScreenKeys` tylko ZATRZYMUJE klucze już stojące w `order`; nie dopisuje
- * nowych.
+ * nowych. Parametr jest WYMAGANY: pominięty po cichu przywróciłby przeskok
+ * gasnącego kafelka, a kompilator nie ma jak tego zauważyć.
+ *
+ * ZNANA SZPARA, przyjęta świadomie: strumień OGŁOSZONY na nowo w ciągu 400 ms
+ * od swojego końca wraca na STARE miejsce w kolejności, a nie na koniec. Liczy
+ * się ogłoszenie, nie powrót kafelka — kafelek wróci dopiero z obrazem, ale
+ * klucz jest już wtedy w `presentKeys` i nigdy nie został zapomniany. To
+ * odstępstwo od litery reguły „zakończony strumień zapomina o sobie wszystko”.
+ * Zamknięcie szpary wymagałoby pamiętania, że strumień danego klucza się
+ * skończył, czyli drugiego źródła prawdy obok sygnalizacji. Ukrytych szpara
+ * nie dotyczy: te przycinamy samą sygnalizacją.
  */
 export function forgetMissingTiles(
   hidden: ReadonlySet<string>,
   order: readonly string[],
   presentKeys: ReadonlySet<string>,
-  onScreenKeys: ReadonlySet<string> = new Set()
-): { hidden: Set<string>; order: string[] } {
+  onScreenKeys: ReadonlySet<string>
+): TileLayout {
   return {
     hidden: new Set([...hidden].filter((key) => presentKeys.has(key))),
     order: order.filter((key) => presentKeys.has(key) || onScreenKeys.has(key))
   }
+}
+
+/**
+ * `forgetMissingTiles` na całym układzie, z TOŻSAMOŚCIĄ: gdy nic nie wypadło,
+ * zwraca ten sam obiekt, a nie jego kopię.
+ *
+ * To nie jest drobna optymalizacja, tylko warunek zatrzymania pętli. Efekt,
+ * który wywołuje tę funkcję w `setLayout`, chodzi po KAŻDYM renderze (nie ma
+ * tablicy zależności), więc zawsze nowy obiekt oznaczałby nowy stan, nowy
+ * render, ten sam efekt i tak w kółko. React porzuca aktualizację dopiero
+ * wtedy, gdy nowy stan jest identyczny ze starym.
+ *
+ * Porównanie rozmiarów wystarcza, ale tylko dlatego, że `forgetMissingTiles`
+ * wyłącznie UJMUJE: wynik jest podzbiorem wejścia, więc równa liczność oznacza,
+ * że nic nie wypadło. Funkcja, która by też dopisywała albo zamieniała klucze,
+ * wymagałaby porównania element po elemencie.
+ */
+export function pruneLayout(
+  layout: TileLayout,
+  presentKeys: ReadonlySet<string>,
+  onScreenKeys: ReadonlySet<string>
+): TileLayout {
+  const pruned = forgetMissingTiles(layout.hidden, layout.order, presentKeys, onScreenKeys)
+  const nothingForgotten =
+    pruned.hidden.size === layout.hidden.size && pruned.order.length === layout.order.length
+  return nothingForgotten ? layout : pruned
 }
