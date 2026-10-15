@@ -4,7 +4,7 @@ import type { LaunchOptions } from '../../shared/cli'
 import type { FreezeReport } from '@shared/viewerQuality'
 import { SignalingClient } from '../signaling/SignalingClient'
 import type { PeerInfo } from '../signaling/SignalingClient'
-import { LobbySession, connectionKey } from '../webrtc/session'
+import { LobbySession, connectionKey, type DiagnosticConnection } from '../webrtc/session'
 
 /** Jeden odebrany strumień. Ta sama osoba może mieć tu dwa wpisy: ekran i kamerę. */
 export interface RemoteStream {
@@ -144,6 +144,12 @@ export interface Lobby {
   uplinkLimited: () => Promise<boolean>
   /** Wysyła nadającym raport o tym, jak nam dochodzi ich obraz. */
   reportQualityToStreamers: () => Promise<void>
+  /**
+   * Połączenia do odczytu statystyk. Metoda, nie stan: statystyki czytamy na
+   * żądanie raz na sekundę, a trzymanie ich w stanie Reacta kazałoby
+   * przerysowywać interfejs przy każdej próbce.
+   */
+  diagnosticConnections: () => DiagnosticConnection[]
 }
 
 /**
@@ -305,5 +311,22 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
     await sessionRef.current?.reportQualityToStreamers()
   }, [])
 
-  return { state, startStream, stopStream, replaceStream, applyQuality, uplinkLimited, reportQualityToStreamers }
+  // useCallback, a nie goła funkcja w zwracanym obiekcie: hook diagnostyczny
+  // trzyma tę referencję w zależnościach efektu, a nowa przy każdym renderze
+  // restartowałaby jego zegar przy każdym przerysowaniu lobby.
+  const diagnosticConnections = useCallback(
+    (): DiagnosticConnection[] => sessionRef.current?.diagnosticConnections() ?? [],
+    []
+  )
+
+  return {
+    state,
+    startStream,
+    stopStream,
+    replaceStream,
+    applyQuality,
+    uplinkLimited,
+    reportQualityToStreamers,
+    diagnosticConnections
+  }
 }

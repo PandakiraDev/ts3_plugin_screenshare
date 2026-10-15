@@ -145,6 +145,14 @@ function hintContent(stream: MediaStream, kind: StreamKind): void {
   for (const track of stream.getVideoTracks()) track.contentHint = hint
 }
 
+/** Jedno połączenie wraz z opisem tego, czego dotyczy — do odczytu statystyk. */
+export interface DiagnosticConnection {
+  peerId: string
+  kind: StreamKind
+  direction: 'inbound' | 'outbound'
+  connection: RTCPeerConnection
+}
+
 export interface LobbyCallbacks {
   /**
    * Obraz od konkretnego nadającego, dla konkretnego rodzaju strumienia;
@@ -690,6 +698,41 @@ export class LobbySession {
     for (const [peerId, report] of worst) {
       this.signaling.signal(peerId, { kind: 'quality', ...report })
     }
+  }
+
+  /**
+   * Płaska lista połączeń do odczytu statystyk, z opisem czego dotyczą.
+   *
+   * Czyta tylko to, co już jest — żadnego nowego stanu ani zegara, zgodnie
+   * z układem tej klasy: statystyki czytamy na żądanie.
+   *
+   * Klucz ma postać `peerId:rodzaj`. Dzielimy go na OSTATNIM dwukropku, bo
+   * `rodzaj` (`screen` albo `camera`) nigdy dwukropka nie zawiera, więc rozbiór
+   * działa niezależnie od formatu `peerId`. Na tym, że `peerId` dwukropka nie
+   * ma, nie polegamy: serwer dziś nadaje UUID-y, ale — jak pisze `viewerPeerIds`
+   * — nikt nam tego nie obiecał. Kierunku nie zgadujemy po zawartości
+   * połączenia — wiemy go z tego, z której mapy element pochodzi.
+   */
+  diagnosticConnections(): DiagnosticConnection[] {
+    const result: DiagnosticConnection[] = []
+    const collect = (
+      source: Map<string, RTCPeerConnection>,
+      direction: 'inbound' | 'outbound'
+    ): void => {
+      for (const [key, connection] of source) {
+        const separator = key.lastIndexOf(':')
+        if (separator <= 0) continue
+        result.push({
+          peerId: key.slice(0, separator),
+          kind: key.slice(separator + 1) as StreamKind,
+          direction,
+          connection
+        })
+      }
+    }
+    collect(this.outgoing, 'outbound')
+    collect(this.incoming, 'inbound')
+    return result
   }
 
   dispose(): void {

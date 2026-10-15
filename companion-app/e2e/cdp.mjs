@@ -17,14 +17,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * bo modul natywny lezy tam w app.asar.unpacked i sciezki rozwiazuja sie
  * inaczej niz w dev.
  */
-export function launchApp(port, extraArgs = []) {
+export function launchApp(port, extraArgs = [], userDataDir) {
   const exe = process.env.APP_EXE
+  // Bez podanego katalogu zachowujemy się jak dotąd: świeży katalog tymczasowy
+  // na każdy przebieg. Podanie go jest potrzebne tylko tam, gdzie sprawdzian
+  // musi potem zajrzeć do plików zapisanych przez aplikację.
+  const dataDir = userDataDir ?? mkdtempSync(join(tmpdir(), 'ts3-e2e-'))
   return spawn(
     exe ?? electronPath,
     [
       ...(exe ? [] : ['.']),
       `--remote-debugging-port=${port}`,
-      `--user-data-dir=${mkdtempSync(join(tmpdir(), 'ts3-e2e-'))}`,
+      `--user-data-dir=${dataDir}`,
       ...extraArgs
     ],
     { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] }

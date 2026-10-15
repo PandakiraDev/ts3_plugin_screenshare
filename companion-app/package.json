@@ -1,6 +1,6 @@
 {
   "name": "ts3-screenshare-companion",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Companion app for TS3 screen sharing: source picker + capture",
   "main": "./out/main/index.js",
   "author": "Konrad",
@@ -21,6 +21,7 @@
     "e2e:jakosc": "node e2e/jakosc-odbioru.mjs",
     "e2e:dlawienie": "node e2e/dlawienie.mjs",
     "e2e:sesja": "node e2e/sesja-na-zywo.mjs",
+    "e2e:diagnostyka": "node e2e/diagnostyka.mjs",
     "e2e:panel": "node e2e/panel-uczestnikow.mjs",
     "e2e:audio": "npm run sync:native && npm run build && node e2e/app-audio.mjs",
     "e2e:dll-swap": "node e2e/dll-swap.mjs",

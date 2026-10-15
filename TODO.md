@@ -509,8 +509,10 @@ końcowego, żadne nie blokowało wydania):
 - **`e2e/panel-uczestnikow.mjs` sprawdza sekcję i plakietkę niezależnie**, nie
   po tym samym wierszu. Dziurę zasłania test jednostkowy podziału na sekcje.
 
-Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) → 0.3.3.
-Powiadomienia w rogu przy wejściu i wyjściu osoby → 0.3.4.
+Ustawienia (szufladka nad obrazem, karty, segmenty, suwak bitrate) oraz
+powiadomienia w rogu przy wejściu i wyjściu osoby zostały ODŁOŻONE bez
+numeru wydania: 0.3.3 przejęły zgłoszenia z sekcji 5, które właściciel uznał za
+pilniejsze. Wracają po kawałkach C i D.
 
 ## 5. Zgłoszenia po kilku miesiącach używania 0.3.2 (2026-10-13)
 
@@ -541,7 +543,7 @@ maszynie — minimalizacja oraz prawdziwe zasłonięcie okna drugim oknem — da
 powtórzył się ani razu. Zegary chodziły równo wszędzie: 1000–1014 ms przy
 nominalnym tysiącu.
 
-Dwie pomyłki warte zapamiętania, obo moje:
+Dwie pomyłki warte zapamiętania, obie moje:
 
 - **Pierwsza wersja pomiaru sprawdzała nie tę ścieżkę, co trzeba.** Flaga
   dotyczy okien ZASŁONIĘTYCH, a skrypt minimalizował okno — w Chromium to
@@ -577,6 +579,145 @@ powtarzalne, jest to osobna usterka i prawdopodobnie część zgłoszenia 3.
 **Miara, która odpowiada słowu „laguje":** `droppedVideoFrames` z
 `getVideoPlaybackQuality()` — w sesji pomiarowej 61 porzuconych klatek na ~240
 wystawionych. Musi trafić do panelu z B.
+
+### B — panel diagnostyczny i wskaźniki zużycia (0.3.3, ZROBIONE)
+
+Zapis szeregu czasowego co sekundę, panel-podgląd z suwakiem czasu, pasek
+zużycia w rogu i odcisk palca lobby. Spec:
+`docs/superpowers/specs/2026-10-13-panel-diagnostyczny-design.md`.
+
+**Rzecz, która rządziła całym projektem:** objaw zdarza się wtedy, gdy nikt
+nie patrzy na aplikację. Dlatego zapis jest źródłem prawdy, a panel tylko
+jego podglądem — panel pokazujący wyłącznie teraźniejszość odpowiadałby na
+„czy laguje teraz", a pytanie brzmi „dlaczego lagało".
+
+**Rejestrator mieszka w procesie głównym, nie w rendererze**, bo renderer
+jest podejrzanym: dziennik prowadzony przez podejrzanego przestaje być
+dziennikiem dokładnie wtedy, gdy staje się potrzebny. Stąd też pole
+`streamsAgeMs` w każdej próbce: gdyby go nie było, zagłodzony renderer
+wyglądałby w zapisie jak działający, bo rejestrator powtarzałby jego stare
+liczby — i czytający wskazałby złe ogniwo łańcucha.
+
+**Odcisk palca lobby jest jedyną częścią POZA flagą.** Zgłoszenie 1 wymaga
+porównania dwóch wartości z dwóch maszyn; odcisk widoczny u jednej osoby nie
+rozstrzygnąłby niczego. Podpowiedź (atrybut `title`) pokazuje numer kanału
+i identyfikator serwera, z których skrót wyliczono. Pierwotnie zakładano, że
+różnić się będzie adres serwera (domena kontra IP), ale to **hipoteza
+odrzucona czytaniem wtyczki** (zob. spec): wtyczka nie przekazuje adresu,
+tylko `VIRTUALSERVER_UNIQUE_IDENTIFIER`, **identyczny u wszystkich na tym
+samym serwerze**, więc taki scenariusz nie może zajść. Jedyne wejście, które
+realnie różni się między osobami z jednego serwera, to **numer kanału** — i
+to kanału, **na którym kliknięto menu**, a niekoniecznie tego, w którym ktoś
+siedzi. Dlatego podpowiedź podaje kanał jako pierwszy, a serwer z dopiskiem,
+że u wszystkich jest taki sam. To jedyna wartość, o której warto rozmawiać
+przez telefon, gdy odciski się różnią: jeśli dwie osoby „z tego samego
+kanału" mają różne numery, przyczyna jest znaleziona.
+
+**Pułapka znaleziona przy okazji:** `readFlags` w `cli.ts` po cichu gubił
+flagi bez wartości — samo `--diagnostics` nigdy nie trafiało do mapy. Dla
+flag Electrona (`--inspect`) nie miało to znaczenia, bo nikt ich nie czyta,
+ale własna flaga logiczna milcząco nie działała. Obsługa flag bez wartości
+doszła więc świadomie (pusty łańcuch jako znacznik obecności), z testami na
+oba położenia flagi w wierszu poleceń: jako ostatni argument i przed inną
+flagą. Cena: liczy się sama obecność, wartość jest ignorowana, więc
+`--diagnostics=false` też włącza diagnostykę — udokumentowane przy polu
+`LaunchOptions.diagnostics`, bez zmiany zachowania. Ta poprawka wywołała
+też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
+jako pusty łańcuch, a `??` nie cofa się do wartości domyślnej przy pustym
+napisie (stąd `||`).
+
+**Odczyt GPU z wstrzykiwanym uruchamiaczem** (`readGpu`), żeby dała się
+przetestować ścieżka, która w praktyce zdarza się najczęściej: brak
+`nvidia-smi`. Brak odczytu to zawsze `null`, nigdy zero — zero znaczyłoby
+„karta nic nie robi".
+
+**Zasada, która wyszła trzy razy:** czas trwania mierzy się zegarem
+monotonicznym (`performance.now()`), znacznik czasu zegarem ściennym
+(`Date.now()`), a mianownik tempa musi pochodzić z tego samego źródła co
+licznik. Wyłapane w przeglądach przed zamknięciem wydania: (1) wiek danych
+liczony `Date.now()` dałby wynik ujemny po cofnięciu zegara i zawyżony po
+skoku w przód, czyli fałszywe „renderer milczy"; (2) odstęp liczony z tyknięć
+rejestratora, gdy liczniki klatek pochodzą z renderera, dawał 927 klatek na
+sekundę po powrocie z 30-sekundowej ciszy (zamiast 30) oraz „0,0 kl./s"
+oznaczone jako świeże, gdy ten sam push widziano w dwóch kolejnych
+tyknięciach; (3) poprawka z (2) zmieszała zegar ścienny (`at`) z
+monotonicznym (`streamsAgeMs`), a drżenie rzędu ±3 ms przywracało fałszywe
+zero w około 30% przypadków — stąd próg `STREAMS_MIN_INTERVAL_MS`.
+
+**Sprawdzone na żywo (2026-10-15, przed scaleniem).** `npm run e2e:diagnostyka`
+przeszedł w całości na prawdziwych trzech oknach. Liczby z przebiegu, bo są
+pierwszymi prawdziwymi danymi tego wydania i warto mieć je na piśmie:
+
+- **tempo próbek: mediana 1005 ms** (min 1003, max 1009, z jedenastu odstępów)
+  — zegar rejestratora trzyma 1 Hz z dokładnością kilku milisekund;
+- **`framesPresented` 13 → 362 w ośmiu próbkach** (~44 kl./s przy 1920x1080),
+  niezerowe i rosnące w **ośmiu z ośmiu** próbek z czasu strumienia. To było
+  najważniejsze pytanie całego wydania: klatki WYSTAWIONE widzowi nie ma ich
+  w `getStats()`, więc gdyby to pole zostawało `null`, cała diagnostyka
+  zacinania byłaby bezwartościowa;
+- **najgorszy `streamsAgeMs`: 376 ms** przy progu przestarzałości 3000 ms —
+  renderer nadążał z zapasem, więc żadna próbka nie udawała danych, których nie ma;
+- **nazwa pliku per sesja działa**: `2026-10-15-124558.jsonl`, dwanaście linii,
+  zero notek o sufcie, `instanceId` w każdej próbce (sprawdzian asertuje to
+  w każdej linii);
+- **bramkowanie flagą potwierdzone na żywo**: pasek z flagą pokazał
+  `CPU 1% · RAM 633 MB · GPU 40% · VRAM 5,7/12,0 GB`, a bez flagi `null`;
+- **odcisk palca rozstrzyga**: dwie instancje w jednym kanale dały
+  `lobby 325b0f8f`, trzecia w innym `lobby 0483ca0e`. `\n` w atrybucie `title`
+  faktycznie łamie linie — dymek wyszedł trzywierszowy, z kanałem na pierwszym
+  miejscu.
+
+**Rzecz zauważona przy okazji, ważna dla kawałka A:** okno widza miało
+`visibility: visible`, ale `focus: false` — i mimo braku skupienia wystawiło
+399 klatek, porzucając 7 (1,8%). To NIE jest dowód, że w produkcji jest tak
+samo: ten harness świadomie włącza trzy flagi przeciw dławieniu, których
+produkcyjne okno nie ma. Ale pokazuje, że **samo odebranie skupienia nie
+zabiera klatek**, gdy dławienie jest wyłączone — czyli pytanie dla kawałka A
+brzmi „czy te flagi są potrzebne", a nie „czy brak skupienia szkodzi".
+
+**Czego ten przebieg NIE sprawdził** (zostaje do obejrzenia okiem): odstępu na
+dole listy uczestników pod paskiem zużycia, czy jedenaście kolumn tabeli mieści
+się w wąskim oknie, i czy panel nadąża z prawdziwym zegarem — sprawdzian nie
+otwiera panelu, bo czyta zapis i DOM, a nie interfejs.
+
+**Następny krok:** wrócić do kawałka A z zapisem z prawdziwej sesji ze
+zdalnym nadawcą i odpowiedzieć, które ogniwo łańcucha siada.
+
+**Dla kawałka C — to, co wyszło przy okazji i czego nikt nie szukał** (to
+najcenniejszy wynik tego wydania):
+
+- **Kanał kliknięty, nie zajmowany, jako kandydat na przyczynę zgłoszenia 1.**
+  Wtyczka (`plugin/src/plugin.c:255-260`) bierze `selectedItemID` z menu
+  kanału, więc dwie osoby siedzące w jednym kanale, które kliknęły
+  „Udostępnij ekran" na różnych kanałach, dostaną dwa różne pokoje. Serwer
+  jest u wszystkich identyczny, więc kanał to jedyne wejście, które się
+  różni (spec, akapit o odcisku palca lobby).
+- **Brak `requestSingleInstanceLock()`.** `src/main/index.ts` nie woła go
+  nigdzie, a `createWindow()` leci bezwarunkowo po `whenReady`
+  (`index.ts:203`), więc każde kliknięcie menu w TS3 (`CreateProcessW`,
+  `plugin.c:237`) otwiera **nowe okno**. Jedna osoba może mieć naraz dwa okna
+  na różne kanały i patrzeć na niewłaściwe; odcisk jest per okno. Ten sam brak
+  wypłynął już przy instalatorze (§ 3.1). Skutek uboczny dla diagnostyki był
+  początkowo gorszy, niż tu pisało, i został **złagodzony** w rundzie poprawek
+  po przeglądzie całej gałęzi: nazwa pliku jest teraz per sesja
+  (`YYYY-MM-DD-HHmmss.jsonl`), więc dwa okna trafiają w jeden plik tylko wtedy,
+  gdy wystartują w tej samej sekundzie, a każda linia niesie `instanceId`, więc
+  przeplecione serie **dają się rozdzielić**. Bez `instanceId` czytający widziałby
+  jedną sesję, w której co sekundę zmienia się komplet strumieni, i wyciągnąłby
+  wniosek „połączenia zrywają się co sekundę" — dokładnie ten błędny wniosek,
+  któremu miało zapobiec pole `streamsAgeMs`. Zostaje reszta: `ceilingReported`
+  jest per proces, a sufit per plik, więc dwa okna w jednym pliku dopiszą dwie
+  notki, a zapis z dwóch procesów nie jest atomowy, więc może powstać linia
+  niebędąca poprawnym JSON-em.
+- **Okno zna tylko ID kanału**, którego klient TS3 nie pokazuje w zwykłym
+  widoku — rozmówcy porównają „42 kontra 57", ale nie sprawdzą tego z niczym,
+  co widzą w TS3. `--channel-name` przekazywane przez wtyczkę zrobiłoby
+  podpowiedź realnie użyteczną (zmiana w C++ i w `cli.ts`).
+- **Mylące nazwy.** `LaunchOptions.ts3ServerAddress` i parametr
+  `deriveRoomId(ts3ServerAddress)` w produkcji dostają identyfikator serwera,
+  nie adres (komentarz w `room.ts` też mówi o „adresie serwera TS3").
+  Przemianowanie dotyka pięciu plików (`cli.ts`, `cli.test.ts`, `room.ts`,
+  `room.test.ts`, `LobbyView.tsx`) i czeka na kawałek C.
 
 ## 4. Drobne
 

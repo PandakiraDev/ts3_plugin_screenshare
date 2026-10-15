@@ -2,10 +2,14 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { CaptureSource } from '@shared/types'
 import type { LaunchParseResult } from '@shared/cli'
 import type { AppAudioFormat } from '@shared/audio'
+import type { DiagnosticsSample, StreamStats } from '@shared/diagnostics'
 import {
   IPC_AUDIO_PORT,
   IPC_AUDIO_START,
   IPC_AUDIO_STOP,
+  IPC_DIAGNOSTICS_LATEST,
+  IPC_DIAGNOSTICS_PUSH,
+  IPC_DIAGNOSTICS_READ,
   IPC_GET_API_KEY,
   IPC_GET_LAUNCH,
   IPC_GET_SOURCES,
@@ -41,6 +45,12 @@ const api = {
     ipcRenderer.invoke(IPC_AUDIO_START, sourceId),
   stopAppAudio: (): Promise<void> => ipcRenderer.invoke(IPC_AUDIO_STOP),
   getAppVersion: (): Promise<string> => ipcRenderer.invoke(IPC_GET_VERSION),
+  /** Statystyki strumieni w górę; proces główny dokłada wiersz systemowy. */
+  pushDiagnostics: (streams: StreamStats[]): Promise<void> =>
+    ipcRenderer.invoke(IPC_DIAGNOSTICS_PUSH, streams),
+  getLatestDiagnostics: (): Promise<DiagnosticsSample | null> =>
+    ipcRenderer.invoke(IPC_DIAGNOSTICS_LATEST),
+  readDiagnostics: (): Promise<DiagnosticsSample[]> => ipcRenderer.invoke(IPC_DIAGNOSTICS_READ),
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_GET_UPDATE_STATE),
   /** Zwraca funkcję odsubskrybowania — bez niej `useEffect` zostawiłby wyciek. */
   onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {

@@ -94,10 +94,38 @@ Osiem pierwszych znaków `roomId`. Pod kursorem (atrybut `title`) pełna treść
 **adres serwera TS3 i numer kanału, z których skrót został wyliczony.**
 
 Same wejścia są tu ważniejsze niż skrót. Skrót powie tylko „różnimy się";
-wejścia powiedzą dlaczego. `deriveRoomId` normalizuje wielkość liter i spacje
-(`trim().toLowerCase()`), więc główny podejrzany to adres podany raz jako nazwa
-domeny, a raz jako adres IP tego samego serwera — `ts.serwer.pl:9987` i
-`11.22.33.44:9987` dają dwa różne pokoje.
+wejścia powiedzą dlaczego.
+
+**Pierwotna hipoteza została odrzucona czytaniem wtyczki.** Wcześniejsza wersja
+tej specyfikacji wskazywała jako głównego podejrzanego adres serwera podany raz
+jako nazwa domeny, a raz jako adres IP tego samego serwera: `deriveRoomId`
+normalizuje wielkość liter i spacje (`trim().toLowerCase()`), ale
+`ts.serwer.pl:9987` i `11.22.33.44:9987` to dwa różne napisy, więc dałyby dwa
+różne pokoje. Przez wtyczkę ten scenariusz **nie może zajść**, bo wtyczka
+nigdy nie przekazuje adresu:
+
+- `plugin/src/plugin.c:223` buduje `--ts3-server="%s" --channel=%llu`, a
+  pierwsza wartość to `VIRTUALSERVER_UNIQUE_IDENTIFIER` (`plugin.c:190`),
+  czyli identyfikator serwera, **identyczny u każdego na tym samym serwerze**.
+- Komentarz w `plugin.c:169` mówi wprost, że wybrano identyfikator właśnie po
+  to, żeby „IP kontra domena" nie rozjeżdżało pokoi.
+
+To odrzucenie wynika z przeczytania kodu wtyczki, nie z pomiaru na żywo.
+Hipoteza zostaje w tekście celowo: ta specyfikacja jest zapisem rozumowania,
+więc jej porażka ma w niej pozostać widoczna.
+
+**Prawdziwy podejrzany to numer kanału.** Jedyne wejście, które różni się
+między osobami z jednego serwera, to numer kanału. Wtyczka bierze go z
+`selectedItemID` przy `PLUGIN_MENU_TYPE_CHANNEL` (`plugin.c:126`,
+`plugin.c:255-260`), czyli ID kanału, **na którym kliknięto menu**, a
+niekoniecznie tego, w którym użytkownik siedzi. Dwie osoby z tego samego
+kanału mogą więc trafić do dwóch różnych pokoi, jeśli kliknęły „Udostępnij
+ekran" na różnych kanałach. To jest pierwsza rzecz do sprawdzenia, gdy odciski
+się różnią.
+
+Uwaga na nazwy: w tej specyfikacji i w kodzie (`LaunchOptions.ts3ServerAddress`,
+parametr `deriveRoomId`) wejście nazywa się „adresem serwera", ale w produkcji
+niesie ono identyfikator serwera, nie adres.
 
 W trybie `standalone` nie ma pokoju, więc odcisk się nie pokazuje.
 
@@ -286,8 +314,18 @@ Odcisk palca potrzebuje ich obu, żeby pokazać, z czego skrót powstał.
 ### Zapis
 
 Bufor kołowy w pamięci procesu głównego na ostatnie dziesięć minut (600 próbek
-przy 1 Hz) plus dopisywanie do `userData/diagnostics/YYYY-MM-DD.jsonl`, żeby sesja
-przeżyła restart i dała się przysłać jako plik.
+przy 1 Hz) plus dopisywanie do `userData/diagnostics/YYYY-MM-DD-HHmmss.jsonl`,
+żeby sesja przeżyła restart i dała się przysłać jako plik.
+
+**Nazwa jest per SESJA, nie per dzień, i to poprawka po przeglądzie całej
+gałęzi.** Pierwotnie plik nazywał się datą, a sufit rozmiaru liczy się per plik
+(`logBytes` startuje od `statSync(path).size`) — więc **druga sesja tego samego
+wieczoru ruszała z wyczerpanym budżetem**, a trzecia zapisałaby linię notki
+i nic więcej. Do tego zmierzony rozmiar linii to od 768 B (dwie osoby, ekran)
+do 5709 B (sześć osób, ekran i kamera), czyli sufit 8 MiB kończył się po
+**24 minutach** przy sześciu osobach — przed zjawiskiem, którego ten zapis
+szuka. Stąd sufit 256 MiB (dziesięć godzin przy sześciu osobach to ~196 MiB)
+i retencja dwudziestu najnowszych plików, bo nic ich dotąd nie usuwało.
 
 Sufit rozmiaru `LOG_SIZE_CEILING_BYTES`; po jego przekroczeniu dopisywanie
 ustaje z jedną linią adnotacji. **Każde wywołanie systemu plików w `try/catch`,

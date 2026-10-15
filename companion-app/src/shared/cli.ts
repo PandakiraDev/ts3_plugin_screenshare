@@ -26,6 +26,24 @@ export interface LaunchOptions {
   mode: AppMode
   /** null tylko w trybie standalone. */
   roomId: string | null
+  /**
+   * Wejścia, z których wyliczono `roomId`. Oba `null` w trybie standalone.
+   * Trzymamy je w postaci SUROWEJ, a nie znormalizowanej przez `deriveRoomId`:
+   * to surowa postać jest tym, o czym da się rozmawiać przez telefon przy
+   * porównywaniu odcisków. Uwaga na nazwę: `ts3ServerAddress` dostaje od
+   * wtyczki IDENTYFIKATOR serwera, nie adres (zob. `plugin.c`), więc między
+   * osobami z jednego serwera różni się wyłącznie `channelId`.
+   */
+  ts3ServerAddress: string | null
+  channelId: string | null
+  /**
+   * Flaga `--diagnostics`: zapis diagnostyczny, panel i wskaźniki zużycia.
+   * Liczy się sama OBECNOŚĆ flagi, a wartość jest ignorowana, więc
+   * `--diagnostics=false` i `--diagnostics=0` też ją włączają — świadomie, bo
+   * to flaga właściciela projektu, a parsowanie wartości logicznych dałoby nową
+   * powierzchnię błędu za zysk bliski zeru.
+   */
+  diagnostics: boolean
   signalingUrl: string
   /**
    * Nick z TS3, przekazywany później przez plugin. Gdy go brak, serwer nada
@@ -54,29 +72,59 @@ function readFlags(argv: string[]): Map<string, string> {
       continue
     }
     // Postać `--klucz wartość`: wartością jest następny argument, o ile
-    // sam nie jest kolejną flagą (wtedy to flaga bez wartości, np. --inspect).
+    // sam nie jest kolejną flagą.
     const next = argv[i + 1]
     if (next !== undefined && !next.startsWith('--')) {
       flags.set(arg.slice(2), next)
       i++
+      continue
     }
+    /*
+     * Flaga bez wartości (`--diagnostics`, `--inspect`). Wcześniej była tu
+     * cisza: `flags.set` nie wykonywało się wcale, więc flaga logiczna
+     * milcząco nie działała. Pusty łańcuch pozwala sprawdzić jej OBECNOŚĆ
+     * przez `flags.has`, a flagom Electrona nie szkodzi, bo czytamy tylko
+     * znane nam klucze.
+     *
+     * Tylko gdy klucza jeszcze NIE MA: bezwarunkowy `set` kasował wartość
+     * podaną wcześniej w tym samym `argv`. `--signaling=ws://x --signaling`
+     * cicho porzucało jawnie podany adres i wracało do serwera produkcyjnego,
+     * a `--channel=42 … --channel --ts3-server` zamieniało lobby na standalone
+     * bez jednego słowa — czyli dokładnie ten „cichy powrót do standalone",
+     * którego zabrania komentarz niżej. Powtórzona flaga BEZ wartości nie
+     * wnosi nic poza obecnością, a tę pierwsze wystąpienie już ustaliło.
+     */
+    const key = arg.slice(2)
+    if (!flags.has(key)) flags.set(key, '')
   }
   return flags
 }
 
 export function parseLaunchArgs(argv: string[]): LaunchParseResult {
   const flags = readFlags(argv)
-  const signalingUrl = flags.get('signaling') ?? DEFAULT_SIGNALING_URL
+  // `||`, a nie `??`: po naprawie flag logicznych puste `--signaling` trafia do mapy
+  // jako pusty łańcuch, a `??` cofa się do wartości domyślnej tylko przy `null`
+  // i `undefined`. Puste ma znaczyć „użyj domyślnego", tak jak puste `--nick` niżej.
+  const signalingUrl = flags.get('signaling') || DEFAULT_SIGNALING_URL
   const ts3Server = flags.get('ts3-server')
   const channel = flags.get('channel')
 
   // Bez danych z TS3 nie ma do czego dołączać — działamy jak w kroku 1.
   const displayName = flags.get('nick')?.trim() || null
+  const diagnostics = flags.has('diagnostics')
 
   if (!ts3Server && !channel) {
     return {
       ok: true,
-      options: { mode: 'standalone', roomId: null, signalingUrl, displayName }
+      options: {
+        mode: 'standalone',
+        roomId: null,
+        ts3ServerAddress: null,
+        channelId: null,
+        diagnostics,
+        signalingUrl,
+        displayName
+      }
     }
   }
 
@@ -91,6 +139,9 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
       options: {
         mode: 'lobby',
         roomId: deriveRoomId(ts3Server, channel),
+        ts3ServerAddress: ts3Server,
+        channelId: channel,
+        diagnostics,
         signalingUrl,
         displayName
       }

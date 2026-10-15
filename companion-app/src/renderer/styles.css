@@ -656,6 +656,21 @@ h3 {
   margin-bottom: 14px;
 }
 
+/* Odcisk palca pokoju. Małym drukiem i wyciszony: to narzędzie diagnostyczne,
+   a nie informacja, na którą trzeba patrzeć przy każdym spojrzeniu na panel.
+   Krój stałej szerokości, bo ten skrót się dyktuje przez telefon, a nie tylko
+   czyta: w kroju proporcjonalnym łatwo pomylić `3` z `8` i `b` z `6`.
+   `nowrap`, bo panel animuje szerokość i tekst nie może się na chwilę zawinąć. */
+.peers__room {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .peers__title,
 .peers__section {
   font-size: 11px;
@@ -1060,4 +1075,156 @@ h3 {
   .participant__badge {
     animation: none;
   }
+}
+
+/* ---------- diagnostyka (tylko przy fladze --diagnostics) ---------- */
+
+/* Pasek zużycia: prawy dolny róg, nad całą zawartością, nieklikany — nie może
+   przechwytywać kliknięć w kafelki pod nim. */
+.resource-badge {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 40;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(30, 31, 34, 0.82);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* Pasek wisi w prawym dolnym rogu okna, a lista uczestników sięga prawej
+   krawędzi i pełnej wysokości, więc przykrywał jej ostatni wiersz. Kliknięcia
+   przechodziły (`pointer-events: none`), ale tekst był nieczytelny.
+   Odstęp robimy na dole LISTY, a nie przesuwamy paska: każde inne miejsce
+   w oknie też jest czyjeś (kafelki, podgląd, pasek tytułu), więc przesunięcie
+   zamieniłoby jedną kolizję na następną, a ta byłaby trudniejsza do
+   zauważenia. Odstęp mieści pasek (~21 px) wraz z jego marginesem od dołu
+   i działa też przy przewijaniu, bo `.peers` jest tu kontenerem przewijania.
+   Warunkowo przez `:has()`, bo pasek istnieje tylko przy fladze
+   `--diagnostics` — bez niej lista nie ma tracić miejsca na nic. */
+#root:has(.resource-badge) .peers {
+  padding-bottom: 40px;
+}
+
+.diag {
+  position: fixed;
+  inset: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(30, 31, 34, 0.97);
+  overflow: auto;
+}
+
+.diag__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.diag__hint,
+.diag__stamp,
+.diag__empty {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Legenda stoi przy tytule, nie przy prawej krawędzi: `margin-right: auto`
+   odpycha od niej podpowiedź o skrócie, bo nagłówek rozkłada trójkę przez
+   `space-between`, a legenda należy do tabeli, nie do skrótu. */
+.diag__legend {
+  margin-right: auto;
+  padding-left: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.diag__legend-mark {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.diag__time {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.diag__time input {
+  flex: 1;
+}
+
+.diag__system {
+  margin: 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.diag__table th,
+.diag__table td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.diag__table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Porzucone klatki wyróżnione, bo to jedyna z tych liczb, która odpowiada
+   słowu „laguje". */
+.diag__dropped {
+  color: #f0c674;
+  font-weight: 600;
+}
+
+/* „Nie dotyczy tego kierunku": kolumna strukturalnie nie istnieje dla tego
+   wiersza (klatki odbioru w wierszu nadawania i odwrotnie). Wyciszona, bo ma
+   się czytać jako puste miejsce w siatce, a nie jako brak odczytu — kreska
+   „nie wiem" zostaje w normalnym kolorze i to ona ma przyciągać wzrok.
+   Sam znak i tak różni się od kreski; kolor jest wzmocnieniem, nie jedynym
+   nośnikiem różnicy. */
+.diag__na {
+  color: var(--text-muted);
+  opacity: 0.5;
+  cursor: help;
+}
+
+/* Uwaga pod suwakiem: brak strumieni albo brak odzewu renderera. Wersja
+   `--stale` jest wyraźna, bo przestarzałość danych ma być widoczna, a nie
+   domyślna — kreski w tabeli same by jej nie wyjaśniły. */
+.diag__notice {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diag__notice--stale {
+  border-left-color: #f0c674;
+  background: rgba(240, 198, 116, 0.1);
+  color: var(--text);
+}
+
+/* Wiersze z przestarzałych danych: ostatnio znane, nie bieżące. */
+.diag__row--stale {
+  color: var(--text-muted);
 }

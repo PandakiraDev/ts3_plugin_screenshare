@@ -47,3 +47,17 @@ export const IPC_GET_VERSION = 'app:version'
  */
 export const IPC_GET_UPDATE_STATE = 'update:get'
 export const IPC_UPDATE_STATE = 'update:state'
+
+/*
+ * Diagnostyka. Trzy kanały, nie cztery: o samą flagę renderer nie pyta
+ * osobno, bo przychodzi ona polem `diagnostics` w `LaunchOptions`, czyli
+ * istniejącym `IPC_GET_LAUNCH`.
+ *
+ * `LATEST` i `READ` są rozdzielone celowo: pasek w rogu potrzebuje jednej
+ * najnowszej próbki co sekundę, a panel całego bufora tylko wtedy, gdy jest
+ * otwarty. Przesyłanie sześciuset wpisów co sekundę dla czterech liczb
+ * w rogu byłoby marnotrawstwem.
+ */
+export const IPC_DIAGNOSTICS_PUSH = 'diagnostics:push'
+export const IPC_DIAGNOSTICS_LATEST = 'diagnostics:latest'
+export const IPC_DIAGNOSTICS_READ = 'diagnostics:read'
