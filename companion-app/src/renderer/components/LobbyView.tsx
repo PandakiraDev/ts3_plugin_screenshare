@@ -344,6 +344,14 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
             <div
               className={`siatka${zoomed ? ' siatka--zoom' : ''}`}
               data-ile={Math.min(tileRows.length, 4)}
+              /*
+               * Osierocony ostatni kafelek: nieparzysta liczba przy układzie
+               * dwukolumnowym. Liczymy TUTAJ, a nie w CSS po `data-ile`, bo
+               * `data-ile` jest ograniczone przez `Math.min(…, 4)` — przy pięciu
+               * kafelkach wynosi też 4, więc reguła oparta na `data-ile="3"`
+               * naprawiłaby trzy kafelki i zostawiła pięć z tą samą usterką.
+               */
+              data-sierota={tileRows.length >= 3 && tileRows.length % 2 === 1 ? '' : undefined}
             >
               {tileRows
                 .filter((row) => !zoomed || row.item.tileKey === zoomed)

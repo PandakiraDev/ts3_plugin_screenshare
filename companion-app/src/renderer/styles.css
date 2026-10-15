@@ -825,9 +825,48 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Osierocony ostatni kafelek na środku, nie przy lewej ściance.
+   Cztery kolumny, każdy kafelek zajmuje dwie, ostatni startuje od drugiej —
+   wychodzi ta sama szerokość co pozostałe, tylko wyśrodkowana. Działa dla
+   trzech, pięciu i siedmiu, bo warunek liczy parzystość, a nie konkretną liczbę.
+
+   Musi stać PO regule `data-ile` wyżej: przy trzech kafelkach pasują obie,
+   mają tę samą specyficzność i o wyniku decyduje kolejność w pliku.
+
+   `:last-child` jest pozycyjny, więc po przestawieniu kafelków wyśrodkowany
+   jest ten, który faktycznie stoi na końcu — i to jest pożądane.
+
+   Kafelek wychodzący wlicza się do parzystości przez 400 ms animacji, bo
+   `tileRows` pochodzi z przejścia wyjścia. Skutek przyjęty świadomie: przy
+   przejściu z czterech na trzy wyśrodkowanie pojawia się PO animacji.
+   Liczenie bez wychodzących przestawiałoby układ W TRAKCIE zanikania, co jest
+   gorsze. */
+.siatka[data-sierota] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.siatka[data-sierota] > * {
+  grid-column: span 2;
+}
+
+.siatka[data-sierota] > :last-child {
+  grid-column: 2 / span 2;
+}
+
 /* Powiekszony: jeden kafelek na cala scene. */
 .siatka--zoom {
   grid-template-columns: 1fr !important;
+}
+
+/* `!important` wyżej unieważnia tylko kolumny. Reguły `grid-column` z
+   `[data-sierota]` zostają w mocy, a `data-sierota` liczy się z WSZYSTKICH
+   kafelków, nie z tego jednego, który zostaje po powiększeniu. Jedyny widoczny
+   kafelek jest wtedy zarazem `:last-child`, dostaje `2 / span 2` w siatce
+   o jednej kolumnie, a przeglądarka dokłada dwie niejawne kolumny `auto`:
+   kafelek ląduje w nich z prawej, o szerokości zależnej od zawartości, a
+   pierwsza kolumna (`1fr`) zostaje pusta. */
+.siatka--zoom > * {
+  grid-column: auto !important;
 }
 
 .tile {
