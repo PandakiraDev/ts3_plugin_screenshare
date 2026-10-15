@@ -24,7 +24,7 @@ interface Harness {
   fire: (event: string, ...args: unknown[]) => void
 }
 
-const NIC: LobbyCallbacks = {
+const NO_CALLBACKS: LobbyCallbacks = {
   onRemoteStream: () => {},
   onStreamersChange: () => {},
   onViewersChange: () => {},
@@ -58,7 +58,7 @@ function harness(): Harness {
       return Promise.resolve()
     }
   }
-  const session = new LobbySession(signaling as unknown as SignalingClient, NIC)
+  const session = new LobbySession(signaling as unknown as SignalingClient, NO_CALLBACKS)
   session.begin(JOINED)
   return {
     session,
@@ -76,16 +76,19 @@ test('rezygnacja idzie do nadawcy i NIE MA pola `stream`', () => {
   session.unsubscribeFrom('michal', 'screen')
   expect(sent).toHaveLength(1)
   expect(sent[0]?.to).toBe('michal')
-  expect(sent[0]?.payload).toEqual({ kind: 'unsubscribe', streamKind: 'screen' })
-  // `toEqual` wyżej pilnuje już całego kształtu, ale ta asercja mówi wprost,
-  // o co w nim chodzi: pole `stream` zepsułoby odbiór u starszych wersji.
+  // `toStrictEqual`, nie `toEqual`: `toEqual` IGNORUJE pola o wartości
+  // `undefined`, więc przepuściłby dołożone `candidate: undefined` — czyli
+  // dokładnie ten kształt, którego stara ścieżka ICE boi się najbardziej.
+  expect(sent[0]?.payload).toStrictEqual({ kind: 'unsubscribe', streamKind: 'screen' })
+  // Osobna asercja mówi wprost, o co w tym kształcie chodzi: pole `stream`
+  // zepsułoby odbiór u starszych wersji.
   expect('stream' in (sent[0]?.payload ?? {})).toBe(false)
 })
 
 test('powrót do odbioru prosi nadawcę o ofertę', () => {
   const { session, sent } = harness()
   session.subscribeTo('michal', 'camera')
-  expect(sent).toEqual([
+  expect(sent).toStrictEqual([
     { to: 'michal', payload: { kind: 'subscribe', streamKind: 'camera' } }
   ])
 })
@@ -99,7 +102,7 @@ test('powrót do odbioru po wyjściu osoby nie wysyła nic', () => {
   const { session, sent, fire } = harness()
   fire('peer-left', 'michal')
   session.subscribeTo('michal', 'screen')
-  expect(sent).toEqual([])
+  expect(sent).toStrictEqual([])
 })
 
 test('rezygnacja po wyjściu osoby nie wysyła nic', () => {
@@ -108,7 +111,7 @@ test('rezygnacja po wyjściu osoby nie wysyła nic', () => {
   const { session, sent, fire } = harness()
   fire('peer-left', 'michal')
   session.unsubscribeFrom('michal', 'screen')
-  expect(sent).toEqual([])
+  expect(sent).toStrictEqual([])
 })
 
 test('prośba o powrót od widza nie daje oferty, gdy nic nie nadajemy', async () => {
@@ -120,15 +123,18 @@ test('prośba o powrót od widza nie daje oferty, gdy nic nie nadajemy', async (
   // `onSignal` jest asynchroniczne — bez oddania pętli zdarzeń test
   // przechodziłby na pusto, zanim cokolwiek miałoby szansę się wysłać.
   await new Promise((resolve) => setTimeout(resolve, 0))
-  expect(sent).toEqual([])
+  expect(sent).toStrictEqual([])
 })
 
 /**
- * Najmniejsza możliwa atrapa `RTCPeerConnection` — dokładnie to, czego dotyka
- * `createOutgoing` i `callPeer`, i nic więcej. Bez niej nie da się w gołym
- * Node sprawdzić RZECZY NAJWAŻNIEJSZEJ w tym zadaniu: że rezygnacja faktycznie
- * zwija nadawanie, a powrót faktycznie je odtwarza. Atrapa nie udaje
- * negocjacji — tylko oddaje sterowanie z powrotem do sesji.
+ * Najmniejsza atrapa `RTCPeerConnection`, jaką przechodzą ścieżki używane
+ * w tym pliku: nadawanie (`callPeer` plus `createOutgoing`) i przyjęcie
+ * oferty (`ensureIncoming` plus `onSignal`, stąd `createAnswer`
+ * i `setRemoteDescription`). W gołym Node wywraca się WYKONANIE
+ * `new RTCPeerConnection`, nie import `session.ts` — i bez tej atrapy nie da
+ * się sprawdzić rzeczy najważniejszej w tym zadaniu: że rezygnacja naprawdę
+ * zwija nadawanie, a powrót naprawdę je odtwarza. Atrapa nie udaje
+ * negocjacji, tylko oddaje sterowanie z powrotem do sesji.
  */
 class FakeConnection {
   static readonly all: FakeConnection[] = []
@@ -161,10 +167,6 @@ class FakeConnection {
 
   setLocalDescription(): Promise<void> {
     return Promise.resolve()
-  }
-
-  getSenders(): RTCRtpSender[] {
-    return []
   }
 
   close(): void {
@@ -208,7 +210,7 @@ test('rezygnacja widza zwija nadawanie, a jego powrót znów wysyła ofertę', a
     fire('signal', 'michal', { kind: 'subscribe', streamKind: 'screen' })
     await flush()
     expect(sent).toHaveLength(2)
-    expect(sent[1]).toEqual({
+    expect(sent[1]).toStrictEqual({
       to: 'michal',
       payload: { kind: 'offer', sdp: 'sdp-atrapa', owner: 'ja', stream: 'screen' }
     })
@@ -241,7 +243,7 @@ test('rezygnacja zamyka NASZE połączenie przychodzące i zapomina o nim', asyn
     expect(inbound()).toBe(0)
     // A do nadawcy i tak leci prośba, żeby przestał — inaczej pasmo dalej
     // by płynęło.
-    expect(sent.at(-1)).toEqual({
+    expect(sent.at(-1)).toStrictEqual({
       to: 'michal',
       payload: { kind: 'unsubscribe', streamKind: 'screen' }
     })

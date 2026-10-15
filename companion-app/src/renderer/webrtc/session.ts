@@ -1,7 +1,12 @@
 import type { StreamKind, StreamRef } from '../../shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS } from '../../shared/types'
 import { freezeDelta, type FreezeReport } from '../../shared/viewerQuality'
-import { subscribePayload, unsubscribePayload } from './signalCompat'
+import {
+  subscribePayload,
+  type SubscribePayload,
+  unsubscribePayload,
+  type UnsubscribePayload
+} from './signalCompat'
 import type {
   JoinResult,
   PeerInfo,
@@ -110,12 +115,17 @@ type SignalPayload =
    * Widz rezygnuje z odbioru tego strumienia albo wraca do niego.
    *
    * CELOWO bez pola `stream` — ta sama reguła zgodności co przy `quality`
-   * wyżej. Rodzaj jedzie w `streamKind`, a treść tych wiadomości powstaje
-   * w `signalCompat.ts`, gdzie da się ją sprawdzić testem w gołym Node —
-   * patrz `test/signal-compat.test.ts`.
+   * wyżej. Rodzaj jedzie w `streamKind`; uzasadnienie i test nazwy pola
+   * siedzą w `signalCompat.ts` i `test/signal-compat.test.ts`.
+   *
+   * Typy BIERZEMY stamtąd, a nie przepisujemy tu literałami. `signal` przenosi
+   * `payload` jako `unknown`, więc tsc nie ma czego porównać między wysyłaniem
+   * i odczytem: przy dwóch niezależnych definicjach zmiana nazwy pola po
+   * stronie `signalCompat.ts` przeszłaby przez kompilację, a `payload.streamKind`
+   * czytane niżej byłoby po cichu `undefined`.
    */
-  | { kind: 'unsubscribe'; streamKind: StreamKind }
-  | { kind: 'subscribe'; streamKind: StreamKind }
+  | UnsubscribePayload
+  | SubscribePayload
 
 /**
  * Kandydaci ICE potrafią dotrzeć zanim ustawimy zdalny opis sesji —
@@ -571,8 +581,18 @@ export class LobbySession {
    * Nie trzyma śladu „z tego zrezygnowałem": `closeIncoming` kończy się
    * `markReachability(..., false)`, czyli czyści wpis o awarii, a `close()`
    * (WebRTC 1.0) nie emituje `connectionstatechange`, więc nasłuch nie
-   * dorobi nowego. Zrezygnowanie z odbioru nie zapala ostrzeżenia o awarii
-   * samo z siebie i nie ma czego tłumić.
+   * dorobi nowego. U NAS rezygnacja nie zapala więc ostrzeżenia o awarii
+   * i nie ma czego tłumić.
+   *
+   * W MIESZANYM POKOJU oszczędność jest połowiczna i to jest zapisane tutaj,
+   * żeby nie wyszło ze zgłoszenia użytkownika. Nadawca na 0.3.3 (i starszej)
+   * nie ma gałęzi `unsubscribe` w `onSignal`, więc wiadomość zignoruje
+   * i utrzyma swoje połączenie wychodzące: pasmo dalej płynie, a my
+   * oszczędzamy TYLKO dekodowanie u siebie. Co gorsza, po utracie consent
+   * freshness to porzucone połączenie przejdzie u niego w `failed`, odpali
+   * nasłuch z `createOutgoing` i zapali mu plakietkę „Brak połączenia" przy
+   * osobie, która tylko schowała kafelek. Po naszej stronie nie da się tego
+   * naprawić — stary klient musiałby umieć `unsubscribe`.
    */
   unsubscribeFrom(peerId: string, kind: StreamKind): void {
     // Własną stronę zwijamy BEZ WARUNKU — to nasz stan i trzeba go sprzątnąć

@@ -12,9 +12,14 @@ import { unsubscribePayload } from '../src/renderer/webrtc/signalCompat'
  * Przy polu `streamKind` klucz wychodzi „peer:undefined", nie pasuje do
  * żadnego bufora, operator `?.` wycisza wywołanie i stary klient ignoruje
  * wiadomość DOWODNIE. Gdyby pole nazywało się `stream`, klucz trafiłby
- * w prawdziwy bufor i wywołał `addIceCandidate(undefined)`, co w WebRTC znaczy
- * „koniec kandydatów" — w środku uzgadniania mogłoby to zepsuć zestawianie
- * połączenia u kogoś, kto nawet nie ma tej funkcji.
+ * w prawdziwy bufor.
+ *
+ * Okno szkody jest przy tym WĘŻSZE, niż wygląda, i warto je znać dokładnie:
+ * dopóki bufor czeka na `setRemoteDescription`, `add` tylko odkłada
+ * `undefined` do kolejki, a `flush()` ma `if (candidate)` i po cichu je
+ * wyrzuca. Groźna jest ścieżka PO `setRemoteDescription`: tam `add` woła już
+ * `addIceCandidate(undefined)`, co w WebRTC znaczy „koniec kandydatów" —
+ * u kogoś, kto o tej funkcji nawet nie wie.
  *
  * Ten sam wzorzec i z tego samego powodu ma wiadomość `quality` z 0.3.1 —
  * patrz jej komentarz w `session.ts`.

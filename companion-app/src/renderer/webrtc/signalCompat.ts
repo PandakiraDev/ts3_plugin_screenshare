@@ -1,16 +1,30 @@
 import type { StreamKind } from '../../shared/types'
 
-/**
- * Treść wiadomości o rezygnacji z odbioru i o powrocie do odbioru.
- *
- * Osobny plik, a nie `session.ts`: tamten ciągnie typy przeglądarkowe, a ta
- * część musi dać się sprawdzić testem w gołym Node — bo właśnie ona decyduje
- * o zgodności ze starszymi wersjami aplikacji.
+/*
+ * Osobny moduł, a nie kawałek `session.ts`: reguła zgodności wstecz siedzi
+ * tu w kilkunastu linijkach z własnym testem obok, zamiast tonąć w ośmiuset
+ * linijkach sesji. Importu `session.ts` goły Node by zniósł — wywraca się
+ * dopiero WYKONANIE `new RTCPeerConnection` — więc nie o to chodzi.
  */
-export interface SubscriptionPayload {
-  kind: 'unsubscribe' | 'subscribe'
+
+/** Widz rezygnuje z odbioru tego strumienia. */
+export interface UnsubscribePayload {
+  kind: 'unsubscribe'
   streamKind: StreamKind
 }
+
+/** Widz wraca do odbioru tego strumienia. */
+export interface SubscribePayload {
+  kind: 'subscribe'
+  streamKind: StreamKind
+}
+
+/*
+ * Dwa osobne interfejsy, a nie jeden z unią w polu `kind`: `SignalPayload`
+ * w `session.ts` zwęża się po `payload.kind`, a to działa tylko wtedy, gdy
+ * każdy wariant unii ma w tym polu JEDEN literał.
+ */
+export type SubscriptionPayload = UnsubscribePayload | SubscribePayload
 
 /*
  * Pole nazywa się `streamKind`, a NIE `stream`, i to jest warunek zgodności
@@ -21,10 +35,10 @@ export interface SubscriptionPayload {
  * ze starszą wersją aplikacji, jako nieudane zestawianie połączenia, i nikt nie
  * powiązałby tego z tą zmianą.
  */
-export function unsubscribePayload(streamKind: StreamKind): SubscriptionPayload {
+export function unsubscribePayload(streamKind: StreamKind): UnsubscribePayload {
   return { kind: 'unsubscribe', streamKind }
 }
 
-export function subscribePayload(streamKind: StreamKind): SubscriptionPayload {
+export function subscribePayload(streamKind: StreamKind): SubscribePayload {
   return { kind: 'subscribe', streamKind }
 }
