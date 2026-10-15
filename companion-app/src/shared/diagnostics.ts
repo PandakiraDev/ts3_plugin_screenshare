@@ -118,9 +118,12 @@ export type StreamColumn = keyof StreamRates | 'qualityLimitationReason'
 /**
  * Których kierunków dotyczy dana kolumna.
  *
- * Każdy wiersz ma STRUKTURALNIE puste cztery z sześciu kolumn klatkowych, bo
- * liczniki pochodzą z trzech różnych źródeł, a na drugim kierunku tych źródeł
- * nie ma wcale (patrz `useDiagnosticsReporter`):
+ * Każdy wiersz ma STRUKTURALNIE puste kolumny, bo liczniki pochodzą z trzech
+ * różnych źródeł, a na drugim kierunku tych źródeł nie ma wcale (patrz
+ * `useDiagnosticsReporter`). Rozkład NIE jest symetryczny: wiersz nadawania ma
+ * puste cztery z sześciu kolumn klatkowych, a wiersz odbioru dwie — bo klatki
+ * wystawione i porzucone istnieją tylko po stronie odbierającej, a powód
+ * ograniczenia tylko po nadającej.
  *
  * - `receivedPerS`, `decodedPerS` — z wpisu `inbound-rtp`, którego na
  *   połączeniu wychodzącym nie ma;
