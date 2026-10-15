@@ -247,7 +247,8 @@ export function applyTileOrder<T>(
 export function moveTile(order: readonly string[], fromKey: string, toIndex: number): string[]
 
 /* UWAGA: `applyTileOrder` jest generyczna i bierze `keyOf` — patrz „Kolejność
-   działań w potoku". Pracuje raz na `Tile[]`, raz na wierszach z przejścia. */
+   działań w potoku". Wołana RAZ, ale na wierszach `{ item, leaving }`
+   z przejścia wyjścia, więc klucz siedzi o poziom głębiej. */
 
 /**
  * Przycina ukryte i kolejność do kafelków, które nadal są nadawane.
