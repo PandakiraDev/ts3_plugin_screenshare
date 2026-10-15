@@ -15,8 +15,10 @@ interface StreamTileProps {
   zoomed: boolean
   onToggleZoom: () => void
   /**
-   * Ukryj ten kafelek w SWOJEJ siatce. `undefined` znaczy „tego kafelka nie da
-   * się ukryć" — wtedy guzika nie ma wcale, zamiast nieaktywnego.
+   * Ukryj ten kafelek w SWOJEJ siatce, krzyżykiem na samym kafelku. `undefined`
+   * znaczy tylko „ten kafelek nie ma krzyżyka" — wtedy guzika nie ma wcale,
+   * zamiast nieaktywnego. NIE znaczy „nie da się go ukryć": ukrywać można też
+   * oczkiem w liście uczestników, niezależnie od tego propsa.
    */
   onHide?: () => void
 }

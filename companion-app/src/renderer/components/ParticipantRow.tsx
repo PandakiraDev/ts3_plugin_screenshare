@@ -33,7 +33,6 @@ function StreamEyeButton({ kind, hidden, onToggle }: StreamEyeButtonProps): JSX.
       onClick={onToggle}
       title={label}
       aria-label={label}
-      aria-pressed={hidden}
     >
       <span aria-hidden="true">{hidden ? '🚫' : '👁'}</span>
     </button>

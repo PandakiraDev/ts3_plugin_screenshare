@@ -300,14 +300,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * nadaje, a „Odbieranie obrazu…" nie pokazałoby się nigdy.
    */
   const emptyGridText =
-    EMPTY_GRID_TEXT[
-      emptyGridMessage({
-        streamCount: lobby.state.streams.length,
-        hiddenCount: lobby.state.streams.filter((stream) =>
-          hidden.has(connectionKey(stream.peerId, stream.kind))
-        ).length
-      })
-    ]
+    EMPTY_GRID_TEXT[emptyGridMessage({ streams: lobby.state.streams, hidden })]
 
   return (
     <div className="app">

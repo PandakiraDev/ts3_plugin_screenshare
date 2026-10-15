@@ -162,14 +162,22 @@ export type EmptyGridMessage = 'nobody-streaming' | 'connecting' | 'all-hidden'
  * z ukrywaniem i bez niego pusta siatka po ukryciu wszystkiego mówiłaby
  * „Odbieranie obrazu…" bez końca — czyli kłamała, i to w jedynym miejscu,
  * w którym człowiek szuka wyjaśnienia.
+ *
+ * Dostaje DANE, a nie gotowe liczby, bo właśnie w liczeniu da się pomylić:
+ * `streams` to strumienie ogłoszone przez serwer (nie kafelki, które powstają
+ * dopiero po dotarciu obrazu), a ukrycie sprawdzamy dla każdego z nich osobno,
+ * nie przez rozmiar zbioru `hidden` — ten może zawierać klucze strumieni,
+ * których już nie ma, i zawyżałby wynik.
  */
 export function emptyGridMessage(input: {
-  streamCount: number
-  hiddenCount: number
+  streams: readonly { peerId: string; kind: StreamKind }[]
+  hidden: ReadonlySet<string>
 }): EmptyGridMessage {
-  if (input.streamCount === 0) return 'nobody-streaming'
-  if (input.hiddenCount >= input.streamCount) return 'all-hidden'
-  return 'connecting'
+  if (input.streams.length === 0) return 'nobody-streaming'
+  const allHidden = input.streams.every(
+    (stream) => hiddenKindsFor(stream.peerId, input.hidden)[stream.kind]
+  )
+  return allHidden ? 'all-hidden' : 'connecting'
 }
 
 /**

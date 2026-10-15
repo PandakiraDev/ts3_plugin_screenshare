@@ -227,21 +227,67 @@ test('ukrycie wszystkich strumieni NIE mówi, że nikt nie nadaje', () => {
   // pusta siatka wygląda wtedy tak samo jak siatka, w której nikt nie nadaje.
   // Komunikat, który tego nie rozróżnia, nie podpowiada wyjścia — człowiek
   // uznałby to za awarię, a nie za skutek własnego kliknięcia.
-  expect(emptyGridMessage({ streamCount: 2, hiddenCount: 2 })).toBe('all-hidden')
+  const streams = [
+    { peerId: 'a', kind: 'screen' as const },
+    { peerId: 'a', kind: 'camera' as const }
+  ]
+  const hidden = new Set([connectionKey('a', 'screen'), connectionKey('a', 'camera')])
+  expect(emptyGridMessage({ streams, hidden })).toBe('all-hidden')
+})
+
+test('własny i cudzy strumień, oba ukryte: wszystko ukryte', () => {
+  // Własne strumienie są na liście ogłoszonych tak samo jak cudze, więc
+  // ukrycie własnego podglądu i cudzego ekranu razem opróżnia siatkę.
+  const streams = [
+    { peerId: 'ja', kind: 'screen' as const },
+    { peerId: 'a', kind: 'screen' as const }
+  ]
+  const hidden = new Set([connectionKey('ja', 'screen'), connectionKey('a', 'screen')])
+  expect(emptyGridMessage({ streams, hidden })).toBe('all-hidden')
 })
 
 test('brak strumieni mówi, że nikt nie nadaje', () => {
-  expect(emptyGridMessage({ streamCount: 0, hiddenCount: 0 })).toBe('nobody-streaming')
+  expect(emptyGridMessage({ streams: [], hidden: new Set() })).toBe('nobody-streaming')
 })
 
 test('strumienie są, ale obraz jeszcze nie doszedł', () => {
-  expect(emptyGridMessage({ streamCount: 1, hiddenCount: 0 })).toBe('connecting')
+  expect(
+    emptyGridMessage({ streams: [{ peerId: 'a', kind: 'screen' }], hidden: new Set() })
+  ).toBe('connecting')
 })
 
 test('część ukryta, a reszta jeszcze nie doszła', () => {
   // Jeden ukryty i jeden w drodze: siatka jest pusta, ale nie dlatego, że
   // wszystko ukryto — podpowiedź o oczku byłaby tu myląca.
-  expect(emptyGridMessage({ streamCount: 2, hiddenCount: 1 })).toBe('connecting')
+  const streams = [
+    { peerId: 'a', kind: 'screen' as const },
+    { peerId: 'b', kind: 'screen' as const }
+  ]
+  expect(emptyGridMessage({ streams, hidden: new Set([connectionKey('a', 'screen')]) })).toBe(
+    'connecting'
+  )
+})
+
+test('ukryty ekran nie ukrywa kamery tej samej osoby', () => {
+  // Ekran i kamera to osobne strumienie z osobnymi kluczami. Ukrycie jednego
+  // nie może zaliczyć drugiego do ukrytych, bo siatka wygląda wtedy na pustą
+  // z powodu, który nie istnieje.
+  const streams = [
+    { peerId: 'a', kind: 'screen' as const },
+    { peerId: 'a', kind: 'camera' as const }
+  ]
+  expect(emptyGridMessage({ streams, hidden: new Set([connectionKey('a', 'screen')]) })).toBe(
+    'connecting'
+  )
+})
+
+test('wpis po strumieniu, którego już nie ma, nie liczy się jako ukryty', () => {
+  // Zbiór ukrytych bywa dłuższy niż lista strumieni: ktoś zakończył nadawanie,
+  // a jego klucz został. Liczenie rozmiaru zbioru uznałoby jedyny, jeszcze
+  // niedoszły strumień za ukryty i odesłało człowieka do oczka, którego nie ma.
+  const streams = [{ peerId: 'a', kind: 'screen' as const }]
+  const hidden = new Set([connectionKey('x', 'screen')])
+  expect(emptyGridMessage({ streams, hidden })).toBe('connecting')
 })
 
 test('rodzaje ukryte u danej osoby', () => {
