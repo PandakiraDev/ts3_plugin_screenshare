@@ -74,7 +74,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     lobby,
     allViewersStruggling([...viewerQuality.values()])
   )
-  const { startStream, stopStream, replaceStream, applyQuality } = lobby
+  const { startStream, stopStream, replaceStream, applyQuality, setStreamSubscribed } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
   const sharingCamera = lobby.state.myStreamKinds.includes('camera')
@@ -124,14 +124,23 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
 
   // Też hook, więc stoi przed instrukcjami `return` z tego samego powodu co
   // `useLeaveTransition` wyżej.
-  const toggleHidden = useCallback((tileKey: string) => {
-    setHidden((current) => {
-      const next = new Set(current)
-      if (next.has(tileKey)) next.delete(tileKey)
-      else next.add(tileKey)
-      return next
-    })
-  }, [])
+  const toggleHidden = useCallback(
+    (tileKey: string, peerId: string, kind: StreamKind, isMe: boolean) => {
+      // Kierunek liczymy z `hidden` PRZED aktualizacją, a nie w jej środku:
+      // aktualizator musi być czysty (React w StrictMode wywołuje go w dev dwa razy),
+      // a wiadomość do sieci czystą nie jest — poszłyby dwie na jedno kliknięcie.
+      const hiding = !hidden.has(tileKey)
+      setHidden((current) => {
+        const next = new Set(current)
+        if (hiding) next.add(tileKey)
+        else next.delete(tileKey)
+        return next
+      })
+      // Własny podgląd jest lokalny — nie ma od kogo przestać go odbierać.
+      if (!isMe) setStreamSubscribed(peerId, kind, !hiding)
+    },
+    [hidden, setStreamSubscribed]
+  )
 
   /*
    * UWAGA: musi stać tutaj, przed instrukcjami `return` niżej. LobbyView
@@ -414,7 +423,9 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     isMe={row.item.isMe}
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
-                    onHide={() => toggleHidden(row.item.tileKey)}
+                    onHide={() =>
+                      toggleHidden(row.item.tileKey, row.item.peerId, row.item.kind, row.item.isMe)
+                    }
                     onToggleZoom={() =>
                       setZoomed((current) => (current === row.item.tileKey ? null : row.item.tileKey))
                     }
@@ -430,7 +441,9 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           onToggle={() => setPanelCollapsed((current) => !current)}
           roomFingerprint={roomFingerprint}
           hidden={hidden}
-          onToggleStream={(peerId, kind) => toggleHidden(connectionKey(peerId, kind))}
+          onToggleStream={(peerId, kind, isMe) =>
+            toggleHidden(connectionKey(peerId, kind), peerId, kind, isMe)
+          }
         />
 
         {settingsOpen && (

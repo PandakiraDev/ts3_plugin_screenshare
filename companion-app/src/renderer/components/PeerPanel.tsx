@@ -18,7 +18,11 @@ interface PeerPanelProps {
   roomFingerprint: { short: string; derivedFrom: string } | null
   /** `tileKey` strumieni ukrytych u nas — z tego wiersze wiedzą, które oczka są zgaszone. */
   hidden: ReadonlySet<string>
-  onToggleStream: (peerId: string, kind: StreamKind) => void
+  /**
+   * `isMe` jedzie razem z `peerId`, bo wołający musi odróżnić nasz własny wiersz:
+   * własny podgląd jest lokalny, więc nie ma od kogo przestać go odbierać.
+   */
+  onToggleStream: (peerId: string, kind: StreamKind, isMe: boolean) => void
 }
 
 /**
@@ -60,7 +64,7 @@ export function PeerPanel({
       view={row.item}
       leaving={row.leaving}
       hiddenKinds={hiddenKindsFor(row.item.peerId, hidden)}
-      onToggleStream={(kind) => onToggleStream(row.item.peerId, kind)}
+      onToggleStream={(kind) => onToggleStream(row.item.peerId, kind, row.item.isMe)}
     />
   )
 

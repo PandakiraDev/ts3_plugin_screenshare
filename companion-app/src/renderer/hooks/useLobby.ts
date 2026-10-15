@@ -150,6 +150,12 @@ export interface Lobby {
    * przerysowywać interfejs przy każdej próbce.
    */
   diagnosticConnections: () => DiagnosticConnection[]
+  /**
+   * Włącza i wyłącza odbiór pojedynczego strumienia.
+   *
+   * Metoda, nie stan: to rozkaz do sesji WebRTC, a nie dana do wyrenderowania.
+   */
+  setStreamSubscribed: (peerId: string, kind: StreamKind, subscribed: boolean) => void
 }
 
 /**
@@ -319,6 +325,17 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
     []
   )
 
+  const setStreamSubscribed = useCallback(
+    (peerId: string, kind: StreamKind, subscribed: boolean): void => {
+      // Brak sesji = nic nie odbieramy, więc nie ma z czego rezygnować ani do czego wracać.
+      const session = sessionRef.current
+      if (!session) return
+      if (subscribed) session.subscribeTo(peerId, kind)
+      else session.unsubscribeFrom(peerId, kind)
+    },
+    []
+  )
+
   return {
     state,
     startStream,
@@ -327,6 +344,7 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
     applyQuality,
     uplinkLimited,
     reportQualityToStreamers,
-    diagnosticConnections
+    diagnosticConnections,
+    setStreamSubscribed
   }
 }
