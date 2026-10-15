@@ -3,8 +3,10 @@ import {
   applyTileOrder,
   forgetMissingTiles,
   moveTile,
+  orderAfterDrop,
   pruneLayout,
   visibleTiles,
+  type TileCenter,
   type TileLayout
 } from '../src/shared/tileLayout'
 import type { Tile } from '../src/renderer/hooks/useLobby'
@@ -356,4 +358,76 @@ test('pruneLayout przycina OBA zbiory i nie rusza wejścia', () => {
   // Wejście zostaje takie, jakie było: stan Reacta nie może być mutowany.
   expect([...before.hidden]).toEqual(['c:screen', 'x:screen', 'a:screen'])
   expect(before.order).toEqual(['b:screen', 'y:camera', 'c:screen', 'a:screen'])
+})
+
+/*
+ * `orderAfterDrop`: nowa kolejność po upuszczeniu kafelka. Środki to układ 2x2:
+ *   a(0,0)   b(100,0)
+ *   c(0,100) d(100,100)
+ * Punkty upuszczenia są dobrane tak, żeby odległość liczona po SAMYM x albo
+ * SAMYM y wskazywała inny kafelek niż odległość euklidesowa.
+ */
+const GRID_2X2: TileCenter[] = [
+  { key: 'a', x: 0, y: 0 },
+  { key: 'b', x: 100, y: 0 },
+  { key: 'c', x: 0, y: 100 },
+  { key: 'd', x: 100, y: 100 }
+]
+
+test('upuszczenie zajmuje miejsce najbliższego środka, liczonego w obu osiach', () => {
+  // Punkt (10, 90): po samym x remisują a i c (wygrałby pierwszy, `a`), po
+  // samym y — c i d. Najbliższy naprawdę jest `c`, więc `d` wchodzi na jego miejsce.
+  expect(orderAfterDrop(GRID_2X2, 'd', { x: 10, y: 90 })).toEqual(['a', 'b', 'd', 'c'])
+  // Punkt (95, 10): po samym y remisują a i b (wygrałby `a`), najbliższy jest `b`.
+  expect(orderAfterDrop(GRID_2X2, 'c', { x: 95, y: 10 })).toEqual(['a', 'c', 'b', 'd'])
+})
+
+test('przeciągnięcie w dół zajmuje miejsce za celem, w górę — przed nim', () => {
+  // Kafelek zajmuje POZYCJĘ celu, więc kierunek decyduje, po której stronie
+  // sąsiada wyląduje. Kolejność `b, c, a` nie jest ani rosnąca, ani malejąca.
+  const centers: TileCenter[] = [
+    { key: 'b', x: 0, y: 0 },
+    { key: 'c', x: 100, y: 0 },
+    { key: 'a', x: 200, y: 0 }
+  ]
+  expect(orderAfterDrop(centers, 'b', { x: 205, y: 0 })).toEqual(['c', 'a', 'b'])
+  expect(orderAfterDrop(centers, 'a', { x: -5, y: 0 })).toEqual(['a', 'b', 'c'])
+})
+
+test('upuszczenie na samego siebie niczego nie zmienia', () => {
+  const centers: TileCenter[] = [
+    { key: 'b', x: 0, y: 0 },
+    { key: 'c', x: 100, y: 0 },
+    { key: 'a', x: 200, y: 0 }
+  ]
+  expect(orderAfterDrop(centers, 'c', { x: 90, y: 10 })).toEqual(['b', 'c', 'a'])
+})
+
+test('remis odległości rozstrzyga pierwszy na liście', () => {
+  const centers: TileCenter[] = [
+    { key: 'b', x: 0, y: 0 },
+    { key: 'c', x: 100, y: 0 },
+    { key: 'a', x: 200, y: 0 }
+  ]
+  // Punkt (50, 0) jest równo odległy od `b` i `c`; ciągnięty `a` zajmuje miejsce `b`.
+  expect(orderAfterDrop(centers, 'a', { x: 50, y: 0 })).toEqual(['a', 'b', 'c'])
+})
+
+test('brak ciągniętego kafelka wśród narysowanych nie daje żadnej kolejności', () => {
+  // Kafelek mógł zniknąć w trakcie gestu. Bez tego `moveTile` dostałby klucz,
+  // którego nie ma, oddałby kopię wejścia i zapisalibyśmy kolejność, o którą
+  // nikt nie prosił. `null` znaczy „nic nie zapisuj".
+  expect(orderAfterDrop(GRID_2X2, 'zniknal', { x: 0, y: 0 })).toBeNull()
+  expect(orderAfterDrop([], 'a', { x: 0, y: 0 })).toBeNull()
+})
+
+test('wynik jest permutacją narysowanych kluczy i niczego nie dopisuje', () => {
+  /*
+   * To jest powód, dla którego `LobbyView` nie woła tej funkcji przy
+   * powiększeniu: siatka ma wtedy JEDEN narysowany kafelek, więc wynik ma
+   * jeden klucz, a zapisany jako kolejność wyrzuciłby z niej wszystkie
+   * pozostałe — po wyjściu z powiększenia poleciałyby na koniec. Funkcja
+   * przestawia tylko to, co dostała; pilnuje tego wywołujący.
+   */
+  expect(orderAfterDrop([{ key: 'b', x: 0, y: 0 }], 'b', { x: 5, y: 5 })).toEqual(['b'])
 })

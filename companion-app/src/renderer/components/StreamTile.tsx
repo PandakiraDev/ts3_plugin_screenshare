@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { StreamKind } from '@shared/types'
 
 interface StreamTileProps {
+  /**
+   * Klucz tego kafelka w siatce (`connectionKey(peerId, kind)`), wystawiony
+   * w DOM-ie jako `data-tile-key`: po nim `LobbyView` rozpoznaje kafelek pod
+   * wskaźnikiem przy upuszczaniu. Przychodzi z zewnątrz, a nie składa się
+   * tu z `peerId` i `kind` — inaczej istniałyby dwa źródła tej samej prawdy.
+   */
+  tileKey: string
   stream: MediaStream
   /** Czyj to strumień — po tym hook diagnostyczny dopasowuje element `<video>`. */
   peerId: string
@@ -13,6 +20,8 @@ interface StreamTileProps {
   /** Nadawca zakończył transmisję i kafelek właśnie odjeżdża. */
   leaving: boolean
   zoomed: boolean
+  /** Ten kafelek jest właśnie przeciągany — przygaszamy go, żeby gest było widać. */
+  dragged: boolean
   onToggleZoom: () => void
   /**
    * Ukryj ten kafelek w SWOJEJ siatce, krzyżykiem na samym kafelku. `undefined`
@@ -21,6 +30,12 @@ interface StreamTileProps {
    * oczkiem w liście uczestników, niezależnie od tego propsa.
    */
   onHide?: () => void
+  /**
+   * Zaczyna przeciąganie tego kafelka. `undefined` znaczy „nie da się go teraz
+   * przestawić" (jest powiększony albo dogasa) — wtedy uchwytu nie ma wcale,
+   * zamiast nieaktywnego.
+   */
+  onDragStart?: (event: ReactPointerEvent<HTMLElement>) => void
 }
 
 /**
@@ -28,6 +43,7 @@ interface StreamTileProps {
  * chcieć słuchać jednej osoby, a drugą tylko oglądać.
  */
 export function StreamTile({
+  tileKey,
   stream,
   peerId,
   name,
@@ -35,8 +51,10 @@ export function StreamTile({
   isMe,
   leaving,
   zoomed,
+  dragged,
   onToggleZoom,
-  onHide
+  onHide,
+  onDragStart
 }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [volume, setVolume] = useState(1)
@@ -61,7 +79,12 @@ export function StreamTile({
   }, [isMe, muted, volume])
 
   return (
-    <div className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}`}>
+    <div
+      className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}${
+        dragged ? ' tile--dragged' : ''
+      }`}
+      data-tile-key={tileKey}
+    >
       {onHide && (
         <button
           type="button"
@@ -71,6 +94,30 @@ export function StreamTile({
           aria-label="Ukryj ten kafelek u siebie"
         >
           <span aria-hidden="true">✕</span>
+        </button>
+      )}
+
+      {/*
+        Uchwyt przeciągania, rodzeństwo sceny (tak jak krzyżyk), nie jej dziecko:
+        dzięki temu zdarzenia wskaźnika nie wchodzą w handler powiększenia.
+
+        Przestawianie jest CELOWO dostępne tylko wskaźnikiem. Uchwyt wypada
+        z kolejności tabulacji i z drzewa dostępności (`tabIndex={-1}`,
+        `aria-hidden`), żeby klawiatura nie prowadziła do kontrolki, która z niej
+        nie działa. To wybór dla tej wersji, nie przeoczenie: krzyżyk, powiększenie
+        i oczko w liście uczestników są osiągalne z klawiatury, a samo przestawianie
+        jest wygodą, nie jedyną drogą do jakiejkolwiek funkcji.
+      */}
+      {onDragStart && (
+        <button
+          type="button"
+          className="tile__grip"
+          onPointerDown={onDragStart}
+          tabIndex={-1}
+          aria-hidden="true"
+          title="Przeciągnij, żeby zmienić kolejność"
+        >
+          <span aria-hidden="true">⠿</span>
         </button>
       )}
 

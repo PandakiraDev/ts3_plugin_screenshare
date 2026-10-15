@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { UpdateState } from '@shared/update'
@@ -25,7 +31,14 @@ import {
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 import { shortRoomFingerprint } from '@shared/diagnostics'
-import { applyTileOrder, pruneLayout, visibleTiles, type TileLayout } from '@shared/tileLayout'
+import {
+  applyTileOrder,
+  orderAfterDrop,
+  pruneLayout,
+  visibleTiles,
+  type TileCenter,
+  type TileLayout
+} from '@shared/tileLayout'
 import { connectionKey } from '../webrtc/session'
 
 const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
@@ -76,6 +89,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    */
   const [layout, setLayout] = useState<TileLayout>(() => ({ hidden: new Set(), order: [] }))
   const { hidden, order } = layout
+  // Klucz przeciąganego kafelka albo `null`. Stan, a nie ref: od niego zależy
+  // wygląd (przygaszony kafelek, kursor na siatce), a przeciąganie ma jedno
+  // źródło prawdy zamiast pary ref plus stan, które mogłyby się rozjechać.
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
 
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
@@ -152,6 +170,90 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     },
     [hidden, setStreamSubscribed]
   )
+
+  /*
+   * Przeciąganie kafelka uchwytem. Zdarzenia wskaźnika, nie HTML5 drag-and-drop:
+   * ten rysuje własny obraz przeciąganego elementu, czego przy kafelku z żywym
+   * wideo nie da się opanować, nie działa sensownie z dotykiem i nie pozwala
+   * animować. Zwykłe funkcje, nie `useCallback`: nie są hookami, a świeże
+   * domknięcie za każdym renderem daje im aktualne `zoomed` i `draggingKey`.
+   */
+  const startTileDrag =
+    (tileKey: string) =>
+    (event: ReactPointerEvent<HTMLElement>): void => {
+      // Prawy i środkowy przycisk myszy nie zaczynają przeciągania.
+      if (event.button !== 0) return
+      event.preventDefault()
+      // Przechwycenie wskaźnika: bez niego ruch poza uchwyt gubi zdarzenia,
+      // a puszczenie przycisku poza kafelkiem nie dochodzi do siatki.
+      event.currentTarget.setPointerCapture(event.pointerId)
+      setDraggingKey(tileKey)
+    }
+
+  const endTileDrag = (event: ReactPointerEvent<HTMLElement>): void => {
+    // Handler wisi na całej siatce, więc łapie też zwykłe kliknięcia w kafelki.
+    if (draggingKey === null) return
+    const fromKey = draggingKey
+    setDraggingKey(null)
+
+    /*
+     * Zamek drugi z dwóch (pierwszy to brak `onDragStart` w kafelku przy
+     * powiększeniu). Przy powiększeniu siatka rysuje JEDEN kafelek, więc z jej
+     * dzieci wyszłaby kolejność o jednym kluczu, a zapisana wyrzuciłaby z układu
+     * wszystkie pozostałe: po wyjściu z powiększenia poleciałyby na koniec, w
+     * kolejności ze źródła, nie w ustawionej ręcznie. Całe ułożenie człowieka
+     * przepada po jednym geście.
+     *
+     * Żaden zamek sam nie wystarcza. Sam brak uchwytu nie obejmuje gestu, który
+     * zaczął się PRZED powiększeniem: przechwycenie wskaźnika nie blokuje
+     * klawiatury, a `.tile__stage` ma `role="button"` i reaguje na Enter, więc
+     * powiększenie włączy się w trakcie przeciągania. Sam ten zamek zostawiałby
+     * z kolei uchwyt na powiększonym kafelku: można by go chwycić, dostać kursor
+     * i przygaszenie, a po puszczeniu nic by się nie stało — funkcja wyglądałaby
+     * na zepsutą. Stan przeciągania gasimy wyżej przed tym wyjściem, żeby nie
+     * zostawał ustawiony.
+     */
+    if (zoomed) return
+
+    const grid = gridRef.current
+    if (!grid) return
+
+    /*
+     * Środki liczymy tylko dla dzieci z `data-tile-key`: dziecko bez klucza
+     * mogłoby zostać wybrane jako najbliższe, a kafelek wstawiłby się wtedy
+     * względem nieistniejącego celu.
+     *
+     * Bierzemy WSZYSTKIE narysowane, także wiersze jeszcze dogasające
+     * (`tile--leaving`, stoją w DOM-ie przez 400 ms). Nie odsiewać ich, choć ich
+     * klucze i tak wypadną przy przycinaniu: gdyby najbliższy okazał się wiersz
+     * spoza listy, indeks wyszedłby -1, `moveTile` przycięłby go do zera i
+     * kafelek wskoczyłby na początek, a nie tam, gdzie człowiek celował. Cena:
+     * klucz zakończonego strumienia może przez chwilę wejść do `order`;
+     * wyleczy się sam przy następnym przycięciu (`pruneLayout`), gdy nie będzie
+     * ani obecny, ani na ekranie.
+     *
+     * Znany minus, przyjęty: przeciągnięcie przepisuje `order` do kluczy
+     * AKTUALNIE NARYSOWANYCH, więc klucz, którego teraz nie ma na ekranie, traci
+     * zapamiętane miejsce i wróci na koniec. Dotyczy to ukrytego kafelka oraz
+     * strumienia ogłoszonego, ale jeszcze bez obrazu (połączenie zestawiane od
+     * nowa).
+     */
+    const centers: TileCenter[] = []
+    for (const element of grid.querySelectorAll<HTMLElement>(':scope > [data-tile-key]')) {
+      const key = element.dataset.tileKey
+      if (key === undefined) continue // selektor to wyklucza; to tylko dla typów
+      const box = element.getBoundingClientRect()
+      centers.push({ key, x: box.left + box.width / 2, y: box.top + box.height / 2 })
+    }
+
+    const nextOrder = orderAfterDrop(centers, fromKey, { x: event.clientX, y: event.clientY })
+    if (nextOrder !== null) setLayout((current) => ({ ...current, order: nextOrder }))
+  }
+
+  // Przerwany gest (np. system zabrał wskaźnik) to NIE upuszczenie: współrzędne
+  // takiego zdarzenia nie wskazują miejsca, w które człowiek celował, więc
+  // niczego nie przestawiamy.
+  const cancelTileDrag = (): void => setDraggingKey(null)
 
   /*
    * Zakończony strumień zapomina o sobie wszystko: wypada z ukrytych i z
@@ -292,6 +394,17 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   // którego nie ma w siatce, i została pusta scena bez drogi powrotu.
   useEffect(() => {
     if (zoomed && !shownTiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
+  })
+
+  // Przeciągany kafelek mógł zniknąć w trakcie gestu (koniec strumienia) albo
+  // gest zastało powiększenie. Wtedy puszczenie przycisku może nie dojść do
+  // siatki (przechwytujący element wyszedł z DOM-u), a bez tego kursor
+  // `grabbing` i przygaszenie zostałyby ustawione na stałe.
+  useEffect(() => {
+    if (draggingKey === null) return
+    if (zoomed || !tileRows.some((row) => row.item.tileKey === draggingKey)) {
+      setDraggingKey(null)
+    }
   })
 
   const confirmSelection = async (): Promise<void> => {
@@ -465,8 +578,12 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
             </div>
           ) : (
             <div
+              ref={gridRef}
               className={`siatka${zoomed ? ' siatka--zoom' : ''}`}
               data-ile={Math.min(tileRows.length, 4)}
+              data-dragging={draggingKey !== null ? '' : undefined}
+              onPointerUp={endTileDrag}
+              onPointerCancel={cancelTileDrag}
               /*
                * Osierocony ostatni kafelek: nieparzysta liczba przy układzie
                * dwukolumnowym. Liczymy TUTAJ, a nie w CSS po `data-ile`, bo
@@ -481,6 +598,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                 .map((row) => (
                   <StreamTile
                     key={row.item.tileKey}
+                    tileKey={row.item.tileKey}
                     stream={row.item.stream}
                     peerId={row.item.peerId}
                     name={row.item.label}
@@ -488,6 +606,17 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     isMe={row.item.isMe}
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
+                    dragged={draggingKey === row.item.tileKey}
+                    /*
+                     * Zamek pierwszy z dwóch (drugi w `endTileDrag`): przy
+                     * powiększeniu uchwytu nie ma wcale, bo jeden widoczny
+                     * kafelek nie ma czego przestawiać. Nie ma go też na
+                     * kafelku dogasającym — przestawianie czegoś, co znika,
+                     * nie ma sensu.
+                     */
+                    onDragStart={
+                      zoomed || row.leaving ? undefined : startTileDrag(row.item.tileKey)
+                    }
                     onHide={() =>
                       toggleHidden(row.item.tileKey, row.item.peerId, row.item.kind, row.item.isMe)
                     }

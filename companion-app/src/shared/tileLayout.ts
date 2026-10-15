@@ -152,3 +152,52 @@ export function pruneLayout(
     pruned.hidden.size === layout.hidden.size && pruned.order.length === layout.order.length
   return nothingForgotten ? layout : pruned
 }
+
+/** Środek narysowanego kafelka we współrzędnych okna. */
+export interface TileCenter {
+  key: string
+  x: number
+  y: number
+}
+
+/**
+ * Nowa kolejność po upuszczeniu kafelka `fromKey` w punkcie `point`: zajmuje
+ * on pozycję kafelka o NAJBLIŻSZYM środku. Przeciągnięty w dół/w prawo ląduje
+ * więc za celem, w górę/w lewo — przed nim; upuszczony na siebie nic nie
+ * zmienia.
+ *
+ * Liczy się ze ŚRODKÓW, nie z odstępów między kafelkami: środek jest
+ * jednoznaczny także wtedy, gdy kafelki mają różne rozmiary (powiększony,
+ * osierocony), a liczenie od krawędzi wymagałoby zgadywania, do której szczeliny
+ * człowiek celował. Remis odległości rozstrzyga pierwszy na liście.
+ *
+ * `centers` to WSZYSTKO, co jest narysowane, także wiersze jeszcze dogasające:
+ * tak widzi to człowiek i tylko wtedy najbliższy cel zawsze stoi na liście, więc
+ * indeks nigdy nie wypada poza nią (`moveTile` przycięłby -1 do zera i kafelek
+ * wskoczyłby na początek, a nie tam, gdzie celowano).
+ *
+ * Wynik jest permutacją kluczy z `centers` i niczego do nich nie dopisuje.
+ * Dlatego wywołujący nie może jej wołać, gdy narysowana jest tylko część
+ * układu (powiększenie zostawia jeden kafelek): zapisana kolejność miałaby
+ * wtedy jeden klucz i wyrzuciłaby wszystkie pozostałe.
+ *
+ * `null` = nie ma czego zapisywać (pusta lista albo ciągnięty kafelek zniknął
+ * w trakcie gestu); nie zwracamy kopii wejścia, żeby wywołujący nie zapisał
+ * kolejności, o którą nikt nie prosił.
+ */
+export function orderAfterDrop(
+  centers: readonly TileCenter[],
+  fromKey: string,
+  point: { x: number; y: number }
+): string[] | null {
+  if (!centers.some((center) => center.key === fromKey)) return null
+
+  const distance = (center: TileCenter): number =>
+    (center.x - point.x) ** 2 + (center.y - point.y) ** 2
+  const nearest = centers.reduce((best, center) =>
+    distance(center) < distance(best) ? center : best
+  )
+
+  const keys = centers.map((center) => center.key)
+  return moveTile(keys, fromKey, keys.indexOf(nearest.key))
+}
