@@ -135,11 +135,19 @@ ani sekundy, w której nadawca widzi widza, który zaraz zniknie.
 (prawda z sygnalizacji), a nie listę istniejących elementów `<video>` ani
 otwartych połączeń.
 
-To nie jest kosmetyka. Kafelek znika z DOM-u na 400 ms animacji wyjścia
-(`LEAVE_DURATION_MS`) i może zniknąć na czas ponownego uzgadniania. Przycinanie
-po stanie przejściowym zdejmowałoby ukrycie przy każdym mignięciu połączenia —
-cicha usterka tej samej klasy co te, które 0.3.3 łapało przez jedenaście
-przeglądów.
+To nie jest kosmetyka, ale uzasadnienie wymaga precyzji, bo pierwsza wersja tego
+akapitu miała je odwrócone.
+
+Kafelek **wisi w DOM-ie 400 ms PO** zakończeniu strumienia (`LEAVE_DURATION_MS`,
+przez `useLeaveTransition`) — nie znika na 400 ms, a zostaje dłużej, niż
+istnieje jego strumień. Stan DOM-u jest więc opóźniony względem prawdy
+i przycinanie po nim działałoby o 400 ms za późno.
+
+Ważniejszy jest jednak stan **połączeń WebRTC**: on potrafi mignąć w obie
+strony przy ponownym uzgadnianiu, a każde mignięcie zdjęłoby ukrycie. Prawda
+z sygnalizacji (`streamerRefs`) zmienia się wyłącznie na `start-stream`,
+`stream-stopped` i `peer-left` — czyli dokładnie wtedy, kiedy chcemy
+zapominać, i nigdy przy zadyszce sieci.
 
 ### Sterowanie w dwóch miejscach, bo jedno nie wystarcza
 
@@ -209,8 +217,10 @@ buildTiles(…) → visibleTiles(_, hidden) → useLeaveTransition → applyTile
   zanikania.
 
 Dlatego `applyTileOrder` jest **generyczna i bierze `keyOf`**, tak samo jak
-`useLeaveTransition`: pracuje na `Tile[]` przed przejściem i na
-`{ item, leaving }[]` po nim.
+`useLeaveTransition`: wołana jest **raz**, ale na wierszach
+`{ item, leaving }`, a nie na `Tile` — klucz siedzi wtedy o jeden poziom
+głębiej (`row.item.tileKey`). Bez generyczności trzeba by albo rozpakowywać
+wiersze i składać je z powrotem, albo napisać drugą, prawie identyczną funkcję.
 
 ### Nowy plik: `src/shared/tileLayout.ts`
 
