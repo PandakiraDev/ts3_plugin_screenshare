@@ -69,7 +69,18 @@ function appendLine(sample: DiagnosticsSample): void {
     if (ceilingReported) return
     ceilingReported = true
     try {
-      appendFileSync(logPath, JSON.stringify({ note: 'sufit rozmiaru osiągnięty' }) + '\n', 'utf8')
+      /*
+       * Notka też niesie znacznik czasu i instancję, bo to JEST linia tego
+       * pliku. Bez nich jest najgorszą linią w całym zapisie: mówi „dalej nic
+       * nie ma", a nie mówi ani od kiedy, ani które z dwóch okien zamilkło.
+       * Bierzemy jedno i drugie z próbki, która się nie zmieściła.
+       */
+      const note = {
+        at: sample.at,
+        instanceId: sample.instanceId,
+        note: 'sufit rozmiaru osiągnięty'
+      }
+      appendFileSync(logPath, JSON.stringify(note) + '\n', 'utf8')
     } catch {
       /* nic więcej nie zrobimy */
     }
