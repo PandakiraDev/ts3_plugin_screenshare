@@ -527,6 +527,21 @@ zostałaby zrobiona porządnie:
 | **C** | Powrót do lobby i zacinanie transmisji | 1, 3 |
 | **D** | Chowanie strumieni i układ ekranów | 4, 5 |
 
+### Sprostowanie zgłoszenia 4 (2026-10-15, od właściciela)
+
+„Możliwość wyłączenia swojego udostępnianego ekranu lub kamerki" NIE znaczy
+zakończenia transmisji. Znaczy: **transmisja leci dalej, ale swój własny
+kafelek znika z MOJEJ siatki**, bo podczas oglądania innych nie trzeba
+patrzyć na podgląd siebie.
+
+Było to przeczytane błędnie jako „zakończ udostępnianie" i ważne jest, żeby
+nie wrócić do tej pomyłki: przycisk kończący transmisję **już istnieje**
+(„Zakończ udostępnianie" w `LobbyView`), więc zbudowanie go po raz drugi nie
+rozwiązałoby niczego.
+
+W tym świetle zgłoszenia **4 i 5 są jedną rzeczą**, nie dwiema: sterowaniem
+tym, co widzisz w swojej siatce — własny podgląd, cudze strumienie, układ.
+
 Kolejność A → B → C → D, z jednym zastrzeżeniem, które wyszło w praniu:
 **B jest przyrządem pomiarowym dla A i C**, a nie tylko wygodną kolejnością.
 
@@ -679,6 +694,32 @@ brzmi „czy te flagi są potrzebne", a nie „czy brak skupienia szkodzi".
 dole listy uczestników pod paskiem zużycia, czy jedenaście kolumn tabeli mieści
 się w wąskim oknie, i czy panel nadąża z prawdziwym zegarem — sprawdzian nie
 otwiera panelu, bo czyta zapis i DOM, a nie interfejs.
+
+**Sonda o karcie graficznej (2026-10-15), wynik NEGATYWNY dla drogi
+niezależnej od producenta.** Przy planie „pasek zużycia dla każdego"
+`nvidia-smi` jest ślepą uliczką dla AMD i Intela. Zmierzone:
+
+- **liczniki wydajności Windows** (`\GPU Engine(*)\Utilization Percentage`,
+  to z nich czyta Menedżer zadań): **~3,9 s na jeden odczyt**, 901 instancji
+  liczników. To **84 razy** drożej niż `nvidia-smi` (46,5 ms). Do próbkowania
+  co sekundę nie nadaje się w żadnym wariancie;
+- **`Win32_VideoController.AdapterRAM` KŁAMIE**: dla RTX 4070 podaje 4095 MB
+  zamiast 12 GB (przepełnienie 32-bitowego pola). Nie używać do rozmiaru VRAM;
+- **rejestr** (`HardwareInformation.qwMemorySize` w kluczu klasy kart
+  graficznych): nazwa karty i rozmiar pamięci **poprawnie i tanio** — RTX 4070
+  → 12282 MB, zgodnie z `nvidia-smi`; koszt **6 ms**, raz przy starcie,
+  niezależnie od producenta.
+
+Stąd kształt: nazwa i VRAM z rejestru u każdego przy starcie; bieżące zużycie
+tylko tam, gdzie jest NVIDIA; **bez NVIDII nie odpytujemy wcale**. To ostatnie
+odwraca rozstrzygnięcie z 0.3.3, które świadomie NIE wygaszało odpytywania po
+awarii — uzasadnieniem było, że flaga jest narzędziem właściciela, a ten ma
+NVIDIĘ. Gdy pasek idzie do wszystkich, uzasadnienie upada: osoba z AMD
+uruchamiałaby skazany na porażkę proces co 5 sekund bez końca.
+
+Uwaga przy okazji: maszyna właściciela ma **trzy** kontrolery wideo (Meta
+Virtual Monitor, zintegrowana AMD, RTX 4070), więc „jaką kto ma kartę" nie ma
+jednej odpowiedzi i interfejs musi to znośnie pokazać.
 
 **Następny krok:** wrócić do kawałka A z zapisem z prawdziwej sesji ze
 zdalnym nadawcą i odpowiedzieć, które ogniwo łańcucha siada.
