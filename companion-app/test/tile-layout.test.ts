@@ -6,14 +6,17 @@ import {
   visibleTiles
 } from '../src/shared/tileLayout'
 import type { Tile } from '../src/renderer/hooks/useLobby'
+import { connectionKey } from '../src/renderer/webrtc/session'
 
 /**
  * Atrapa kafelka. `stream` jest rzutowany, bo `MediaStream` nie istnieje
- * w gołym Node — a te funkcje go nie dotykają, tylko przenoszą.
+ * w gołym Node — a te funkcje go nie dotykają, tylko przenoszą. Klucz składa
+ * `connectionKey`, tak jak `buildTiles` w prawdziwym kafelku, więc test nie
+ * utrwala własnej kopii formatu.
  */
 function tile(peerId: string, kind: 'screen' | 'camera'): Tile {
   return {
-    tileKey: `${peerId}:${kind}`,
+    tileKey: connectionKey(peerId, kind),
     peerId,
     kind,
     stream: null as unknown as MediaStream,
@@ -25,12 +28,18 @@ function tile(peerId: string, kind: 'screen' | 'camera'): Tile {
 const keyOf = (item: Tile): string => item.tileKey
 
 test('ukryty kafelek nie wychodzi, pozostałe zostają', () => {
-  // Kolejność źródłowa jest celowo ODWROTNIE alfabetyczna: filtr, który przy
-  // okazji sortuje po kluczu, przeszedłby ten test na danych ułożonych
-  // alfabetycznie.
-  const tiles = [tile('c', 'screen'), tile('a', 'screen'), tile('b', 'screen')]
-  const visible = visibleTiles(tiles, new Set(['a:screen']))
-  expect(visible.map(keyOf)).toEqual(['c:screen', 'b:screen'])
+  // Pozostałe trzy kafelki stoją w kolejności, która nie jest ani rosnąca, ani
+  // malejąca: filtr, który przy okazji sortuje po kluczu, w którąkolwiek
+  // stronę, zmieniłby wynik. Przy dwóch pozostałych taki układ nie istnieje —
+  // dwa elementy zawsze są posortowane w jedną ze stron.
+  const tiles = [
+    tile('b', 'screen'),
+    tile('d', 'screen'),
+    tile('c', 'screen'),
+    tile('a', 'screen')
+  ]
+  const visible = visibleTiles(tiles, new Set(['d:screen']))
+  expect(visible.map(keyOf)).toEqual(['b:screen', 'c:screen', 'a:screen'])
 })
 
 test('ukrycie ekranu nie ukrywa kamery tej samej osoby', () => {
@@ -43,9 +52,13 @@ test('ukrycie ekranu nie ukrywa kamery tej samej osoby', () => {
 })
 
 test('pusty zbiór ukrytych przepuszcza wszystko', () => {
-  // Odwrotnie alfabetycznie z tego samego powodu co wyżej.
-  const tiles = [tile('b', 'camera'), tile('a', 'screen')]
-  expect(visibleTiles(tiles, new Set()).map(keyOf)).toEqual(['b:camera', 'a:screen'])
+  // Kolejność nieposortowana w żadną stronę z tego samego powodu co wyżej.
+  const tiles = [tile('b', 'camera'), tile('c', 'screen'), tile('a', 'screen')]
+  expect(visibleTiles(tiles, new Set()).map(keyOf)).toEqual([
+    'b:camera',
+    'c:screen',
+    'a:screen'
+  ])
 })
 
 test('kolejność zapamiętana jest zachowana', () => {
@@ -181,23 +194,26 @@ test('zapominanie usuwa klucz nieobecny z OBU zbiorów', () => {
 })
 
 test('zapominanie zostawia obecne klucze nietknięte', () => {
-  // Kolejność zapamiętana jest odwrotnie alfabetyczna, więc nie pokrywa się ani
-  // z posortowaniem, ani z kolejnością w `presentKeys`.
+  // Ukryte i kolejność zapamiętana mają po trzy klucze ułożone ani rosnąco, ani
+  // malejąco, więc posortowanie w którąkolwiek stronę zmieniłoby wynik. Żaden
+  // z tych porządków nie pokrywa się też z kolejnością w `presentKeys`, więc
+  // nie da się go przy okazji odtworzyć z niej.
   const result = forgetMissingTiles(
-    new Set(['a:screen']),
-    ['b:camera', 'a:screen'],
-    new Set(['a:screen', 'b:camera'])
+    new Set(['b:screen', 'c:screen', 'a:screen']),
+    ['b:camera', 'c:screen', 'a:screen'],
+    new Set(['c:screen', 'b:camera', 'a:screen', 'b:screen'])
   )
-  expect([...result.hidden]).toEqual(['a:screen'])
-  expect(result.order).toEqual(['b:camera', 'a:screen'])
+  expect([...result.hidden]).toEqual(['b:screen', 'c:screen', 'a:screen'])
+  expect(result.order).toEqual(['b:camera', 'c:screen', 'a:screen'])
 })
 
 test('zapominanie zachowuje kolejność zapamiętaną, a nie kolejność obecnych', () => {
   // `presentKeys` to zbiór z sygnalizacji i jego kolejność nic nie znaczy;
   // ułożenie widza siedzi w `order`. Klucza `b` nie ma w `order`, więc nie
-  // wolno go tam dopisać, i nic nie wolno przestawić.
-  const result = forgetMissingTiles(new Set(), ['c', 'a'], new Set(['a', 'b', 'c']))
-  expect(result.order).toEqual(['c', 'a'])
+  // wolno go tam dopisać, i nic nie wolno przestawić. Kolejność `c, a, d` nie
+  // jest ani rosnąca, ani malejąca, więc sortowanie jej nie przepuści.
+  const result = forgetMissingTiles(new Set(), ['c', 'a', 'd'], new Set(['a', 'b', 'c', 'd']))
+  expect(result.order).toEqual(['c', 'a', 'd'])
   expect([...result.hidden]).toEqual([])
 })
 

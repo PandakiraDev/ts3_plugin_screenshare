@@ -1,5 +1,5 @@
 import type { ViewerQuality } from './viewerQuality'
-import type { StreamKind } from './types'
+import type { StreamRef } from './types'
 
 /**
  * Barwy krążków. Dobrane pod tło `--bg-raised` (#2b2d31) — każda ma dawać
@@ -87,10 +87,23 @@ export interface ParticipantView {
   badges: ParticipantBadge[]
 }
 
+/**
+ * Strumienie OGŁOSZONE przez serwer: para `peerId` + `kind` i nic więcej.
+ *
+ * `stream?: never` odrzuca kafelki (`Tile`) i odebrane strumienie
+ * (`RemoteStream`). Oba mają `peerId` i `kind`, więc samo strukturalne
+ * typowanie przyjęłoby je jako ogłoszone — a to są strumienie, których obraz
+ * już dotarł, więc lista z nich jest krótsza dokładnie o to, co
+ * `emptyGridMessage` ma rozstrzygnąć: strumienie w drodze. Oba niosą
+ * `MediaStream` w polu `stream`, po tym polu je odróżniamy. Celowa projekcja
+ * `tiles.map(({ peerId, kind }) => ({ peerId, kind }))` nadal się kompiluje.
+ */
+type AnnouncedStreams = readonly (StreamRef & { stream?: never })[]
+
 export interface ParticipantsInput {
   me: { peerId: string; displayName: string } | null
   peers: readonly { peerId: string; displayName: string }[]
-  streams: readonly { peerId: string; kind: StreamKind }[]
+  streams: AnnouncedStreams
   viewerPeerIds: readonly string[]
   viewerQuality: ReadonlyMap<string, ViewerQuality>
   unreachablePeerIds: readonly string[]
@@ -170,7 +183,7 @@ export type EmptyGridMessage = 'nobody-streaming' | 'connecting' | 'all-hidden'
  * których już nie ma, i zawyżałby wynik.
  */
 export function emptyGridMessage(input: {
-  streams: readonly { peerId: string; kind: StreamKind }[]
+  streams: AnnouncedStreams
   hidden: ReadonlySet<string>
 }): EmptyGridMessage {
   if (input.streams.length === 0) return 'nobody-streaming'

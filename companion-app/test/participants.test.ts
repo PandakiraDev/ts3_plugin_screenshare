@@ -10,6 +10,7 @@ import {
   splitByStreaming
 } from '../src/shared/participants'
 import { connectionKey } from '../src/renderer/webrtc/session'
+import type { Tile } from '../src/renderer/hooks/useLobby'
 
 test('dwa słowa dają dwie pierwsze litery', () => {
   expect(initialsFrom('Jan Kowalski')).toBe('JK')
@@ -279,6 +280,47 @@ test('ukryty ekran nie ukrywa kamery tej samej osoby', () => {
   expect(emptyGridMessage({ streams, hidden: new Set([connectionKey('a', 'screen')]) })).toBe(
     'connecting'
   )
+})
+
+test('ukryte oba skraje, środkowy strumień jeszcze nie doszedł', () => {
+  // Skrajne ukryte, środkowy nie. Warunek patrzący tylko na pierwszy strumień
+  // albo tylko na ostatni uznałby tu siatkę za całkiem ukrytą i odesłał do
+  // oczka, choć jeden strumień jest w drodze. Trzy strumienie, bo przy dwóch
+  // jeden test nie zabije obu naraz: każdy z tych warunków myli się dopiero
+  // wtedy, gdy ukryty jest JEGO kraniec, a drugi nie. Dotąd przeżywał ten
+  // patrzący na ostatni, bo w żadnym teście ostatni strumień nie był ukryty przy
+  // nieukrytym pierwszym.
+  const streams = [
+    { peerId: 'a', kind: 'screen' as const },
+    { peerId: 'b', kind: 'screen' as const },
+    { peerId: 'c', kind: 'screen' as const }
+  ]
+  const hidden = new Set([connectionKey('a', 'screen'), connectionKey('c', 'screen')])
+  expect(emptyGridMessage({ streams, hidden })).toBe('connecting')
+})
+
+test('emptyGridMessage nie przyjmuje kafelków', () => {
+  // Ta asercja żyje w `tsc`, nie w vitest: `@ts-expect-error` przy poluzowanym
+  // typie daje TS2578, a esbuild i tak wycina typy, więc sam `npm test` jej nie
+  // widzi. Działa, bo `test/**/*.ts` jest w `include` w `tsconfig.json`.
+  const tiles: Tile[] = []
+  // @ts-expect-error kafelki powstają po dotarciu obrazu, a nie po ogłoszeniu strumienia
+  emptyGridMessage({ streams: tiles, hidden: new Set() })
+})
+
+test('buildParticipants nie przyjmuje kafelków jako strumieni', () => {
+  // To samo co wyżej: pole `streams` ma identyczną ekspozycję, a pin przy
+  // `emptyGridMessage` go nie obejmuje, gdyby ktoś poluzował tylko to pole.
+  const tiles: Tile[] = []
+  buildParticipants({
+    me: null,
+    peers: [],
+    // @ts-expect-error kafelki powstają po dotarciu obrazu, a nie po ogłoszeniu strumienia
+    streams: tiles,
+    viewerPeerIds: [],
+    viewerQuality: EMPTY_QUALITY,
+    unreachablePeerIds: []
+  })
 })
 
 test('wpis po strumieniu, którego już nie ma, nie liczy się jako ukryty', () => {
