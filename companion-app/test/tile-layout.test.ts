@@ -25,9 +25,12 @@ function tile(peerId: string, kind: 'screen' | 'camera'): Tile {
 const keyOf = (item: Tile): string => item.tileKey
 
 test('ukryty kafelek nie wychodzi, pozostałe zostają', () => {
-  const tiles = [tile('a', 'screen'), tile('b', 'screen')]
+  // Kolejność źródłowa jest celowo ODWROTNIE alfabetyczna: filtr, który przy
+  // okazji sortuje po kluczu, przeszedłby ten test na danych ułożonych
+  // alfabetycznie.
+  const tiles = [tile('c', 'screen'), tile('a', 'screen'), tile('b', 'screen')]
   const visible = visibleTiles(tiles, new Set(['a:screen']))
-  expect(visible.map(keyOf)).toEqual(['b:screen'])
+  expect(visible.map(keyOf)).toEqual(['c:screen', 'b:screen'])
 })
 
 test('ukrycie ekranu nie ukrywa kamery tej samej osoby', () => {
@@ -40,8 +43,9 @@ test('ukrycie ekranu nie ukrywa kamery tej samej osoby', () => {
 })
 
 test('pusty zbiór ukrytych przepuszcza wszystko', () => {
-  const tiles = [tile('a', 'screen'), tile('b', 'camera')]
-  expect(visibleTiles(tiles, new Set()).map(keyOf)).toEqual(['a:screen', 'b:camera'])
+  // Odwrotnie alfabetycznie z tego samego powodu co wyżej.
+  const tiles = [tile('b', 'camera'), tile('a', 'screen')]
+  expect(visibleTiles(tiles, new Set()).map(keyOf)).toEqual(['b:camera', 'a:screen'])
 })
 
 test('kolejność zapamiętana jest zachowana', () => {
@@ -69,18 +73,65 @@ test('klucz z kolejności bez kafelka jest pomijany i nie zostawia dziury', () =
   expect(applyTileOrder(tiles, order, keyOf).map(keyOf)).toEqual(['a:screen'])
 })
 
+test('klucz-duch w kolejności nie przerywa układania kafelków za nim', () => {
+  // Ukrywanie rusza tylko zbiór `hidden`, a nie `order`, więc klucz bez
+  // kafelka to codzienność, nie przypadek brzegowy. Gdyby pierwszy taki klucz
+  // przerywał pętlę, ułożenie wszystkich kafelków za nim przepadłoby po cichu —
+  // a test z jednym kafelkiem nie odróżnia „pomiń" od „przerwij".
+  const tiles = [tile('a', 'screen'), tile('b', 'screen'), tile('c', 'screen')]
+  const order = ['duch:screen', 'c:screen', 'a:screen']
+  expect(applyTileOrder(tiles, order, keyOf).map(keyOf)).toEqual([
+    'c:screen',
+    'a:screen',
+    'b:screen'
+  ])
+})
+
 test('nowe kafelki na końcu zachowują swoją wzajemną kolejność', () => {
-  const tiles = [tile('x', 'screen'), tile('y', 'screen'), tile('a', 'screen')]
+  // `y` stoi przed `x` celowo: przy danych ułożonych alfabetycznie ten test
+  // przeszedłby także wtedy, gdy nowe kafelki są sortowane po kluczu, a mają
+  // zostać w porządku źródłowym.
+  const tiles = [tile('y', 'screen'), tile('x', 'screen'), tile('a', 'screen')]
   expect(applyTileOrder(tiles, ['a:screen'], keyOf).map(keyOf)).toEqual([
     'a:screen',
-    'x:screen',
-    'y:screen'
+    'y:screen',
+    'x:screen'
   ])
 })
 
 test('pusta kolejność zostawia porządek źródłowy', () => {
   const tiles = [tile('a', 'screen'), tile('b', 'screen')]
   expect(applyTileOrder(tiles, [], keyOf).map(keyOf)).toEqual(['a:screen', 'b:screen'])
+})
+
+test('układanie działa też na wierszach opakowanych w znacznik wyjścia', () => {
+  // Potok układa wiersze `{ item, leaving }` z przejścia wyjścia, nie same
+  // `Tile` — dlatego funkcja jest generyczna i bierze `keyOf`. Test pilnuje
+  // dwóch rzeczy:
+  // 1) w czasie wykonania — że używa przekazanego `keyOf`, a nie sięga sztywno
+  //    po `tileKey` na opakowanym obiekcie, gdzie byłoby undefined;
+  // 2) na poziomie typów — że tsc (test/ jest w tsconfig.json) wyłapie
+  //    zwężenie sygnatury do `Tile`, które samo vitest przepuszcza, bo
+  //    esbuild wycina typy.
+  const rows = [
+    { item: tile('a', 'screen'), leaving: false },
+    { item: tile('b', 'screen'), leaving: true },
+    { item: tile('nowy', 'screen'), leaving: false },
+    { item: tile('c', 'screen'), leaving: false }
+  ]
+  const ordered = applyTileOrder(
+    rows,
+    ['c:screen', 'b:screen', 'a:screen'],
+    (row) => row.item.tileKey
+  )
+  expect(ordered.map((row) => row.item.tileKey)).toEqual([
+    'c:screen',
+    'b:screen',
+    'a:screen',
+    'nowy:screen'
+  ])
+  // Opakowanie idzie nietknięte: znacznik wyjścia nie może się zgubić po drodze.
+  expect(ordered[1].leaving).toBe(true)
 })
 
 test('przeciągnięcie trzeciego kafelka na początek', () => {
@@ -130,13 +181,24 @@ test('zapominanie usuwa klucz nieobecny z OBU zbiorów', () => {
 })
 
 test('zapominanie zostawia obecne klucze nietknięte', () => {
+  // Kolejność zapamiętana jest odwrotnie alfabetyczna, więc nie pokrywa się ani
+  // z posortowaniem, ani z kolejnością w `presentKeys`.
   const result = forgetMissingTiles(
     new Set(['a:screen']),
-    ['a:screen', 'b:camera'],
+    ['b:camera', 'a:screen'],
     new Set(['a:screen', 'b:camera'])
   )
   expect([...result.hidden]).toEqual(['a:screen'])
-  expect(result.order).toEqual(['a:screen', 'b:camera'])
+  expect(result.order).toEqual(['b:camera', 'a:screen'])
+})
+
+test('zapominanie zachowuje kolejność zapamiętaną, a nie kolejność obecnych', () => {
+  // `presentKeys` to zbiór z sygnalizacji i jego kolejność nic nie znaczy;
+  // ułożenie widza siedzi w `order`. Klucza `b` nie ma w `order`, więc nie
+  // wolno go tam dopisać, i nic nie wolno przestawić.
+  const result = forgetMissingTiles(new Set(), ['c', 'a'], new Set(['a', 'b', 'c']))
+  expect(result.order).toEqual(['c', 'a'])
+  expect([...result.hidden]).toEqual([])
 })
 
 test('brak obecnych strumieni czyści wszystko', () => {
