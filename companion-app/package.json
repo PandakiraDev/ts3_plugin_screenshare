@@ -30,6 +30,7 @@
     "sync:native": "node -e \"require('node:fs').rmSync('node_modules/ts3-screenshare-audio',{recursive:true,force:true})\" && npm install --no-audit --no-fund",
     "package": "npm run sync:native && npm run build && electron-builder --win --dir",
     "installer": "npm run sync:native && npm run build && electron-builder --win",
+    "diagnostyka": "powershell -ExecutionPolicy Bypass -File scripts/diagnostyka.ps1",
     "release": "node scripts/publish.mjs"
   },
   "devDependencies": {
