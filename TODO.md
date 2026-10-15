@@ -644,11 +644,41 @@ tyknięciach; (3) poprawka z (2) zmieszała zegar ścienny (`at`) z
 monotonicznym (`streamsAgeMs`), a drżenie rzędu ±3 ms przywracało fałszywe
 zero w około 30% przypadków — stąd próg `STREAMS_MIN_INTERVAL_MS`.
 
-**Nie sprawdzone na żywo:** sprawdzian `npm run e2e:diagnostyka` jest
-napisany, ale w chwili zamknięcia wydania nie był uruchamiany (trzy prawdziwe
-okna Electrona i przechwytywanie pulpitu — to decyzja właściciela). Nikt też
-nie widział okiem odcisku w nagłówku panelu (11 px, Consolas) ani nie
-potwierdził, że `\n` w atrybucie `title` łamie linie w Chromium.
+**Sprawdzone na żywo (2026-10-15, przed scaleniem).** `npm run e2e:diagnostyka`
+przeszedł w całości na prawdziwych trzech oknach. Liczby z przebiegu, bo są
+pierwszymi prawdziwymi danymi tego wydania i warto mieć je na piśmie:
+
+- **tempo próbek: mediana 1005 ms** (min 1003, max 1009, z jedenastu odstępów)
+  — zegar rejestratora trzyma 1 Hz z dokładnością kilku milisekund;
+- **`framesPresented` 13 → 362 w ośmiu próbkach** (~44 kl./s przy 1920x1080),
+  niezerowe i rosnące w **ośmiu z ośmiu** próbek z czasu strumienia. To było
+  najważniejsze pytanie całego wydania: klatki WYSTAWIONE widzowi nie ma ich
+  w `getStats()`, więc gdyby to pole zostawało `null`, cała diagnostyka
+  zacinania byłaby bezwartościowa;
+- **najgorszy `streamsAgeMs`: 376 ms** przy progu przestarzałości 3000 ms —
+  renderer nadążał z zapasem, więc żadna próbka nie udawała danych, których nie ma;
+- **nazwa pliku per sesja działa**: `2026-10-15-124558.jsonl`, dwanaście linii,
+  zero notek o sufcie, `instanceId` w każdej próbce (sprawdzian asertuje to
+  w każdej linii);
+- **bramkowanie flagą potwierdzone na żywo**: pasek z flagą pokazał
+  `CPU 1% · RAM 633 MB · GPU 40% · VRAM 5,7/12,0 GB`, a bez flagi `null`;
+- **odcisk palca rozstrzyga**: dwie instancje w jednym kanale dały
+  `lobby 325b0f8f`, trzecia w innym `lobby 0483ca0e`. `\n` w atrybucie `title`
+  faktycznie łamie linie — dymek wyszedł trzywierszowy, z kanałem na pierwszym
+  miejscu.
+
+**Rzecz zauważona przy okazji, ważna dla kawałka A:** okno widza miało
+`visibility: visible`, ale `focus: false` — i mimo braku skupienia wystawiło
+399 klatek, porzucając 7 (1,8%). To NIE jest dowód, że w produkcji jest tak
+samo: ten harness świadomie włącza trzy flagi przeciw dławieniu, których
+produkcyjne okno nie ma. Ale pokazuje, że **samo odebranie skupienia nie
+zabiera klatek**, gdy dławienie jest wyłączone — czyli pytanie dla kawałka A
+brzmi „czy te flagi są potrzebne", a nie „czy brak skupienia szkodzi".
+
+**Czego ten przebieg NIE sprawdził** (zostaje do obejrzenia okiem): odstępu na
+dole listy uczestników pod paskiem zużycia, czy jedenaście kolumn tabeli mieści
+się w wąskim oknie, i czy panel nadąża z prawdziwym zegarem — sprawdzian nie
+otwiera panelu, bo czyta zapis i DOM, a nie interfejs.
 
 **Następny krok:** wrócić do kawałka A z zapisem z prawdziwej sesji ze
 zdalnym nadawcą i odpowiedzieć, które ogniwo łańcucha siada.
