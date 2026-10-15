@@ -593,11 +593,23 @@ export class LobbySession {
    * nasłuch z `createOutgoing` i zapali mu plakietkę „Brak połączenia" przy
    * osobie, która tylko schowała kafelek. Po naszej stronie nie da się tego
    * naprawić — stary klient musiałby umieć `unsubscribe`.
+   *
+   * Tak samo POWRÓT: stary nadawca ignoruje też `subscribe`, więc odkryty
+   * kafelek nie dostanie oferty aż do restartu jego transmisji. Zamiast
+   * zamrożonej klatki widz widzi wtedy brak kafelka (a przy pustej siatce
+   * „Odbieranie obrazu…").
    */
   unsubscribeFrom(peerId: string, kind: StreamKind): void {
     // Własną stronę zwijamy BEZ WARUNKU — to nasz stan i trzeba go sprzątnąć
     // nawet wtedy, gdy osoby już nie ma na liście.
     this.closeIncoming(peerId, kind)
+    // Interfejs też ma zapomnieć o obrazie, jak po `peer-left` i `stream-stopped`.
+    // Bez tego trzymałby strumień zamkniętego połączenia, a po odkryciu kafelek
+    // pokazałby jego martwą klatkę, zanim przyjdzie nowa oferta — od nadawcy
+    // na 0.3.3, który `subscribe` ignoruje, nie przyjdzie wcale. Tu, a nie
+    // w `closeIncoming`: gałąź `offer` woła je przy każdej renegocjacji
+    // i kafelek mrugałby za każdym razem.
+    this.callbacks.onRemoteStream(peerId, kind, null)
     // Nieobecnemu nie ma czego mówić, a sygnał do niego kończy się u serwera
     // błędem — dlaczego to boli, stoi w `subscribeTo` niżej.
     if (!this.peers.has(peerId)) return

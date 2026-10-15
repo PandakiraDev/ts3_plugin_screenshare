@@ -10,8 +10,9 @@ import { LobbySession, type LobbyCallbacks } from '../src/renderer/webrtc/sessio
  * być poprawna i nieużywana, a wtedy warunek zgodności wstecz nie dotyczyłby
  * niczego, co naprawdę leci do sieci.
  *
- * Testy chodzą w gołym Node, więc dotykają tylko ścieżek, które nie tworzą
- * `RTCPeerConnection`.
+ * Testy chodzą w gołym Node, który nie ma `RTCPeerConnection`. Część z nich
+ * i tak nie tworzy połączeń; te, które muszą, podstawiają atrapę
+ * `FakeConnection` niżej.
  */
 
 type Listener = (...args: never[]) => void
@@ -42,7 +43,7 @@ const JOINED: JoinResult = {
   streams: [{ peerId: 'michal', kind: 'screen' }]
 }
 
-function harness(): Harness {
+function harness(callbacks: Partial<LobbyCallbacks> = {}): Harness {
   const listeners = new Map<string, Listener[]>()
   const sent: Harness['sent'] = []
   const signaling = {
@@ -58,7 +59,10 @@ function harness(): Harness {
       return Promise.resolve()
     }
   }
-  const session = new LobbySession(signaling as unknown as SignalingClient, NO_CALLBACKS)
+  const session = new LobbySession(signaling as unknown as SignalingClient, {
+    ...NO_CALLBACKS,
+    ...callbacks
+  })
   session.begin(JOINED)
   return {
     session,
@@ -135,10 +139,16 @@ test('prośba o powrót od widza nie daje oferty, gdy nic nie nadajemy', async (
  * się sprawdzić rzeczy najważniejszej w tym zadaniu: że rezygnacja naprawdę
  * zwija nadawanie, a powrót naprawdę je odtwarza. Atrapa nie udaje
  * negocjacji, tylko oddaje sterowanie z powrotem do sesji.
+ *
+ * Nasłuchy zapisuje i da się je odpalić (`emit`), a `connectionState` ustawia
+ * test — bez tego nie dałoby się wywołać awarii połączenia, a więc sprawdzić,
+ * że rezygnacja ją po sobie sprząta.
  */
 class FakeConnection {
   static readonly all: FakeConnection[] = []
   closed = false
+  connectionState: RTCPeerConnectionState = 'new'
+  private readonly listeners = new Map<string, ((event: unknown) => void)[]>()
 
   constructor() {
     FakeConnection.all.push(this)
@@ -151,7 +161,14 @@ class FakeConnection {
     } as unknown as RTCRtpSender
   }
 
-  addEventListener(): void {}
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+
+  /** Odpala nasłuchy tak, jak zrobiłaby to przeglądarka. */
+  emit(type: string, event: unknown = {}): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
 
   createOffer(): Promise<RTCSessionDescriptionInit> {
     return Promise.resolve({ type: 'offer', sdp: 'sdp-atrapa' })
@@ -171,12 +188,34 @@ class FakeConnection {
 
   close(): void {
     this.closed = true
+    // Jak w WebRTC 1.0: stan `closed` BEZ zdarzenia `connectionstatechange`.
+    // Dlatego po rezygnacji nasłuch milczy i sprzątać musi sama sesja.
+    this.connectionState = 'closed'
   }
 }
 
 /** Oddaje pętlę zdarzeń: `callPeer` jest wołane przez `void`, bez czekania. */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+/** Podstawia atrapę na czas jednego testu i zawsze ją zdejmuje. */
+async function withFakeConnections(body: () => Promise<void>): Promise<void> {
+  const previous = globalThis.RTCPeerConnection
+  globalThis.RTCPeerConnection = FakeConnection as unknown as typeof RTCPeerConnection
+  FakeConnection.all.length = 0
+  try {
+    await body()
+  } finally {
+    globalThis.RTCPeerConnection = previous
+  }
+}
+
+/** Jedyne połączenie utworzone w teście; brak oznacza, że test nie dotarł do tworzenia. */
+function onlyConnection(): FakeConnection {
+  const connection = FakeConnection.all[0]
+  if (!connection) throw new Error('Test nie utworzył żadnego połączenia')
+  return connection
 }
 
 test('rezygnacja widza zwija nadawanie, a jego powrót znów wysyła ofertę', async () => {
@@ -251,3 +290,103 @@ test('rezygnacja zamyka NASZE połączenie przychodzące i zapomina o nim', asyn
     globalThis.RTCPeerConnection = previous
   }
 })
+
+test('rezygnacja każe interfejsowi zapomnieć o odebranym obrazie', () =>
+  withFakeConnections(async () => {
+    // Obraz po zamkniętym połączeniu jest martwy. Gdyby interfejs go zachował,
+    // odkryty kafelek pokazałby jego ostatnią klatkę, zanim przyjdzie nowa
+    // oferta — a od nadawcy, który `subscribe` ignoruje, nie przyjdzie wcale.
+    const remote: [string, string, MediaStream | null][] = []
+    const { session, fire } = harness({
+      onRemoteStream: (peerId, kind, stream) => remote.push([peerId, kind, stream])
+    })
+    const stream = { id: 'obraz-michala' } as unknown as MediaStream
+
+    fire('signal', 'michal', { kind: 'offer', sdp: 'sdp-michala', owner: 'michal', stream: 'screen' })
+    await flush()
+    onlyConnection().emit('track', { streams: [stream] })
+    // Kontrola: obraz faktycznie doszedł. Bez niej test przeszedłby na pusto,
+    // gdyby atrapa nie umiała dostarczyć ścieżki.
+    expect(remote).toStrictEqual([['michal', 'screen', stream]])
+
+    session.unsubscribeFrom('michal', 'screen')
+    expect(remote).toStrictEqual([
+      ['michal', 'screen', stream],
+      ['michal', 'screen', null]
+    ])
+  }))
+
+test('rezygnacja po wyjściu osoby i tak zdejmuje obraz z interfejsu', () => {
+  // To nasz własny stan, nie wiadomość do kogoś: sprzątamy go bez względu na to,
+  // czy osoba jeszcze jest. `peer-left` zdejmuje tylko pary, które ogłosił
+  // serwer (tu ekran), więc kamera, o której rezygnujemy po wyjściu, zostałaby
+  // w interfejsie, gdyby zdjęcie stało za strażnikiem `peers.has`.
+  const remote: [string, string, MediaStream | null][] = []
+  const { session, sent, fire } = harness({
+    onRemoteStream: (peerId, kind, stream) => remote.push([peerId, kind, stream])
+  })
+  fire('peer-left', 'michal')
+  expect(remote).toStrictEqual([['michal', 'screen', null]])
+
+  session.unsubscribeFrom('michal', 'camera')
+  expect(remote).toStrictEqual([
+    ['michal', 'screen', null],
+    ['michal', 'camera', null]
+  ])
+  expect(sent).toStrictEqual([])
+})
+
+test('rezygnacja gasi nieaktualne ostrzeżenie o awarii połączenia przychodzącego', () =>
+  withFakeConnections(async () => {
+    // Ostrzeżenie zapaliło się WCZEŚNIEJ, bo połączenie padło, a dopiero potem
+    // widz schował kafelek. `close()` nie emituje `connectionstatechange`,
+    // więc nasłuch nie zgasi go sam — gasi je `markReachability(..., false)`
+    // w `closeIncoming`. Bez tej linii „Brak połączenia" wisiałoby przy osobie
+    // aż do jej wyjścia z kanału.
+    const unreachable: string[][] = []
+    const { session, fire } = harness({
+      onUnreachableChange: (peerIds) => unreachable.push(peerIds)
+    })
+
+    fire('signal', 'michal', { kind: 'offer', sdp: 'sdp-michala', owner: 'michal', stream: 'screen' })
+    await flush()
+    const connection = onlyConnection()
+    connection.connectionState = 'failed'
+    connection.emit('connectionstatechange')
+    // Kontrola: ostrzeżenie faktycznie się zapaliło. Bez niej test przeszedłby
+    // na pusto, gdyby atrapa nie umiała wywołać awarii — a wtedy końcowa
+    // asercja o pustym zbiorze byłaby prawdziwa z zupełnie innego powodu.
+    expect(unreachable).toStrictEqual([['michal']])
+
+    session.unsubscribeFrom('michal', 'screen')
+    expect(unreachable).toStrictEqual([['michal'], []])
+  }))
+
+test('rezygnacja widza gasi nieaktualne ostrzeżenie o awarii połączenia wychodzącego', () =>
+  withFakeConnections(async () => {
+    // Lustro poprzedniego testu po stronie nadawcy: `dropOutgoing` ma tę samą
+    // linię `markReachability(..., false)` i tę samą lukę — `close()` nie
+    // emituje zdarzenia, więc stare ostrzeżenie przy widzu, który właśnie
+    // zrezygnował, zostałoby do jego wyjścia z kanału.
+    const unreachable: string[][] = []
+    const { fire, session } = harness({
+      onUnreachableChange: (peerIds) => unreachable.push(peerIds)
+    })
+    const track = { kind: 'video', contentHint: '' }
+    const stream = {
+      getTracks: () => [track],
+      getVideoTracks: () => [track]
+    } as unknown as MediaStream
+
+    await session.startStream(stream, 'screen')
+    await flush()
+    const connection = onlyConnection()
+    connection.connectionState = 'failed'
+    connection.emit('connectionstatechange')
+    // Kontrola, jak wyżej: ostrzeżenie musi się najpierw zapalić.
+    expect(unreachable).toStrictEqual([['michal']])
+
+    fire('signal', 'michal', { kind: 'unsubscribe', streamKind: 'screen' })
+    await flush()
+    expect(unreachable).toStrictEqual([['michal'], []])
+  }))
