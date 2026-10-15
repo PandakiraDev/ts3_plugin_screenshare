@@ -11,8 +11,11 @@ import { connectionKey } from '../src/renderer/webrtc/session'
 /**
  * Atrapa kafelka. `stream` jest rzutowany, bo `MediaStream` nie istnieje
  * w gołym Node — a te funkcje go nie dotykają, tylko przenoszą. Klucz składa
- * `connectionKey`, tak jak `buildTiles` w prawdziwym kafelku, więc test nie
- * utrwala własnej kopii formatu.
+ * `connectionKey`, tak jak `buildTiles` w prawdziwym kafelku, więc sama atrapa
+ * nie ma własnej kopii formatu. Literały w oczekiwaniach (`'a:screen'`) już tak:
+ * celowa zmiana formatu rozwali tu sporo testów logiki układu, które o formacie
+ * nic nie mówią. Sam format pilnuje `participants.test.ts` (klucz składany
+ * ręcznie w `hiddenKindsFor` ma się zgadzać z `connectionKey`).
  */
 function tile(peerId: string, kind: 'screen' | 'camera'): Tile {
   return {

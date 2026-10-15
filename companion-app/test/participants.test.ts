@@ -10,7 +10,7 @@ import {
   splitByStreaming
 } from '../src/shared/participants'
 import { connectionKey } from '../src/renderer/webrtc/session'
-import type { Tile } from '../src/renderer/hooks/useLobby'
+import type { RemoteStream, Tile } from '../src/renderer/hooks/useLobby'
 
 test('dwa słowa dają dwie pierwsze litery', () => {
   expect(initialsFrom('Jan Kowalski')).toBe('JK')
@@ -283,20 +283,24 @@ test('ukryty ekran nie ukrywa kamery tej samej osoby', () => {
 })
 
 test('ukryte oba skraje, środkowy strumień jeszcze nie doszedł', () => {
-  // Skrajne ukryte, środkowy nie. Warunek patrzący tylko na pierwszy strumień
+  // Skrajne ukryte, środkowy nie: warunek patrzący tylko na pierwszy strumień
   // albo tylko na ostatni uznałby tu siatkę za całkiem ukrytą i odesłał do
-  // oczka, choć jeden strumień jest w drodze. Trzy strumienie, bo przy dwóch
-  // jeden test nie zabije obu naraz: każdy z tych warunków myli się dopiero
-  // wtedy, gdy ukryty jest JEGO kraniec, a drugi nie. Dotąd przeżywał ten
-  // patrzący na ostatni, bo w żadnym teście ostatni strumień nie był ukryty przy
-  // nieukrytym pierwszym.
+  // oczka, choć jeden strumień jest w drodze. Trzy strumienie, bo przy dwóch nie
+  // da się ukryć obu krańców i zostawić czegoś nieukrytego, a każdy z tych
+  // warunków myli się dopiero wtedy, gdy ukryty jest jego kraniec, a co innego
+  // nie.
   const streams = [
     { peerId: 'a', kind: 'screen' as const },
     { peerId: 'b', kind: 'screen' as const },
     { peerId: 'c', kind: 'screen' as const }
   ]
-  const hidden = new Set([connectionKey('a', 'screen'), connectionKey('c', 'screen')])
-  expect(emptyGridMessage({ streams, hidden })).toBe('connecting')
+  const edges = new Set([connectionKey('a', 'screen'), connectionKey('c', 'screen')])
+  expect(emptyGridMessage({ streams, hidden: edges })).toBe('connecting')
+
+  // Odwrotny układ tych samych trzech: ukryty sam środkowy. Warunek patrzący
+  // tylko na środek uznałby to za wszystko ukryte.
+  const middle = new Set([connectionKey('b', 'screen')])
+  expect(emptyGridMessage({ streams, hidden: middle })).toBe('connecting')
 })
 
 test('emptyGridMessage nie przyjmuje kafelków', () => {
@@ -306,6 +310,15 @@ test('emptyGridMessage nie przyjmuje kafelków', () => {
   const tiles: Tile[] = []
   // @ts-expect-error kafelki powstają po dotarciu obrazu, a nie po ogłoszeniu strumienia
   emptyGridMessage({ streams: tiles, hidden: new Set() })
+})
+
+test('emptyGridMessage nie przyjmuje odebranych strumieni', () => {
+  // Jak wyżej, dla drugiego typu, który niesie `MediaStream`. Pin z `Tile`
+  // go nie obejmuje: typ opisujący wyłącznie brak pola `tileKey` albo `label`
+  // przepuściłby `RemoteStream`, a oba piny z kafelkami nadal by przechodziły.
+  const remote: RemoteStream[] = []
+  // @ts-expect-error odebrany strumień ma obraz, a ogłoszony go nie ma
+  emptyGridMessage({ streams: remote, hidden: new Set() })
 })
 
 test('buildParticipants nie przyjmuje kafelków jako strumieni', () => {

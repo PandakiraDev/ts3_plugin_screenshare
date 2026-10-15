@@ -88,14 +88,15 @@ export interface ParticipantView {
 }
 
 /**
- * Strumienie OGŁOSZONE przez serwer: para `peerId` + `kind` i nic więcej.
+ * Strumienie OGŁOSZONE przez serwer, czyli `StreamRef`.
  *
  * `stream?: never` odrzuca kafelki (`Tile`) i odebrane strumienie
  * (`RemoteStream`). Oba mają `peerId` i `kind`, więc samo strukturalne
  * typowanie przyjęłoby je jako ogłoszone — a to są strumienie, których obraz
  * już dotarł, więc lista z nich jest krótsza dokładnie o to, co
  * `emptyGridMessage` ma rozstrzygnąć: strumienie w drodze. Oba niosą
- * `MediaStream` w polu `stream`, po tym polu je odróżniamy. Celowa projekcja
+ * `MediaStream` w polu `stream` i tylko po braku tego pola typ je odróżnia:
+ * nie pilnuje, że obiekt nie ma żadnych innych pól. Celowa projekcja
  * `tiles.map(({ peerId, kind }) => ({ peerId, kind }))` nadal się kompiluje.
  */
 type AnnouncedStreams = readonly (StreamRef & { stream?: never })[]
