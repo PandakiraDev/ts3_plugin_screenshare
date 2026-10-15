@@ -966,6 +966,38 @@ h3 {
   color: var(--accent);
 }
 
+/* Guziki na kafelku pojawiają się pod kursorem, bo przy oglądaniu obrazu
+   nie mają prawa niczego zasłaniać. `z-index` nie jest potrzebny: guzik jest
+   pozycjonowany, a `.tile__stage` nie, więc przeglądarka maluje go nad obrazem
+   niezależnie od kolejności w DOM-ie. Gdyby scena kiedyś dostała `position`,
+   kolejność zacznie się liczyć, a guzik stoi w DOM-ie PRZED nią. */
+.tile__hide {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* `:focus-visible` pokazuje guzik także bez myszy — inaczej byłby nieosiągalny
+   z klawiatury, bo przy `opacity: 0` nikt nie wie, że ma na nim focus. */
+.tile:hover .tile__hide,
+.tile__hide:focus-visible {
+  opacity: 1;
+}
+
 .settings__checkbox {
   display: flex;
   align-items: center;

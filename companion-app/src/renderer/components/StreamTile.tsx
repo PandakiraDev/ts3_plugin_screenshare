@@ -14,6 +14,11 @@ interface StreamTileProps {
   leaving: boolean
   zoomed: boolean
   onToggleZoom: () => void
+  /**
+   * Ukryj ten kafelek w SWOJEJ siatce. `undefined` znaczy „tego kafelka nie da
+   * się ukryć" — wtedy guzika nie ma wcale, zamiast nieaktywnego.
+   */
+  onHide?: () => void
 }
 
 /**
@@ -28,7 +33,8 @@ export function StreamTile({
   isMe,
   leaving,
   zoomed,
-  onToggleZoom
+  onToggleZoom,
+  onHide
 }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [volume, setVolume] = useState(1)
@@ -54,6 +60,18 @@ export function StreamTile({
 
   return (
     <div className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}`}>
+      {onHide && (
+        <button
+          type="button"
+          className="tile__hide"
+          onClick={onHide}
+          title="Ukryj ten kafelek u siebie"
+          aria-label="Ukryj ten kafelek u siebie"
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      )}
+
       {/*
         Powiększenie kliknięciem w sam obraz. Osobny element zamiast handlera na
         całym kafelku, bo pasek na dole ma własne kontrolki — suwak głośności

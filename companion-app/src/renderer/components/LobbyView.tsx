@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { UpdateState } from '@shared/update'
@@ -20,6 +20,7 @@ import { buildParticipants } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 import { shortRoomFingerprint } from '@shared/diagnostics'
+import { applyTileOrder, visibleTiles } from '@shared/tileLayout'
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -49,6 +50,13 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  /*
+   * Ukryte kafelki i kolejność. BEZ zapisywania na dysk — decyzja właściciela:
+   * „za każdym razem będą inni użytkownicy strimać i inna ilość użytkowników".
+   * Klucze to `tileKey`, czyli `connectionKey(peerId, kind)`.
+   */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set())
+  const [order] = useState<string[]>([])
 
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
@@ -93,7 +101,29 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     unreachablePeerIds: lobby.state.unreachablePeerIds
   })
   const participantRows = useLeaveTransition(participants, (view) => view.peerId)
-  const tileRows = useLeaveTransition(tiles, (tile) => tile.tileKey)
+  /*
+   * Odsiewanie ukrytych PRZED przejściem wyjścia, a kolejność PO nim.
+   *
+   * Przed: ukrycie wygląda wtedy jak każde inne zniknięcie strumienia, czyli
+   * dostaje darmową animację wyjścia, a odkrycie animację wejścia.
+   * Po: `useLeaveTransition` ma własną kolejność, a my chcemy, żeby decydowała
+   * nasza — gasnący kafelek zachowuje klucz, więc zachowuje miejsce i nie
+   * przeskakuje w trakcie zanikania.
+   */
+  const shownTiles = visibleTiles(tiles, hidden)
+  const transitioned = useLeaveTransition(shownTiles, (tile) => tile.tileKey)
+  const tileRows = applyTileOrder(transitioned, order, (row) => row.item.tileKey)
+
+  // Też hook, więc stoi przed instrukcjami `return` z tego samego powodu co
+  // `useLeaveTransition` wyżej.
+  const toggleHidden = useCallback((tileKey: string) => {
+    setHidden((current) => {
+      const next = new Set(current)
+      if (next.has(tileKey)) next.delete(tileKey)
+      else next.add(tileKey)
+      return next
+    })
+  }, [])
 
   /*
    * UWAGA: musi stać tutaj, przed instrukcjami `return` niżej. LobbyView
@@ -183,9 +213,12 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     })
   }, [cameraEnabled, sharingCamera, stopStream])
 
-  // Powiekszony kafelek moze zniknac (nadajacy skonczyl) — wtedy wracamy do siatki.
+  // Powiększony kafelek może zniknąć (nadający skończył albo my go ukryliśmy) —
+  // wtedy wracamy do siatki. Sprawdzamy `shownTiles`, nie `tiles`: ukryty kafelek
+  // dalej jest w `tiles`, a bez tego powiększenie zostałoby włączone na kafelku,
+  // którego nie ma w siatce, i została pusta scena bez drogi powrotu.
   useEffect(() => {
-    if (zoomed && !tiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
+    if (zoomed && !shownTiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
   })
 
   const confirmSelection = async (): Promise<void> => {
@@ -365,6 +398,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     isMe={row.item.isMe}
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
+                    onHide={row.item.isMe ? () => toggleHidden(row.item.tileKey) : undefined}
                     onToggleZoom={() =>
                       setZoomed((current) => (current === row.item.tileKey ? null : row.item.tileKey))
                     }
