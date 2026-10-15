@@ -805,6 +805,29 @@ h3 {
   color: #ff9a9d;
 }
 
+/* Oczko w plakietce strumienia. Wyciszone, bo to sterowanie, a nie
+   informacja — ma być pod ręką, nie przyciągać wzroku. */
+.participant__eye {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.participant__eye:hover,
+.participant__eye:focus-visible {
+  opacity: 1;
+}
+
+/* Wyłączony strumień: oczko zostaje widoczne, bo to jedyna droga powrotu. */
+.participant__eye--off {
+  opacity: 1;
+}
+
 /* ---------- siatka strumieni ---------- */
 
 .siatka {

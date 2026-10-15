@@ -1,5 +1,15 @@
 import { expect, test } from 'vitest'
-import { AVATAR_COLORS, avatarColorFrom, initialsFrom, badgesFor, buildParticipants, splitByStreaming } from '../src/shared/participants'
+import {
+  AVATAR_COLORS,
+  avatarColorFrom,
+  initialsFrom,
+  badgesFor,
+  buildParticipants,
+  emptyGridMessage,
+  hiddenKindsFor,
+  splitByStreaming
+} from '../src/shared/participants'
+import { connectionKey } from '../src/renderer/webrtc/session'
 
 test('dwa słowa dają dwie pierwsze litery', () => {
   expect(initialsFrom('Jan Kowalski')).toBe('JK')
@@ -210,4 +220,42 @@ test('podział działa też na wierszach opakowanych w znacznik wyjścia', () =>
   expect(sections.streaming).toHaveLength(1)
   expect(sections.others).toHaveLength(1)
   expect(sections.others[0].leaving).toBe(true)
+})
+
+test('ukrycie wszystkich strumieni NIE mówi, że nikt nie nadaje', () => {
+  // Najłatwiejszy sposób zablokowania sobie obrazu to ukrycie wszystkiego, a
+  // pusta siatka wygląda wtedy tak samo jak siatka, w której nikt nie nadaje.
+  // Komunikat, który tego nie rozróżnia, nie podpowiada wyjścia — człowiek
+  // uznałby to za awarię, a nie za skutek własnego kliknięcia.
+  expect(emptyGridMessage({ streamCount: 2, hiddenCount: 2 })).toBe('all-hidden')
+})
+
+test('brak strumieni mówi, że nikt nie nadaje', () => {
+  expect(emptyGridMessage({ streamCount: 0, hiddenCount: 0 })).toBe('nobody-streaming')
+})
+
+test('strumienie są, ale obraz jeszcze nie doszedł', () => {
+  expect(emptyGridMessage({ streamCount: 1, hiddenCount: 0 })).toBe('connecting')
+})
+
+test('część ukryta, a reszta jeszcze nie doszła', () => {
+  // Jeden ukryty i jeden w drodze: siatka jest pusta, ale nie dlatego, że
+  // wszystko ukryto — podpowiedź o oczku byłaby tu myląca.
+  expect(emptyGridMessage({ streamCount: 2, hiddenCount: 1 })).toBe('connecting')
+})
+
+test('rodzaje ukryte u danej osoby', () => {
+  const hidden = new Set(['a:screen', 'b:camera'])
+  expect(hiddenKindsFor('a', hidden)).toEqual({ screen: true, camera: false })
+  expect(hiddenKindsFor('b', hidden)).toEqual({ screen: false, camera: true })
+  expect(hiddenKindsFor('c', hidden)).toEqual({ screen: false, camera: false })
+})
+
+test('ukryte rodzaje są szukane pod tym samym kluczem, pod którym ukrywa kafelek', () => {
+  // `hiddenKindsFor` składa klucz sam, bo `shared` nie może importować
+  // renderera. Rozjazd z `connectionKey` nie wywaliłby niczego głośno: oczko
+  // po prostu nigdy nie pokazałoby, że strumień jest ukryty.
+  const hidden = new Set([connectionKey('a', 'screen'), connectionKey('b', 'camera')])
+  expect(hiddenKindsFor('a', hidden)).toEqual({ screen: true, camera: false })
+  expect(hiddenKindsFor('b', hidden)).toEqual({ screen: false, camera: true })
 })

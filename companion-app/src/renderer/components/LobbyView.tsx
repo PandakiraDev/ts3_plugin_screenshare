@@ -16,11 +16,19 @@ import { useConnectionHealth } from '../hooks/useConnectionHealth'
 import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
 import { allViewersStruggling } from '@shared/viewerQuality'
-import { buildParticipants } from '@shared/participants'
+import { buildParticipants, emptyGridMessage, type EmptyGridMessage } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 import { shortRoomFingerprint } from '@shared/diagnostics'
 import { applyTileOrder, visibleTiles } from '@shared/tileLayout'
+import { connectionKey } from '../webrtc/session'
+
+const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
+  'nobody-streaming': 'Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy.',
+  connecting: 'Odbieranie obrazu…',
+  'all-hidden':
+    'Wszystkie strumienie są ukryte. Oczko przy nazwie w liście uczestników przywraca je.'
+}
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -284,6 +292,23 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   // odrzucona przez serwer. Bez tego paska jedynym śladem byłaby konsola.
   const cameraErrorText = cameraError ?? camera.error
 
+  /*
+   * Powód pustej siatki liczymy po `lobby.state.streams` (to, co ogłosił
+   * serwer, razem z naszymi własnymi), a NIE po `tiles`. Kafelek powstaje
+   * dopiero, gdy obraz dojdzie, więc po `tiles` strumień „w drodze" byłby
+   * niewidoczny: przy pustych `tiles` wyszłoby „Nikt nie nadaje", choć ktoś
+   * nadaje, a „Odbieranie obrazu…" nie pokazałoby się nigdy.
+   */
+  const emptyGridText =
+    EMPTY_GRID_TEXT[
+      emptyGridMessage({
+        streamCount: lobby.state.streams.length,
+        hiddenCount: lobby.state.streams.filter((stream) =>
+          hidden.has(connectionKey(stream.peerId, stream.kind))
+        ).length
+      })
+    ]
+
   return (
     <div className="app">
       <header className="app__titlebar">
@@ -368,9 +393,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           ) : tileRows.length === 0 ? (
             <div className="viewer__stage">
               <div className="viewer__waiting">
-                {lobby.state.streams.length > 0
-                  ? 'Odbieranie obrazu…'
-                  : 'Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy.'}
+                {emptyGridText}
               </div>
             </div>
           ) : (
@@ -413,6 +436,8 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
           roomFingerprint={roomFingerprint}
+          hidden={hidden}
+          onToggleStream={(peerId, kind) => toggleHidden(connectionKey(peerId, kind))}
         />
 
         {settingsOpen && (

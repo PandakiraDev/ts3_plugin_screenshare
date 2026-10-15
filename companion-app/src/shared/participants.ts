@@ -150,3 +150,42 @@ export function splitByStreaming<T>(
     others: items.filter((item) => !isStreaming(item))
   }
 }
+
+/** Co pokazać, gdy siatka jest pusta. */
+export type EmptyGridMessage = 'nobody-streaming' | 'connecting' | 'all-hidden'
+
+/**
+ * Rozstrzyga, dlaczego siatka jest pusta.
+ *
+ * Trzy różne przyczyny, które wyglądają identycznie: nikt nie nadaje, obraz
+ * jeszcze nie doszedł, albo widz ukrył wszystko. Trzeci przypadek doszedł razem
+ * z ukrywaniem i bez niego pusta siatka po ukryciu wszystkiego mówiłaby
+ * „Odbieranie obrazu…" bez końca — czyli kłamała, i to w jedynym miejscu,
+ * w którym człowiek szuka wyjaśnienia.
+ */
+export function emptyGridMessage(input: {
+  streamCount: number
+  hiddenCount: number
+}): EmptyGridMessage {
+  if (input.streamCount === 0) return 'nobody-streaming'
+  if (input.hiddenCount >= input.streamCount) return 'all-hidden'
+  return 'connecting'
+}
+
+/**
+ * Które rodzaje strumieni tej osoby są u nas ukryte.
+ *
+ * Klucz `peerId:rodzaj` składamy tu ręcznie, bo `shared` nie importuje
+ * renderera, a tam mieszka `connectionKey`, którym kafelki są ukrywane. Format
+ * musi się z nim zgadzać; pilnuje tego test, bo rozjazd nie wywaliłby niczego
+ * głośno — oczko po prostu nigdy nie pokazałoby, że strumień jest ukryty.
+ */
+export function hiddenKindsFor(
+  peerId: string,
+  hidden: ReadonlySet<string>
+): { screen: boolean; camera: boolean } {
+  return {
+    screen: hidden.has(`${peerId}:screen`),
+    camera: hidden.has(`${peerId}:camera`)
+  }
+}

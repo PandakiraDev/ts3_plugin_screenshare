@@ -1,9 +1,43 @@
 import type { ParticipantBadge, ParticipantView } from '@shared/participants'
+import type { StreamKind } from '@shared/types'
 
 interface ParticipantRowProps {
   view: ParticipantView
   /** Osoba wyszła z kanału i wiersz właśnie dogasa. */
   leaving: boolean
+  /**
+   * Które rodzaje strumieni tej osoby są ukryte u nas, i przełącznik. Oczko
+   * pojawia się tylko przy plakietce rodzaju, który osoba faktycznie nadaje,
+   * więc kto nic nie nadaje, nie dostaje żadnego. Dotyczy też własnego wiersza:
+   * własny podgląd da się ukryć krzyżykiem na kafelku, a po ukryciu nie ma tam
+   * czego najechać, więc oczko jest jedyną drogą powrotu.
+   */
+  hiddenKinds: { screen: boolean; camera: boolean }
+  onToggleStream: (kind: StreamKind) => void
+}
+
+const EYE_TARGET: Record<StreamKind, string> = { screen: 'ekran', camera: 'kamerę' }
+
+interface StreamEyeButtonProps {
+  kind: StreamKind
+  hidden: boolean
+  onToggle: () => void
+}
+
+function StreamEyeButton({ kind, hidden, onToggle }: StreamEyeButtonProps): JSX.Element {
+  const label = `${hidden ? 'Pokaż' : 'Ukryj'} ${EYE_TARGET[kind]} tej osoby`
+  return (
+    <button
+      type="button"
+      className={`participant__eye${hidden ? ' participant__eye--off' : ''}`}
+      onClick={onToggle}
+      title={label}
+      aria-label={label}
+      aria-pressed={hidden}
+    >
+      <span aria-hidden="true">{hidden ? '🚫' : '👁'}</span>
+    </button>
+  )
 }
 
 function badgeLabel(badge: ParticipantBadge): string {
@@ -26,7 +60,12 @@ function badgeModifier(badge: ParticipantBadge): string {
   return badge.kind === 'watching' ? `watching-${badge.quality}` : badge.kind
 }
 
-export function ParticipantRow({ view, leaving }: ParticipantRowProps): JSX.Element {
+export function ParticipantRow({
+  view,
+  leaving,
+  hiddenKinds,
+  onToggleStream
+}: ParticipantRowProps): JSX.Element {
   return (
     <li className={`participant${leaving ? ' participant--leaving' : ''}`}>
       {/*
@@ -63,6 +102,14 @@ export function ParticipantRow({ view, leaving }: ParticipantRowProps): JSX.Elem
               */
               <span key={badge.kind} className={`participant__badge participant__badge--${badgeModifier(badge)}`}>
                 {badgeLabel(badge)}
+                {/* Oczko siedzi W plakietce, żeby przy zawinięciu wiersza nie oderwało się od swojego rodzaju. */}
+                {(badge.kind === 'screen' || badge.kind === 'camera') && (
+                  <StreamEyeButton
+                    kind={badge.kind}
+                    hidden={hiddenKinds[badge.kind]}
+                    onToggle={() => onToggleStream(badge.kind)}
+                  />
+                )}
               </span>
             ))}
           </span>
