@@ -414,7 +414,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     isMe={row.item.isMe}
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
-                    onHide={row.item.isMe ? () => toggleHidden(row.item.tileKey) : undefined}
+                    onHide={() => toggleHidden(row.item.tileKey)}
                     onToggleZoom={() =>
                       setZoomed((current) => (current === row.item.tileKey ? null : row.item.tileKey))
                     }

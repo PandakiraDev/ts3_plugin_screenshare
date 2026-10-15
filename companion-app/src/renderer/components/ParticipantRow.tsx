@@ -8,9 +8,9 @@ interface ParticipantRowProps {
   /**
    * Które rodzaje strumieni tej osoby są ukryte u nas, i przełącznik. Oczko
    * pojawia się tylko przy plakietce rodzaju, który osoba faktycznie nadaje,
-   * więc kto nic nie nadaje, nie dostaje żadnego. Dotyczy też własnego wiersza:
-   * własny podgląd da się ukryć krzyżykiem na kafelku, a po ukryciu nie ma tam
-   * czego najechać, więc oczko jest jedyną drogą powrotu.
+   * więc kto nic nie nadaje, nie dostaje żadnego. Dotyczy też własnego wiersza.
+   * Każdy kafelek da się ukryć krzyżykiem, a po ukryciu nie ma na nim czego
+   * najechać, więc oczko jest jedyną drogą powrotu.
    */
   hiddenKinds: { screen: boolean; camera: boolean }
   onToggleStream: (kind: StreamKind) => void
