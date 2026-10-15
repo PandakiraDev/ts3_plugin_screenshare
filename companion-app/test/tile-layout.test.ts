@@ -225,3 +225,61 @@ test('brak obecnych strumieni czyści wszystko', () => {
   expect([...result.hidden]).toEqual([])
   expect(result.order).toEqual([])
 })
+
+test('własny kafelek nie jest zapominany, gdy jego klucz jest w presentKeys', () => {
+  /*
+   * `lobby.state.streams` zawiera nasze własne strumienie obok cudzych: serwer
+   * odsyła `stream-started` także nadawcy, a `LobbySession` zapisuje każde
+   * ogłoszenie w `streamerRefs`, nie patrząc czyje. Więc `presentKeys` złożone
+   * ze `streams` obejmuje własne klucze samo z siebie, bez doklejania ich
+   * z `myStreamKinds`.
+   *
+   * Ten test przybija tylko stronę funkcji: nie wolno jej rozróżniać kluczy
+   * własnych od cudzych (np. dopisując „pomiń siebie"). Że wywołujący składa
+   * `presentKeys` ze `streams`, a nie z `remoteStreams` albo z `tiles` — tych
+   * własnych nie ma — leży w warstwie komponentu, której vitest w gołym Node
+   * nie sięga.
+   */
+  const result = forgetMissingTiles(
+    new Set(['me:screen']),
+    ['me:screen'],
+    new Set(['me:screen'])
+  )
+  expect([...result.hidden]).toEqual(['me:screen'])
+  expect(result.order).toEqual(['me:screen'])
+})
+
+test('kafelek wciąż na ekranie zachowuje miejsce w kolejności, ale nie w ukrytych', () => {
+  /*
+   * Strumień `b` już się skończył (nie ma go w `presentKeys`), ale jego wiersz
+   * dogasa jeszcze w DOM-ie. Wypadnięcie `b` z kolejności w tej chwili
+   * posłałoby go na koniec — `applyTileOrder` wysyła nieznane klucze na koniec
+   * — i kafelek przeskakiwałby w trakcie zanikania. Ukryte nie mają takiego
+   * powodu: kafelka ukrytego i tak nie ma w siatce.
+   *
+   * Kolejność `c, b, a` nie jest ani rosnąca, ani malejąca, więc sortowanie
+   * jej nie przepuści. Klucz `x:camera` w `onScreenKeys` nie stoi w `order`,
+   * więc pilnuje, że ta lista tylko ZATRZYMUJE klucze, a nie dopisuje ich.
+   */
+  const result = forgetMissingTiles(
+    new Set(['b:screen', 'a:screen']),
+    ['c:screen', 'b:screen', 'a:screen'],
+    new Set(['a:screen', 'c:screen']),
+    new Set(['b:screen', 'x:camera'])
+  )
+  expect(result.order).toEqual(['c:screen', 'b:screen', 'a:screen'])
+  expect([...result.hidden]).toEqual(['a:screen'])
+})
+
+test('gdy wiersz zniknie z ekranu, klucz wypada z kolejności', () => {
+  // Ta sama sytuacja, co w teście wyżej, ale wiersz już zniknął z DOM-u
+  // (`onScreenKeys` puste): od tej chwili wygrywa reguła „zakończony strumień
+  // zapomina o sobie wszystko".
+  const result = forgetMissingTiles(
+    new Set(),
+    ['c:screen', 'b:screen', 'a:screen'],
+    new Set(['a:screen', 'c:screen']),
+    new Set()
+  )
+  expect(result.order).toEqual(['c:screen', 'a:screen'])
+})

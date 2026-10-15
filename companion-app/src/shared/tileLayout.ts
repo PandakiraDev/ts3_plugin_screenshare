@@ -86,14 +86,27 @@ export function moveTile(
  * końcu strumienia, a połączenie bywa zrywane i zestawiane od nowa, choć
  * strumień trwa. Przycinanie po takim stanie zdejmowałoby ukrycie przy każdym
  * mignięciu połączenia.
+ *
+ * Sygnalizacja zmienia się jednak w chwili końca strumienia, a wiersz dogasa
+ * jeszcze po niej. `onScreenKeys` to klucze wierszy, które nadal stoją na
+ * ekranie (też tych dogasających): zostają w KOLEJNOŚCI, bo `applyTileOrder`
+ * posyła klucze spoza `order` na koniec, więc bez tego gasnący kafelek
+ * przeskakiwałby w trakcie zanikania. Ukrytych to nie dotyczy — kafelka
+ * ukrytego nie ma w siatce, więc nie ma czego zatrzymywać, a trzymanie
+ * ukrycia dłużej przetrwałoby szybki restart strumienia, który ma wracać
+ * widoczny.
+ *
+ * `onScreenKeys` tylko ZATRZYMUJE klucze już stojące w `order`; nie dopisuje
+ * nowych.
  */
 export function forgetMissingTiles(
   hidden: ReadonlySet<string>,
   order: readonly string[],
-  presentKeys: ReadonlySet<string>
+  presentKeys: ReadonlySet<string>,
+  onScreenKeys: ReadonlySet<string> = new Set()
 ): { hidden: Set<string>; order: string[] } {
   return {
     hidden: new Set([...hidden].filter((key) => presentKeys.has(key))),
-    order: order.filter((key) => presentKeys.has(key))
+    order: order.filter((key) => presentKeys.has(key) || onScreenKeys.has(key))
   }
 }

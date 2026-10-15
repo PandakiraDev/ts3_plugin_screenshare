@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { UpdateState } from '@shared/update'
@@ -20,7 +20,7 @@ import { buildParticipants, emptyGridMessage, type EmptyGridMessage } from '@sha
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
 import { shortRoomFingerprint } from '@shared/diagnostics'
-import { applyTileOrder, visibleTiles } from '@shared/tileLayout'
+import { applyTileOrder, forgetMissingTiles, visibleTiles } from '@shared/tileLayout'
 import { connectionKey } from '../webrtc/session'
 
 const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
@@ -62,9 +62,18 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * Ukryte kafelki i kolejność. BEZ zapisywania na dysk — decyzja właściciela:
    * „za każdym razem będą inni użytkownicy strimać i inna ilość użytkowników".
    * Klucze to `tileKey`, czyli `connectionKey(peerId, kind)`.
+   *
+   * Oba zbiory w JEDNYM stanie, bo `forgetMissingTiles` przycina je razem:
+   * jeden aktualizator i jedno wywołanie, zamiast dwóch stanów, których
+   * spójność trzymałoby tylko grupowanie aktualizacji w jednym efekcie.
+   * Zagnieżdżenie jednego ustawiacza w aktualizatorze drugiego odpada:
+   * aktualizator musi być czysty, a w StrictMode wykonuje się dwa razy.
    */
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set())
-  const [order] = useState<string[]>([])
+  const [layout, setLayout] = useState<{ hidden: Set<string>; order: string[] }>(() => ({
+    hidden: new Set(),
+    order: []
+  }))
+  const { hidden, order } = layout
 
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
@@ -130,17 +139,60 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
       // aktualizator musi być czysty (React w StrictMode wywołuje go w dev dwa razy),
       // a wiadomość do sieci czystą nie jest — poszłyby dwie na jedno kliknięcie.
       const hiding = !hidden.has(tileKey)
-      setHidden((current) => {
-        const next = new Set(current)
-        if (hiding) next.add(tileKey)
-        else next.delete(tileKey)
-        return next
+      setLayout((current) => {
+        const nextHidden = new Set(current.hidden)
+        if (hiding) nextHidden.add(tileKey)
+        else nextHidden.delete(tileKey)
+        return { ...current, hidden: nextHidden }
       })
       // Własny podgląd jest lokalny — nie ma od kogo przestać go odbierać.
       if (!isMe) setStreamSubscribed(peerId, kind, !hiding)
     },
     [hidden, setStreamSubscribed]
   )
+
+  /*
+   * Zakończony strumień zapomina o sobie wszystko: wypada z ukrytych i z
+   * kolejności, więc gdy wróci, jest nowym kafelkiem — widocznym i na końcu.
+   *
+   * `presentKeys` to `lobby.state.streams` i NIC więcej. Ta lista zawiera
+   * także nasze własne strumienie (serwer odsyła `stream-started` nadawcy),
+   * więc ukrycie własnego podglądu nie zdejmuje się samo w tej samej klatce.
+   * Nie wolno składać jej z `tiles` ani z `remoteStreams`: własnych kafelków
+   * nie ma w tym drugim, a ukryty cudzy strumień wypada z obu.
+   *
+   * Prawda z SYGNALIZACJI, nie ze stanu połączeń ani z DOM-u: kafelek znika
+   * z DOM-u na 400 ms animacji wyjścia i na czas ponownego uzgadniania.
+   * Wyjątek dotyczy tylko kolejności: wiersze, które jeszcze stoją na ekranie
+   * (`onScreenKeys`, czyli `transitioned`), zachowują w niej miejsce do końca
+   * animacji, bo inaczej, jako nieznane, przeskoczyłyby na koniec w trakcie
+   * zanikania. Bierzemy wszystkie, nie tylko dogasające: nie zależymy wtedy od
+   * tego, czy przerysowanie po końcu strumienia zdążyło już oznaczyć wiersz
+   * jako dogasający.
+   */
+  const presentKeys = useMemo(
+    () => new Set(lobby.state.streams.map((ref) => connectionKey(ref.peerId, ref.kind))),
+    [lobby.state.streams]
+  )
+
+  /*
+   * Bez tablicy zależności, tak jak efekt powiększenia niżej: `transitioned` to
+   * nowa tablica w każdym renderze, więc jakakolwiek lista zależności i tak
+   * odpalałaby się za każdym razem. Pętli nie ma: przycinanie tylko ujmuje,
+   * a gdy nic nie wypada, aktualizator zwraca dotychczasowy stan i React pomija
+   * przerysowanie. Zależność `transitioned` od `hidden` też jej nie tworzy:
+   * zdjęcie klucza z ukrytych zmienia siatkę tylko wtedy, gdy kafelek tego
+   * klucza istnieje, a przy zakończonym strumieniu nie istnieje.
+   */
+  useEffect(() => {
+    const onScreenKeys = new Set(transitioned.map((row) => row.item.tileKey))
+    setLayout((current) => {
+      const next = forgetMissingTiles(current.hidden, current.order, presentKeys, onScreenKeys)
+      const nothingForgotten =
+        next.hidden.size === current.hidden.size && next.order.length === current.order.length
+      return nothingForgotten ? current : next
+    })
+  })
 
   /*
    * UWAGA: musi stać tutaj, przed instrukcjami `return` niżej. LobbyView
@@ -311,6 +363,15 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const emptyGridText =
     EMPTY_GRID_TEXT[emptyGridMessage({ streams: lobby.state.streams, hidden })]
 
+  /*
+   * Licznik w nagłówku z tego samego źródła co komunikat pustej siatki, bo
+   * z `tiles` rozjeżdżały się: ukryty cudzy strumień wypada z `tiles` (rezygnacja
+   * z odbioru zdejmuje jego obraz), więc po ukryciu jedynej transmisji nagłówek
+   * mówiłby „Nikt nie nadaje obrazu", a środek ekranu — że wszystkie są ukryte.
+   * Liczymy ukryte też: transmisja trwa, tylko jej nie oglądasz.
+   */
+  const streamCount = lobby.state.streams.length
+
   return (
     <div className="app">
       <header className="app__titlebar">
@@ -320,9 +381,9 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           {lobby.state.connection === 'connecting' && 'Łączenie z kanałem…'}
           {lobby.state.connection === 'error' && 'Brak połączenia'}
           {lobby.state.connection === 'ready' &&
-            (tiles.length === 0
+            (streamCount === 0
               ? 'Nikt nie nadaje obrazu'
-              : `${tiles.length} ${tiles.length === 1 ? 'transmisja' : 'transmisje'}` +
+              : `${streamCount} ${streamCount === 1 ? 'transmisja' : 'transmisje'}` +
                 (sharingScreen || sharingCamera
                   ? ` · Ty: ${
                       lobby.state.viewerPeerIds.length === 0
