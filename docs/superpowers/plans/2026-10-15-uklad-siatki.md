@@ -779,9 +779,18 @@ git commit -m "feat(siatka): oczko ukrywania w liscie uczestnikow i prawdziwy ko
 - Modify: `companion-app/test/tile-layout.test.ts`
 - Modify: `companion-app/src/renderer/components/LobbyView.tsx`
 
+> **ODWOLANE W TRAKCIE WYKONANIA (Ruling 11).** Kroki 1-5 tego zadania NIE
+> zostaly wykonane i nie maja byc. Funkcja `zoomAfterHide` **nie istnieje**.
+> Zdejmowanie powiekszenia robi efekt w `LobbyView` dolozony przy zadaniu 3,
+> ktory sprawdza `shownTiles` i lapie KAZDA przyczyne zniknięcia kafelka
+> (ukrycie, koniec strumienia, wyjscie osoby) — czyli jest ogolniejszy. Dwa
+> mechanizmy na jeden niezmiennik to drugie zrodlo prawdy. Z tego zadania
+> wykonano wylacznie krok 6 (krzyzyk na kazdym kafelku) plus przeniesione
+> porzadki w plikach testow.
+
 **Interfaces:**
 - Consumes: `toggleHidden` z zadania 3
-- Produces: `zoomAfterHide(zoomed, hiddenKey)` w `tileLayout.ts`
+- Produces: nic (patrz odwolanie wyzej)
 
 - [ ] **Step 1: Napisz test z listy Review Focus**
 
@@ -1130,12 +1139,11 @@ W `LobbyView` rozszerz `toggleHidden` tak, żeby dla **cudzych** kafelków dodat
       setHidden((current) => {
         const next = new Set(current)
         const hiding = !next.has(tileKey)
-        if (hiding) {
-          next.add(tileKey)
-          setZoomed((zoom) => zoomAfterHide(zoom, tileKey))
-        } else {
-          next.delete(tileKey)
-        }
+        // UWAGA: wczesniejsza wersja tego planu wolala tu odwolana funkcje
+        // `zoomAfterHide`. Powiekszenia NIE ruszamy w tym zadaniu wcale —
+        // zdejmuje je efekt na `shownTiles` dolozony przy zadaniu 3.
+        if (hiding) next.add(tileKey)
+        else next.delete(tileKey)
         // Własny podgląd jest lokalny — sieci nie dotyczy.
         if (!isMe) setStreamSubscribed(peerId, kind, !hiding)
         return next
