@@ -30,6 +30,7 @@ import {
 } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
+import { useReorderAnimation } from '../hooks/useReorderAnimation'
 import { shortRoomFingerprint } from '@shared/diagnostics'
 import {
   applyTileOrder,
@@ -313,6 +314,9 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * a hook wywołany po takim wyjściu łamie zasady Reacta i wywala aplikację
    * przy pierwszym otwarciu pickera. Ta sama pułapka wystąpiła w 0.3.2.
    */
+  // Też hook, więc obowiązuje go ta sama zasada co niżej: przed wyjściami.
+  useReorderAnimation(gridRef)
+
   useDiagnosticsReporter(lobby, options.diagnostics)
 
   /*

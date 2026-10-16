@@ -7,15 +7,8 @@ import {
   visibleItems,
   type LeaveState
 } from '@shared/leaveTransition'
+import { reducedMotion } from '../reducedMotion'
 
-/**
- * Windows wystawia to pod „Efekty wizualne → Efekty animacji". Ludzie wyłączają
- * je na słabszych maszynach po to, żeby aplikacje przestały mielić — trzymanie
- * martwego elementu w DOM-ie przez 400 ms działałoby wtedy wbrew intencji.
- */
-function reducedMotion(): boolean {
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
 
 /**
  * Zwraca listę do wyrenderowania: obecne elementy plus te, które właśnie
@@ -34,6 +27,9 @@ export function useLeaveTransition<T>(
   const stateRef = useRef<LeaveState<T>>(emptyLeaveState<T>())
   const [, bumpRender] = useState(0)
 
+  // Ludzie wyłączają animacje na słabszych maszynach po to, żeby aplikacje
+  // przestały mielić — trzymanie martwego elementu w DOM-ie przez 400 ms
+  // działałoby wtedy wbrew intencji.
   const durationMs = reducedMotion() ? 0 : LEAVE_DURATION_MS
   stateRef.current = advanceLeaving(stateRef.current, current, keyOf, Date.now(), durationMs)
   const visible = visibleItems(stateRef.current, keyOf)
