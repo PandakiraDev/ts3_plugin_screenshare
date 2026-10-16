@@ -5,6 +5,7 @@ import {
   moveTile,
   orderAfterDrop,
   pruneLayout,
+  restoreUnrenderedKeys,
   visibleTiles,
   type TileCenter,
   type TileLayout
@@ -430,4 +431,37 @@ test('wynik jest permutacją narysowanych kluczy i niczego nie dopisuje', () => 
    * przestawia tylko to, co dostała; pilnuje tego wywołujący.
    */
   expect(orderAfterDrop([{ key: 'b', x: 0, y: 0 }], 'b', { x: 5, y: 5 })).toEqual(['b'])
+})
+
+test('ukryty w środku wraca za swojego poprzednika', () => {
+  /*
+   * Układ `c, a, b`, widz ukrył `a`. Przeciągnięcie przestawia tylko to, co
+   * narysowane (`c, b`), więc bez przywracania klucz `a` wypadłby z kolejności
+   * i po odkryciu wrócił na koniec.
+   */
+  expect(restoreUnrenderedKeys(['c', 'a', 'b'], ['b', 'c'])).toEqual(['b', 'c', 'a'])
+})
+
+test('ukryty na początku wraca na początek', () => {
+  // `a` nie ma przed sobą żadnego narysowanego klucza, więc nie ma za czym stanąć.
+  expect(restoreUnrenderedKeys(['a', 'b', 'c'], ['c', 'b'])).toEqual(['a', 'c', 'b'])
+})
+
+test('dwa ukryte za tym samym poprzednikiem zachowują swoją kolejność', () => {
+  expect(restoreUnrenderedKeys(['c', 'a', 'b', 'd'], ['d', 'c'])).toEqual(['d', 'c', 'a', 'b'])
+})
+
+test('klucz nowy w nowej kolejności przechodzi, brakujący wraca przed niego', () => {
+  // `n` nie stał w poprzedniej kolejności — nowy kafelek, nie ma czego pamiętać,
+  // więc przechodzi na swoim miejscu. `a` nie ma przed sobą nic narysowanego,
+  // więc wraca na początek, czyli PRZED nowy klucz.
+  expect(restoreUnrenderedKeys(['a', 'b'], ['n', 'b'])).toEqual(['a', 'n', 'b'])
+})
+
+test('gdy nic nie brakuje, wynik jest równy nowej kolejności', () => {
+  expect(restoreUnrenderedKeys(['a', 'b', 'c'], ['c', 'a', 'b'])).toEqual(['c', 'a', 'b'])
+})
+
+test('pusta poprzednia kolejność niczego nie dokłada', () => {
+  expect(restoreUnrenderedKeys([], ['b', 'a'])).toEqual(['b', 'a'])
 })

@@ -35,6 +35,7 @@ import {
   applyTileOrder,
   orderAfterDrop,
   pruneLayout,
+  restoreUnrenderedKeys,
   visibleTiles,
   type TileCenter,
   type TileLayout
@@ -232,11 +233,12 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
      * wyleczy się sam przy następnym przycięciu (`pruneLayout`), gdy nie będzie
      * ani obecny, ani na ekranie.
      *
-     * Znany minus, przyjęty: przeciągnięcie przepisuje `order` do kluczy
-     * AKTUALNIE NARYSOWANYCH, więc klucz, którego teraz nie ma na ekranie, traci
-     * zapamiętane miejsce i wróci na koniec. Dotyczy to ukrytego kafelka oraz
-     * strumienia ogłoszonego, ale jeszcze bez obrazu (połączenie zestawiane od
-     * nowa).
+     * `orderAfterDrop` zwraca permutację tylko tego, co narysowane, więc samo
+     * zapisanie jej gubiłoby klucze chwilowo niewidoczne — ukryty kafelek albo
+     * strumień ogłoszony, ale jeszcze bez obrazu. `restoreUnrenderedKeys`
+     * wstawia je z powrotem za ich poprzednikami, dzięki czemu ukrywanie
+     * i przestawianie nie psują się w zderzeniu: po odkryciu kafelek wraca na
+     * swoje miejsce, a nie na koniec.
      */
     const centers: TileCenter[] = []
     for (const element of grid.querySelectorAll<HTMLElement>(':scope > [data-tile-key]')) {
@@ -246,8 +248,13 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
       centers.push({ key, x: box.left + box.width / 2, y: box.top + box.height / 2 })
     }
 
-    const nextOrder = orderAfterDrop(centers, fromKey, { x: event.clientX, y: event.clientY })
-    if (nextOrder !== null) setLayout((current) => ({ ...current, order: nextOrder }))
+    const dropped = orderAfterDrop(centers, fromKey, { x: event.clientX, y: event.clientY })
+    if (dropped !== null) {
+      setLayout((current) => ({
+        ...current,
+        order: restoreUnrenderedKeys(current.order, dropped)
+      }))
+    }
   }
 
   // Przerwany gest (np. system zabrał wskaźnik) to NIE upuszczenie: współrzędne

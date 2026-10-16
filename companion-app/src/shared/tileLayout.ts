@@ -201,3 +201,52 @@ export function orderAfterDrop(
   const keys = centers.map((center) => center.key)
   return moveTile(keys, fromKey, keys.indexOf(nearest.key))
 }
+
+/**
+ * Dokłada do nowej kolejności klucze, których w chwili przeciągania nie było na
+ * ekranie — każdy ZA SWOIM POPRZEDNIKIEM z poprzedniej kolejności.
+ *
+ * Bez tego ukrywanie i przestawianie psują się w zderzeniu: `orderAfterDrop`
+ * zwraca permutację tego, co NARYSOWANE, a kafelek ukryty przez widza
+ * narysowany nie jest. Pierwsze przeciągnięcie czegokolwiek gubiłoby więc jego
+ * klucz i po odkryciu wracałby na koniec zamiast na swoje miejsce. To samo
+ * dotyczy strumienia ogłoszonego, ale jeszcze bez obrazu (połączenie zestawiane
+ * od nowa).
+ *
+ * Poprzednik to najbliższy klucz stojący PRZED danym w `previousOrder`, który
+ * w `nextOrder` jest. Gdy takiego nie ma, klucz wraca na początek. Klucze
+ * dzielące poprzednika zachowują swoją wzajemną kolejność.
+ *
+ * Wskrzeszenie zakończonego strumienia nie jest tą drogą możliwe, więc reguła
+ * „zakończony strumień zapomina o sobie wszystko" zostaje nietknięta:
+ * `pruneLayout` zdejmuje jego klucz z `order`, gdy wiersz przestaje stać na
+ * ekranie, a dopóki stoi (400 ms animacji wyjścia), jest narysowany — trafia
+ * więc do `nextOrder` i nie jest tu niczym dokładanym.
+ */
+export function restoreUnrenderedKeys(
+  previousOrder: readonly string[],
+  nextOrder: readonly string[]
+): string[] {
+  const rendered = new Set(nextOrder)
+  // Klucz `null` zbiera te, które nie mają przed sobą żadnego narysowanego.
+  const missingAfter = new Map<string | null, string[]>()
+  let anchor: string | null = null
+
+  for (const key of previousOrder) {
+    if (rendered.has(key)) {
+      anchor = key
+      continue
+    }
+    const waiting = missingAfter.get(anchor)
+    if (waiting) waiting.push(key)
+    else missingAfter.set(anchor, [key])
+  }
+
+  const result = [...(missingAfter.get(null) ?? [])]
+  for (const key of nextOrder) {
+    result.push(key)
+    const waiting = missingAfter.get(key)
+    if (waiting) result.push(...waiting)
+  }
+  return result
+}
