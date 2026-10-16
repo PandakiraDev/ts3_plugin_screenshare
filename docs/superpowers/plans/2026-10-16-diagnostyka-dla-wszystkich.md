@@ -379,6 +379,16 @@ git commit -m "feat(dziennik): pierscien wpisow lobby w procesie glownym"
 - Consumes: `LogEntry`, `LogLevel` z zadania 4; callbacki sesji `onError`, `onPeersChange`, `onStreamersChange`, `onUnreachableChange` z `src/renderer/webrtc/session.ts:183-201`
 - Produces: `peerChangeEntries(before: readonly string[], after: readonly string[], at: number): LogEntry[]`; `streamChangeEntries(before: readonly StreamRef[], after: readonly StreamRef[], at: number): LogEntry[]`; `errorEntry(message: string, at: number): LogEntry`; `unreachableEntries(before: readonly string[], after: readonly string[], at: number): LogEntry[]`
 
+> **WYKONANE** (commit `edc11fc`, 424 testy). **Trzy rzeczy w tej sekcji były nieprawdą** — potwierdzone czytaniem kodu:
+>
+> 1. **Źródłem jest STAN, nie callbacki.** `onError`, `onPeersChange`, `onStreamersChange` i `onUnreachableChange` konsumuje `useLobby` w środku i do komponentu nie docierają; widać stąd wyłącznie `lobby.state` (`useLobby.ts:95-119`). Wpisy powstają więc z RÓŻNICY dwóch kolejnych stanów i to jest cały powód, żeby ta logika była czysta.
+> 2. **`peerChangeEntries` bierze `PeerInfo[]`, a nie `string[]`** — `lobby.state.peers` to `PeerInfo[]`. W pliku siedzi strukturalny `NamedPeer`, bo `src/shared/*` nie zależy od renderera (ten sam zwyczaj co `buildParticipants`).
+> 3. **Nazwy osób SĄ dostępne** — `PeerInfo.displayName` (`SignalingClient.ts:9-12`). Polecenie z kroku 3 („wpisz identyfikator i napisz w komentarzu, że to świadome") pogorszyłoby dziennik, który czyta człowiek, często komuś przez telefon: wpis brzmi „Michał wszedł do lobby", nie „a3f9c1 wszedł do lobby". `StreamRef` i `unreachablePeerIds` nazwy nie niosą, więc `streamChangeEntries` i `unreachableEntries` dostały czwarty parametr `nameOf: (peerId: string) => string` — parametrem, żeby zostały czyste. Doszły `nameResolver(me, peers)` i `lobbyLogEntries(before, after, at)`, bo złożenie resolwera i reguła „co jest tu zmianą" to też decyzje i w hooku byłyby nie do sprawdzenia.
+>
+> **Szpara zostawiona świadomie i opisana przy `lobbyLogEntries`:** `error` to JEDNO nadpisywane pole, nie kolejka, więc dwa identyczne błędy pod rząd bez wyczyszczenia pola między nimi dają jeden wpis. Czyszczenie na `null` zdarza się w `useLobby` w trzech miejscach, więc sekwencja błąd → ponowna próba → ten sam błąd przechodzi. Zamknięcie tego wymagałoby kolejki błędów w `useLobby`, czyli rozlania dziennika na dwie warstwy.
+>
+> **Czego ten dziennik nie zobaczy** (do wiadomości zadania 6, które te wpisy pokazuje): zmian pola `connection` — „połączono z pokojem" nie ma w ogóle, bo udane wejście tylko czyści `error`. Przy wejściu widać za to cały skład jako wpisy „wszedł do lobby", bo punktem odniesienia jest stan pusty.
+
 - [ ] **Step 1: Napisz testy zamiany**
 
 Callbacki sesji dają **stan**, nie zdarzenia, więc wpisy powstają z RÓŻNICY dwóch stanów. To jest cała trudność tego zadania i cały powód, żeby ta logika była czysta.
@@ -423,7 +433,9 @@ test('błąd sesji trafia do dziennika z poziomem błędu', () => {
 
 - [ ] **Step 3: Zaimplementuj `src/shared/lobbyEvents.ts`**
 
-Teksty po polsku, zrozumiałe bez znajomości kodu: nie „peer joined", a „Michał wszedł do lobby". Nazwy osób nie są tu dostępne — same identyfikatory — więc wpisz identyfikator i **napisz w komentarzu, że to świadome**: mapowanie na nazwy mieszka w `buildParticipants` i wciągnięcie go tutaj zrobiłoby z czystej funkcji zakładniczkę stanu uczestników.
+Teksty po polsku, zrozumiałe bez znajomości kodu: nie „peer joined", a „Michał wszedł do lobby".
+
+**Poprawione przy wykonaniu** (pierwotnie stało tu, że nazw osób nie ma i trzeba wpisać identyfikator — to była nieprawda): nazwy SĄ dostępne, `PeerInfo` ma `displayName`, więc wpisy o osobach noszą nazwy. `StreamRef` i `unreachablePeerIds` nazwy nie niosą, więc tamte funkcje biorą resolwer `nameOf` **parametrem** — bo to jedyny sposób, żeby zostały czyste, a nie zakładniczkami stanu uczestników. Każde zdanie trzyma nazwę w MIANOWNIKU („Michał — połączenie padło", nie „połączenie z Michałem padło"): nick z TS3 bywa ozdobny i nie da się go odmienić.
 
 - [ ] **Step 4: Uruchom testy i potwierdź, że przechodzą**
 
