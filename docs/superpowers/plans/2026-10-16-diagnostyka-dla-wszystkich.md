@@ -19,6 +19,7 @@
 - Stan wyjściowy: `tsc` czysty, **340 testów** w 18 plikach, `npm run build` przechodzi. Każde zadanie porównuje się ze stanem faktycznym, nie z liczbą z planu.
 - **NIE URUCHAMIAJ** aplikacji ani niczego z `companion-app/e2e/` — te skrypty otwierają prawdziwe okna na maszynie właściciela i przechwytują jego pulpit. Dozwolone: `npx tsc --noEmit`, `npm test`, `npm run build`, `node --check`.
 - Windows jest jedyną platformą docelową.
+- **Wszystkie kroki `Run:` wykonuje się z katalogu `companion-app/`, a ścieżki w `git add` są względne wobec korzenia repozytorium.** Te dwa katalogi są różne i mieszanie ich kosztuje rundę.
 
 ## Review Focus
 
@@ -42,7 +43,9 @@ Pięć rzeczy, które specyfikacja zakłada, a które najłatwiej zepsuć. Każd
 - Test: `companion-app/test/settings.test.ts`
 
 **Interfaces:**
-- Produces: `interface Settings { recordDiagnostics: boolean }`; `DEFAULT_SETTINGS: Settings`; `parseSettings(raw: string | null): Settings`; `serializeSettings(settings: Settings): string`; oraz z `main/settings.ts`: `readSettings(userDataPath: string): Settings`, `writeSettings(userDataPath: string, settings: Settings): void`
+- Produces: `interface Settings { recordDiagnostics: boolean }`; `DEFAULT_SETTINGS: Settings`; `parseSettings(raw: string | null): Settings`; `serializeSettings(settings: Settings): string`; oraz z `main/settings.ts`: `readSettings(userDataPath: string): Settings`, `writeSettings(userDataPath: string, settings: Settings): boolean`
+
+> **WYKONANE** (commit `2a33fa6`, 357 testów). `writeSettings` zwraca `boolean` (`true` = plik powstał), a nie `void` jak pisał pierwotny plan. Powód zgłoszony przez wykonawcę i przyjęty: `src/main/updateLogger.ts` sam dokumentuje, że spakowana aplikacja Windows nie ma podpiętej konsoli, więc `console.warn` idzie w próżnię — przy `void` nieudany zapis byłby całkowicie niewidoczny, a pole wyboru z zadania 7 pokazywałoby „włączone" i po cichu wracało do „wyłączone" po restarcie. Zadanie 7 MA z tego wyniku skorzystać.
 
 - [ ] **Step 1: Napisz testy `parseSettings`**
 
@@ -297,6 +300,8 @@ test('wpis błędu jest w tekście odróżnialny od zdarzenia', () => {
 
 - [ ] **Step 5: Napisz test bramkowania zapisu (punkt 5 z Review Focus)**
 
+Te testy padają na BRAKU MODUŁU `src/main/lobbyLog.ts` („Cannot find module"), a nie na asercji — modułu jeszcze nie ma, powstaje w kroku 6. Nie diagnozuj tego jako awarii; wykonawca zadania 1 stracił na tym rundę, bo plan obiecywał tam zielono.
+
 ```ts
 test('wypchnięty wpis trafia do pierścienia niezależnie od zapisu na dysk', () => {
   // Podgląd NIE zależy od ustawienia — zależy od niego wyłącznie pisanie
@@ -480,6 +485,8 @@ Wywal pole `diagnostics` z `LaunchOptions` w `src/shared/cli.ts` (linie 40-46, 1
 - [ ] **Step 4: Podepnij ustawienie do obu właścicieli zapisu**
 
 Proces główny czyta ustawienia przy starcie i przekazuje `recordDiagnostics` do `registerDiagnostics` oraz do dziennika. Kanał `IPC_SET_SETTINGS` zapisuje plik **i** przestawia zapis na gorąco przez `setRecordToDisk` — bez restartu aplikacji, bo o to właśnie szło w punkcie 5.
+
+`writeSettings` zwraca `boolean` (zadanie 1). **Wykorzystaj ten wynik**: gdy zapis się nie udał, pole wyboru nie może pokazywać stanu, który nie przeżyje restartu — powiedz to człowiekowi jednym zdaniem przy polu. Milczenie w tym miejscu jest kłamstwem interfejsu: ustawienie wygląda na zapamiętane, a nie jest.
 
 - [ ] **Step 5: Dołóż pole wyboru w `SettingsPanel.tsx`**
 
