@@ -331,7 +331,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    */
   useReorderAnimation(gridRef)
 
-  useDiagnosticsReporter(lobby, options.diagnostics)
+  useDiagnosticsReporter(lobby)
 
   /*
    * Pokazujemy skrót ORAZ wejścia, z których powstał. Sam skrót powie tylko

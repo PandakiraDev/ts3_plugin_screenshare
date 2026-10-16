@@ -564,8 +564,15 @@ export function logFilesToDelete(names: readonly string[], keep: number): string
   return logs.slice(0, Math.max(logs.length - keep, 0))
 }
 
-/** Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski. */
-function formatGigabytes(megabytes: number): string {
+/**
+ * Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski.
+ *
+ * Wyeksportowane, bo tej samej konwencji potrzebuje opis karty
+ * w `gpuInfo.ts`. Wcześniej te trzy linie stały tam powtórzone, czyli
+ * konwencja zapisu wielkości pamięci mieszkała w dwóch miejscach i rozjechałaby
+ * się przy pierwszej zmianie.
+ */
+export function formatGigabytes(megabytes: number): string {
   return (megabytes / 1024).toFixed(1).replace('.', ',')
 }
 

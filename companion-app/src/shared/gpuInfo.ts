@@ -8,6 +8,10 @@
  * tutaj gotowe wyjście, tak samo jak robi to z `nvidia-smi` dla `readGpu`.
  */
 
+// Konwencja zapisu wielkości pamięci jest JEDNA i mieszka w `diagnostics.ts`,
+// razem z VRAM-em na pasku. Tu była jej kopia; patrz komentarz przy eksporcie.
+import { formatGigabytes } from './diagnostics'
+
 /**
  * Co wiemy o karcie. Trzy pola, trzy różne rodzaje niewiedzy:
  * - `name` jest zawsze — wpis bez nazwy nie staje się kartą, bo nie ma czego
@@ -196,18 +200,6 @@ function bestCard(candidates: readonly CardCandidate[]): GpuCard | null {
 function outranks(card: GpuCard, best: GpuCard): boolean {
   if (card.utilizationAvailable !== best.utilizationAvailable) return card.utilizationAvailable
   return (card.memoryMb ?? -1) > (best.memoryMb ?? -1)
-}
-
-/**
- * Pamięć w gigabajtach z przecinkiem dziesiętnym, tak jak VRAM na pasku.
- *
- * Trzy linie powtórzone z prywatnego `formatGigabytes` w `diagnostics.ts`
- * świadomie: eksport tamtej funkcji byłby zmianą pliku, który ta część
- * specyfikacji zostawia w spokoju. Gdyby konwencja zapisu liczb kiedyś się
- * zmieniła, to są dwa miejsca — i dlatego ten komentarz tu stoi.
- */
-function formatGigabytes(megabytes: number): string {
-  return (megabytes / 1024).toFixed(1).replace('.', ',')
 }
 
 /**

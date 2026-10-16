@@ -49,9 +49,10 @@ export const IPC_GET_UPDATE_STATE = 'update:get'
 export const IPC_UPDATE_STATE = 'update:state'
 
 /*
- * Diagnostyka. Trzy kanały, nie cztery: o samą flagę renderer nie pyta
- * osobno, bo przychodzi ona polem `diagnostics` w `LaunchOptions`, czyli
- * istniejącym `IPC_GET_LAUNCH`.
+ * Diagnostyka. Cztery kanały: trzy do podglądu i jeden do wykrytej karty
+ * graficznej. O flagę renderer nie pyta w ogóle — od 0.3.4 podgląd należy do
+ * każdego i nic go nie włącza, a jedyne ustawienie (zapis na dysk) dotyczy
+ * wyłącznie procesu głównego, więc renderer nie ma z niego nic do odczytania.
  *
  * `LATEST` i `READ` są rozdzielone celowo: pasek w rogu potrzebuje jednej
  * najnowszej próbki co sekundę, a panel całego bufora tylko wtedy, gdy jest
@@ -61,3 +62,11 @@ export const IPC_UPDATE_STATE = 'update:state'
 export const IPC_DIAGNOSTICS_PUSH = 'diagnostics:push'
 export const IPC_DIAGNOSTICS_LATEST = 'diagnostics:latest'
 export const IPC_DIAGNOSTICS_READ = 'diagnostics:read'
+/**
+ * Nazwa i pamięć karty graficznej, wykryte raz przy starcie procesu głównego.
+ *
+ * Osobny kanał, a nie pole w próbce: karta nie zmienia się w trakcie sesji,
+ * więc wkładanie jej w każdą z sześciuset próbek bufora byłoby powtarzaniem
+ * tego samego napisu sześćset razy.
+ */
+export const IPC_GPU_CARD = 'diagnostics:gpu-card'

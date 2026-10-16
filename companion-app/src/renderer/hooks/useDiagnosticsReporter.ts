@@ -11,19 +11,18 @@ import type { Lobby } from './useLobby'
  * co diagnozujemy: gdyby on zapisywał, przestawałby zapisywać dokładnie
  * w chwili, która nas interesuje.
  *
- * Przy `enabled === false` nie montuje zegara wcale. To nie tylko oszczędność:
- * proces główny bez flagi `--diagnostics` nie rejestruje obsługi IPC, więc
- * każde wywołanie `pushDiagnostics` kończyłoby się odrzuconą obietnicą.
+ * Zegar chodzi bez żadnego warunku. Od 0.3.4 proces główny rejestruje obsługę
+ * `pushDiagnostics` bezwarunkowo, bo tabela strumieni pod `Ctrl+Shift+D`
+ * należy do każdego — a bez tego zegara nie miałaby skąd brać danych. Zapis na
+ * dysk jest sprawą procesu głównego i tego zegara nie dotyczy.
  */
-export function useDiagnosticsReporter(lobby: Lobby, enabled: boolean): void {
+export function useDiagnosticsReporter(lobby: Lobby): void {
   // Bierzemy samą funkcję, a nie cały obiekt `lobby`: ten jest nowy przy
   // każdym renderze, więc jako zależność restartowałby zegar przy każdym
   // przerysowaniu. Funkcja ma stabilną referencję (useCallback w useLobby).
   const { diagnosticConnections } = lobby
 
   useEffect(() => {
-    if (!enabled) return
-
     // Efekty montują się w StrictMode dwa razy, a odczyt trwa dłużej niż tick,
     // więc każde zamontowanie ma WŁASNE flagi: odczyt zaczęty przez pierwsze
     // zamontowanie po jego sprzątnięciu niczego już nie wyśle.
@@ -116,5 +115,5 @@ export function useDiagnosticsReporter(lobby: Lobby, enabled: boolean): void {
       cancelled = true
       clearInterval(timer)
     }
-  }, [diagnosticConnections, enabled])
+  }, [diagnosticConnections])
 }

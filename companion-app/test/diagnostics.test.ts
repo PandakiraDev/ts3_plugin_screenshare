@@ -29,7 +29,8 @@ import {
   type PanelTimeline,
   type StreamColumn,
   type StreamRates,
-  type StreamStats
+  type StreamStats,
+  type SystemStats
 } from '../src/shared/diagnostics'
 
 test('poprawny odczyt jednej karty', () => {
@@ -853,6 +854,24 @@ test('zdrowe odpytywanie GPU nigdy nie zapala kreski', () => {
     GPU_READ_AT + GPU_POLL_INTERVAL_MS + 47
   )
   expect(healthy).toContain('GPU 97%')
+})
+
+test('zawieszony sterownik pokazuje kreskę z godziną, nie ostatnie procenty', () => {
+  // Test REGRESJI istniejącego mechanizmu, nie nowej funkcji: `GPU_STALE_AFTER_MS`
+  // działa od 0.3.3, więc ten test przechodzi od pierwszego uruchomienia — nie szukaj
+  // brakującej implementacji.
+  //
+  // Stoi osobno dlatego, że w 0.3.4 pasek przestaje być za flagą `--diagnostics`
+  // i widzi go KAŻDY. Dotąd ten niezmiennik pilnowała także flaga: przyklejone
+  // procenty oglądałby wyłącznie ktoś, kto wiedział, co czyta. Po odbramkowaniu
+  // jest ważniejszy, nie mniej ważny — i dlatego ma własny, nazwany test.
+  const stats: SystemStats = {
+    cpuPercent: 10,
+    memoryMb: 500,
+    gpu: { utilizationPercent: 77, memoryUsedMb: 1, memoryTotalMb: 2, at: 1_000 }
+  }
+  const text = formatResourceBadge(stats, 1_000 + GPU_STALE_AFTER_MS + 1)
+  expect(text).not.toContain('77')
 })
 
 /** Zużycie systemu bez odczytu karty — bierze go każdy test, który jej nie bada. */

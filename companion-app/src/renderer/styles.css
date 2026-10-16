@@ -1240,18 +1240,35 @@ h3 {
   pointer-events: none;
 }
 
+/* Druga linia paska: nazwa karty graficznej i jej pamięć — stała przez całą
+   sesję, w odróżnieniu od liczb w linii wyżej.
+   Szerokość ograniczona, bo pasek jest przyklejony do prawej krawędzi okna
+   i bez tego rósłby w lewo, w kafelki. Łamana, a nie ucinana: przy karcie,
+   której zużycia nie umiemy zmierzyć, ta linia niesie całe zdanie
+   wyjaśniające, dlaczego wyżej stoi „GPU —" — a ucięte zdanie nie wyjaśnia
+   niczego. */
+.resource-badge__card {
+  max-width: 320px;
+  margin-top: 1px;
+  opacity: 0.8;
+}
+
 /* Pasek wisi w prawym dolnym rogu okna, a lista uczestników sięga prawej
    krawędzi i pełnej wysokości, więc przykrywał jej ostatni wiersz. Kliknięcia
    przechodziły (`pointer-events: none`), ale tekst był nieczytelny.
    Odstęp robimy na dole LISTY, a nie przesuwamy paska: każde inne miejsce
    w oknie też jest czyjeś (kafelki, podgląd, pasek tytułu), więc przesunięcie
    zamieniłoby jedną kolizję na następną, a ta byłaby trudniejsza do
-   zauważenia. Odstęp mieści pasek (~21 px) wraz z jego marginesem od dołu
-   i działa też przy przewijaniu, bo `.peers` jest tu kontenerem przewijania.
-   Warunkowo przez `:has()`, bo pasek istnieje tylko przy fladze
-   `--diagnostics` — bez niej lista nie ma tracić miejsca na nic. */
+   zauważenia. Odstęp działa też przy przewijaniu, bo `.peers` jest tu
+   kontenerem przewijania.
+   Warunkowo przez `:has()`, bo pasek pojawia się dopiero z pierwszą próbką
+   z procesu głównego — do tej chwili lista nie ma tracić miejsca na nic. Flagi
+   `--diagnostics` już w tym warunku nie ma, bo pasek widzi każdy.
+   Od 0.3.4 pasek ma DWIE linie (druga to nazwa karty), a przy karcie bez
+   odczytu zużycia druga łamie się na dwa wiersze — stąd odstęp na trzy
+   wiersze (~46 px) wraz z marginesem od dołu, nie na jeden. */
 #root:has(.resource-badge) .peers {
-  padding-bottom: 40px;
+  padding-bottom: 64px;
 }
 
 .diag {

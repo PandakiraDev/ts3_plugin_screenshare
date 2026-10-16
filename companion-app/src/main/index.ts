@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 import { registerAppAudio } from './audio'
 import { registerDiagnostics } from './diagnosticsRecorder'
+import { readSettings } from './settings'
 import { registerUpdates } from './update'
 
 /**
@@ -165,8 +166,18 @@ app.whenReady().then(() => {
     writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
   registerAppAudio()
-  // Przy wyłączonej fladze nie rejestruje nic: ani zegara, ani IPC, ani pliku.
-  registerDiagnostics(launch.ok && launch.options.diagnostics)
+  /*
+   * Podgląd diagnostyki rejestruje się bezwarunkowo — pasek zużycia i panel
+   * należą od 0.3.4 do każdego. Z ustawień bierzemy WYŁĄCZNIE zapis na dysk:
+   * to on kosztuje miejsce i tylko on potrzebuje zgody.
+   *
+   * Ścieżkę `userData` podajemy tutaj, bo `main/settings.ts` celowo nie
+   * importuje `app` — patrz komentarz w tamtym pliku. Odczyt jest
+   * synchroniczny i jednorazowy, tak samo jak `api-key.txt` wyżej.
+   */
+  registerDiagnostics({
+    recordToDisk: readSettings(app.getPath('userData')).recordDiagnostics
+  })
   // Getter, a nie referencja do okna: `activate` na macOS potrafi utworzyć nowe
   // okno, a rejestracja uchwytów IPC może się odbyć tylko raz.
   registerUpdates(() => BrowserWindow.getAllWindows()[0] ?? null)

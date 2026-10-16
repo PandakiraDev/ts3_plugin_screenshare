@@ -15,6 +15,7 @@ import {
   type StreamColumn,
   type StreamDirection
 } from '@shared/diagnostics'
+import { formatGpuCard, type GpuCard } from '@shared/gpuInfo'
 
 function formatRate(value: number | null): string {
   return value === null ? '—' : value.toFixed(1)
@@ -213,21 +214,40 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
  * („Uruchamianie…", błąd argumentów) i wskaźniki znikałyby w nich. Dane bierze
  * z procesu głównego, więc nie potrzebuje sesji WebRTC.
  *
- * Kanały IPC diagnostyki woła WYŁĄCZNIE po odczytaniu flagi: bez
- * `--diagnostics` proces główny nie rejestruje ich obsługi, więc każde
- * wywołanie kończyłoby się odrzuconą obietnicą („No handler registered").
+ * Bez żadnego włączania. Proces główny rejestruje obsługę kanałów podglądu
+ * bezwarunkowo, więc nie ma już flagi do odczytania ani stanu, w którym
+ * wywołanie kanału kończyłoby się odrzuconą obietnicą („No handler
+ * registered"). Pole wyboru z ustawień dotyczy WYŁĄCZNIE zapisu plików
+ * w procesie głównym i tego komponentu nie dotyczy: i pasek, i panel pod
+ * `Ctrl+Shift+D` czytają bufor w pamięci, który istnieje niezależnie od
+ * zapisu na dysk.
  */
-export function Diagnostics(): JSX.Element | null {
-  const [enabled, setEnabled] = useState(false)
+export function Diagnostics(): JSX.Element {
   const [latest, setLatest] = useState<DiagnosticsSample | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [timeline, setTimeline] = useState<PanelTimeline>({ samples: [], cursor: 0 })
+  /*
+   * `undefined` znaczy „jeszcze nie zapytaliśmy", `null` — „zapytaliśmy
+   * i karty nie rozpoznano". Bez tego rozróżnienia pasek pisałby „nie
+   * rozpoznano" w pierwszej chwili każdej sesji, czyli mówiłby nieprawdę,
+   * zanim zdąży się dowiedzieć.
+   */
+  const [card, setCard] = useState<GpuCard | null | undefined>(undefined)
 
+  // Raz przy montowaniu, nie zegarem: karta nie zmienia się w trakcie sesji,
+  // a proces główny wykrywa ją jednorazowo przy starcie.
   useEffect(() => {
     let cancelled = false
-    void window.companion.getLaunch().then((launch) => {
-      if (!cancelled && launch.ok) setEnabled(launch.options.diagnostics)
-    })
+    void window.companion
+      .getGpuCard()
+      .then((detected) => {
+        if (!cancelled) setCard(detected)
+      })
+      .catch((err: unknown) => {
+        // Jedno wywołanie na sesję, więc konsoli nie zasypie — ale bez tej
+        // gałęzi zostawiłoby nieobsłużone odrzucenie obietnicy.
+        console.debug('[diagnostyka] nieudany odczyt karty graficznej:', err)
+      })
     return () => {
       cancelled = true
     }
@@ -237,7 +257,6 @@ export function Diagnostics(): JSX.Element | null {
   // sama próbka trafia potem do historii panelu (efekt niżej), więc panel
   // nadąża bez drugiego, grubego kanału.
   useEffect(() => {
-    if (!enabled) return
     let cancelled = false
     const tick = (): void => {
       void window.companion
@@ -247,9 +266,8 @@ export function Diagnostics(): JSX.Element | null {
         })
         .catch((err: unknown) => {
           // Bronimy się przed nieobsłużonym odrzuceniem obietnicy CO SEKUNDĘ.
-          // Dziś ten kanał nie odrzuca, bo zegar montuje się wyłącznie przy
-          // fladze `--diagnostics`, a ta sama flaga rejestruje obsługę
-          // w procesie głównym. Gdy to bramkowanie kiedyś się rozjedzie, ten
+          // Ten kanał jest rejestrowany bezwarunkowo, więc nie ma dziś powodu
+          // odrzucać. Gdyby jednak kiedykolwiek przestał być rejestrowany, ten
           // zegar — jedyny chodzący z częstotliwością 1 Hz — zasypie konsolę
           // napisem „No handler registered" raz na sekundę i zagłuszy objaw,
           // którego w tej konsoli szukamy.
@@ -262,7 +280,7 @@ export function Diagnostics(): JSX.Element | null {
       cancelled = true
       clearInterval(timer)
     }
-  }, [enabled])
+  }, [])
 
   const openPanel = useCallback(() => {
     void window.companion
@@ -295,7 +313,6 @@ export function Diagnostics(): JSX.Element | null {
   }, [panelOpen, latest])
 
   useEffect(() => {
-    if (!enabled) return
     const onKey = (event: KeyboardEvent): void => {
       if (!event.ctrlKey || !event.shiftKey || event.key.toLowerCase() !== 'd') return
       event.preventDefault()
@@ -306,9 +323,7 @@ export function Diagnostics(): JSX.Element | null {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [enabled, panelOpen, openPanel])
-
-  if (!enabled) return null
+  }, [panelOpen, openPanel])
 
   const { samples, cursor } = timeline
   const shown = samples[cursor] ?? null
@@ -319,7 +334,19 @@ export function Diagnostics(): JSX.Element | null {
       {/* Pasek dotyczy zużycia systemu, które mierzy proces główny, więc nie
           zależy od świeżości danych o strumieniach. */}
       {latest && (
-        <div className="resource-badge">{formatResourceBadge(latest.system, latest.at)}</div>
+        <div className="resource-badge">
+          <div>{formatResourceBadge(latest.system, latest.at)}</div>
+          {/* Druga linia, a nie kolejny człon pierwszej: tekst o karcie jest
+              długi i przez całą sesję ten sam, a linia wyżej zmienia się co
+              sekundę. Stoi tu, bo samo „GPU —" nie mówi, czy zużycia tej karty
+              nie umiemy zmierzyć, czy sterownik zamarł — punkt 2 z Review
+              Focus. Rozróżnienie niesie TREŚĆ, nie wygląd: zamarły sterownik
+              daje kreskę z godziną odczytu, a ta linia nazywa kartę i mówi
+              wprost, czego o niej nie wiemy. */}
+          {card !== undefined && (
+            <div className="resource-badge__card">{formatGpuCard(card)}</div>
+          )}
+        </div>
       )}
 
       {panelOpen && (

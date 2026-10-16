@@ -15,8 +15,13 @@ import {
   type DiagnosticsSample,
   type StreamStats
 } from '@shared/diagnostics'
-import { IPC_DIAGNOSTICS_LATEST, IPC_DIAGNOSTICS_PUSH, IPC_DIAGNOSTICS_READ } from '@shared/ipc'
-import { readSystemStats, startGpuPolling } from './metrics'
+import {
+  IPC_DIAGNOSTICS_LATEST,
+  IPC_DIAGNOSTICS_PUSH,
+  IPC_DIAGNOSTICS_READ,
+  IPC_GPU_CARD
+} from '@shared/ipc'
+import { detectGpuCard, readSystemStats, startGpuPolling } from './metrics'
 
 /*
  * Bufor trzyma próbki w kolejności wstawiania, nie posortowane po `at`. Po
@@ -39,6 +44,25 @@ let lastPushAt: number | null = null
 let logPath: string | null = null
 let logBytes = 0
 let ceilingReported = false
+/**
+ * Czy wolno pisać na dysk.
+ *
+ * Zmienna modułowa, a nie parametr zegara: pole wyboru w ustawieniach
+ * przestawia ją W TRAKCIE sesji (`setRecordToDisk`), a zegar jest wtedy już
+ * uruchomiony i nie da się go przekonać argumentem sprzed minut.
+ */
+let recordToDisk = false
+/**
+ * Czy próba otwarcia dziennika już była w tej sesji.
+ *
+ * Pilnuje obietnicy „jeden plik na sesję" z `openLog`. Bez tego strażnika każde
+ * powtórne włączenie zapisu zakładałoby NOWY plik, bo nazwa niesie godzinę
+ * otwarcia — jedna sesja rozsypałaby się na tyle plików, ile razy ktoś kliknął
+ * pole wyboru, retencja (`LOG_FILES_KEPT`) usuwałaby własne wcześniejsze
+ * kawałki tej samej sesji, a sufit rozmiaru liczony per plik dałby się obejść
+ * samym klikaniem.
+ */
+let logOpened = false
 
 /**
  * Zapis na dysk. Każde wywołanie systemu plików w `try/catch`, bo diagnostyka
@@ -120,6 +144,14 @@ function pruneOldLogs(directory: string): void {
 }
 
 function openLog(): void {
+  /*
+   * Najwyżej raz na sesję, także po próbie nieudanej. Nazwa pliku niesie
+   * godzinę otwarcia, więc druga próba dałaby drugi plik tej samej sesji —
+   * patrz `logOpened`. Nieudane otwarcie zostaje nieudane do restartu:
+   * zostaje bufor w pamięci, czyli pasek i panel działają dalej.
+   */
+  if (logOpened) return
+  logOpened = true
   try {
     const directory = join(app.getPath('userData'), 'diagnostics')
     mkdirSync(directory, { recursive: true })
@@ -140,9 +172,12 @@ function openLog(): void {
      * ustawień regionalnych — a ta nazwa musi sortować się leksykograficznie
      * zgodnie z czasem, na tym opiera się retencja wyżej.
      *
-     * `openLog` jest wołane RAZ przy starcie, więc sesja trwająca przez północ
-     * pisze cały czas do pliku z datą swojego początku. Teraz nazwa już tego nie
-     * zaciemnia: mówi, kiedy sesja się ZACZĘŁA.
+     * `openLog` jest wołane NAJWYŻEJ RAZ na sesję (strażnik `logOpened` wyżej),
+     * więc sesja trwająca przez północ pisze cały czas do pliku z datą swojego
+     * początku. Nazwa mówi, kiedy ZACZĄŁ SIĘ ZAPIS: przy zapisie włączonym od
+     * startu to chwila startu aplikacji, a przy włączonym polem wyboru
+     * w trakcie — chwila tego włączenia. W obu przypadkach to początek TEGO
+     * pliku, a nie dowolny inny moment.
      */
     const now = new Date()
     const pad = (value: number): string => String(value).padStart(2, '0')
@@ -172,14 +207,56 @@ function openLog(): void {
 }
 
 /**
- * Włącza zapis diagnostyczny. Przy `enabled === false` nie rejestruje NICZEGO:
- * ani zegara, ani obsługi IPC, ani pliku. Normalny użytkownik nie płaci za
- * diagnostykę ani jednym cyklem.
+ * Przestawia zapis na dysk W TRAKCIE sesji — woła to obsługa pola wyboru
+ * w ustawieniach.
+ *
+ * Samo przestawienie flagi NIE WYSTARCZA i to jest cały powód istnienia tej
+ * funkcji: `appendLine` wychodzi na wejściu, gdy `logPath === null`,
+ * a `logPath` ustawia wyłącznie `openLog`. Po starcie z zapisem wyłączonym
+ * dziennika nikt nie otwierał, więc bez wywołania `openLog` tutaj włączenie
+ * pola wyboru przestawiłoby samą flagę, pasek i panel działałyby dalej jak
+ * gdyby nic, a na dysk nie trafiłaby ANI JEDNA linia do restartu aplikacji.
+ * Zapis ma się zaczynać bez restartu, więc otwarcie dziennika należy do
+ * włączenia.
+ *
+ * Wyłączenie nie zamyka niczego: `appendFileSync` otwiera i zamyka plik przy
+ * każdej linii, więc nie ma czego zamykać. `logPath` zostaje ustawiony
+ * celowo — powtórne włączenie w tej samej sesji dopisuje do TEGO SAMEGO pliku.
+ *
+ * Rozstrzygnięcie o stanie licznikowym przy wyłączeniu i powtórnym włączeniu
+ * w jednej sesji: `logBytes` ani `ceilingReported` NIE wracają do zera.
+ * Sufit rozmiaru liczy się per plik (patrz `openLog`), a plik jest ten sam,
+ * więc zużyty budżet zostaje zużyty; zerowanie dawałoby pełny budżet na każde
+ * kliknięcie, czyli ograniczenie rozmiaru dałoby się obejść przestawianiem
+ * pola wyboru. `ceilingReported` zostaje z tego samego powodu: notka „sufit
+ * rozmiaru osiągnięty" opisuje PLIK, nie włączenie, więc powtarzana przy
+ * każdym włączeniu dopisywałaby linie nic nie wnoszące, i to właśnie po
+ * przekroczeniu sufitu. Przerwa w zapisie jest widoczna bez notki — każda
+ * linia niesie `at`, więc dziura w czasie mówi sama za siebie.
  */
-export function registerDiagnostics(enabled: boolean): void {
-  if (!enabled) return
+export function setRecordToDisk(enabled: boolean): void {
+  recordToDisk = enabled
+  if (enabled) openLog()
+}
 
-  openLog()
+/**
+ * Rejestruje diagnostykę.
+ *
+ * Podgląd rejestruje się BEZWARUNKOWO: bufor próbek, oba zegary i kanały IPC.
+ * Pasek zużycia i tabela strumieni pod `Ctrl+Shift+D` należą od 0.3.4 do
+ * każdego, a `recordToDisk` decyduje WYŁĄCZNIE o pisaniu plików.
+ *
+ * Dotąd bramka stała przed całym ciałem, więc bez flagi nie działało NIC.
+ * Rozdzielenie jest po to, żeby odbramkowanie nie było pozorne: gdyby za
+ * bramką zapisu został choćby jeden kanał podglądu albo jeden z dwóch zegarów,
+ * panel byłby „dostępny dla każdego", a pokazywałby pustkę każdemu, kto nie
+ * włączył zapisu na dysk. Od ustawienia zależą dokładnie dwie rzeczy:
+ * `openLog` (przez `setRecordToDisk`) i `appendLine` w ciele zegara.
+ */
+export function registerDiagnostics(options: { recordToDisk: boolean }): void {
+  // Otwiera dziennik, gdy zapis jest włączony od startu; przy wyłączonym nie
+  // tworzy ani katalogu, ani pliku.
+  setRecordToDisk(options.recordToDisk)
   /*
    * Znacznik tego uruchomienia, nadawany RAZ i wpisywany w każdą linię.
    * Osiem znaków skrótu UUID, nie PID: systemy recyklingują PID-y, więc po
@@ -205,6 +282,20 @@ export function registerDiagnostics(enabled: boolean): void {
   })
   ipcMain.handle(IPC_DIAGNOSTICS_LATEST, () => buffer[buffer.length - 1] ?? null)
   ipcMain.handle(IPC_DIAGNOSTICS_READ, () => buffer)
+  /*
+   * Wykryta karta graficzna. Renderer pyta RAZ przy montowaniu, nie zegarem:
+   * karta nie zmienia się w trakcie sesji.
+   *
+   * Oddajemy `detectGpuCard()`, czyli obietnicę, a nie `detectedGpuCard()`,
+   * czyli zapamiętaną wartość. Wykrywanie jest asynchroniczne i do jego powrotu
+   * zapamiętana wartość jest `null`, co `formatGpuCard` nazywa „nie
+   * rozpoznano". Renderer czyta ten kanał DOKŁADNIE RAZ, więc przegrany wyścig
+   * nie naprawia się sam: pasek pisałby „nie rozpoznano" przez całą sesję
+   * u człowieka, którego kartę rozpoznaliśmy w 24 ms. Obietnica jest
+   * zapamiętana w module, nigdy nie odrzuca, a przy gotowym wyniku spełnia się
+   * natychmiast — więc nie kosztuje to nic poza jednym mikrozadaniem.
+   */
+  ipcMain.handle(IPC_GPU_CARD, () => detectGpuCard())
 
   const timer = setInterval(() => {
     const sample: DiagnosticsSample = {
@@ -220,7 +311,9 @@ export function registerDiagnostics(enabled: boolean): void {
       streamsAgeMs: lastPushAt === null ? null : Math.round(performance.now() - lastPushAt)
     }
     buffer = appendSample(buffer, sample, BUFFER_MAX_AGE_MS, BUFFER_MAX_SAMPLES)
-    appendLine(sample)
+    // Bufor w pamięci zawsze, plik tylko za zgodą. To jedno z dokładnie DWÓCH
+    // miejsc zależnych od `recordToDisk`; drugim jest `openLog`.
+    if (recordToDisk) appendLine(sample)
   }, SAMPLE_INTERVAL_MS)
 
   // Oba zatrzymania są potrzebne: zegar próbek i odpytywanie GPU to dwa

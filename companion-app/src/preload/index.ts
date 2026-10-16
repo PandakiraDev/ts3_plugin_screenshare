@@ -3,6 +3,7 @@ import type { CaptureSource } from '@shared/types'
 import type { LaunchParseResult } from '@shared/cli'
 import type { AppAudioFormat } from '@shared/audio'
 import type { DiagnosticsSample, StreamStats } from '@shared/diagnostics'
+import type { GpuCard } from '@shared/gpuInfo'
 import {
   IPC_AUDIO_PORT,
   IPC_AUDIO_START,
@@ -15,6 +16,7 @@ import {
   IPC_GET_SOURCES,
   IPC_GET_UPDATE_STATE,
   IPC_GET_VERSION,
+  IPC_GPU_CARD,
   IPC_SET_API_KEY,
   IPC_SET_CAPTURE_TARGET,
   IPC_UPDATE_STATE
@@ -51,6 +53,11 @@ const api = {
   getLatestDiagnostics: (): Promise<DiagnosticsSample | null> =>
     ipcRenderer.invoke(IPC_DIAGNOSTICS_LATEST),
   readDiagnostics: (): Promise<DiagnosticsSample[]> => ipcRenderer.invoke(IPC_DIAGNOSTICS_READ),
+  /**
+   * Wykryta karta graficzna; `null` znaczy „nie rozpoznano". Renderer pyta raz
+   * przy montowaniu, nie zegarem — karta nie zmienia się w trakcie sesji.
+   */
+  getGpuCard: (): Promise<GpuCard | null> => ipcRenderer.invoke(IPC_GPU_CARD),
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_GET_UPDATE_STATE),
   /** Zwraca funkcję odsubskrybowania — bez niej `useEffect` zostawiłby wyciek. */
   onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {
