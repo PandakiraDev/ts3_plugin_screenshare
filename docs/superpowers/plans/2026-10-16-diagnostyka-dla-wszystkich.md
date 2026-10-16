@@ -16,7 +16,9 @@
 - vitest chodzi w **gołym Node bez jsdom** — nie ma `document` ani `window`. Komponentów i hooków nie testujemy; decyzja, która ma mieć test, musi być czystą funkcją w `src/shared/*`.
 - `test/**/*.ts` jest w `include` w `tsconfig.json`, więc błąd typu w teście wywala `npm run build`.
 - `src/shared/diagnostics.ts` ma 783 linie — nowe rzeczy idą do NOWYCH plików w `src/shared/`.
-- Stan wyjściowy: `tsc` czysty, **340 testów** w 18 plikach, `npm run build` przechodzi. Każde zadanie porównuje się ze stanem faktycznym, nie z liczbą z planu.
+- Stan wyjściowy każdego zadania **odczytaj pomiarem** (`npm test`), nie z tego planu. Liczba rośnie z każdym zadaniem i każdy wpisany tu numer po dniu jest nieprawdą — ta linia mówiła „340 w 18 plikach", gdy faktycznie było 371 w 20.
+- **Zadanie, które dodaje kanał IPC, modyfikuje TAKŻE `src/main/index.ts`.** Stałe w `shared/ipc.ts` i funkcja w preloadzie nie wystarczą — bez `ipcMain.handle` kanał jest martwym napisem. Nadziałem się na to dwa razy: raz z `formatGpuCard` (zadanie 2 wyprodukowało tekst, którego nikt nie wołał, co wyszło dopiero z bundla), raz z kanałami dziennika. Sprawdzaj obecność w `out/main/index.js`, a nie tylko w źródle.
+- `vi.useFakeTimers()` jest **dozwolone** (pierwszy raz użyte w zadaniu 4, zegar przywracany w `finally`). Alternatywą byłby test czekający sekundę, czyli wolniejszy i chwiejny.
 - **NIE URUCHAMIAJ** aplikacji ani niczego z `companion-app/e2e/` — te skrypty otwierają prawdziwe okna na maszynie właściciela i przechwytują jego pulpit. Dozwolone: `npx tsc --noEmit`, `npm test`, `npm run build`, `node --check`.
 - Windows jest jedyną platformą docelową.
 - **Wszystkie kroki `Run:` wykonuje się z katalogu `companion-app/`, a ścieżki w `git add` są względne wobec korzenia repozytorium.** Te dwa katalogi są różne i mieszanie ich kosztuje rundę.
@@ -31,7 +33,7 @@ Pięć rzeczy, które specyfikacja zakłada, a które najłatwiej zepsuć. Każd
 4. **Długa sesja** — pierścień dziennika nie może rosnąć bez ograniczenia; najstarsze wpisy wypadają. Test w zadaniu 4.
 5. **Przestawienie pola wyboru W TRAKCIE sesji** — wpisy i próbki mają być nadal widoczne w oknie (podgląd nie zależy od ustawienia), a zapis na dysk ma się zacząć albo skończyć bez restartu aplikacji. Test w zadaniu 4, na dzienniku.
 
-   **Uczciwie o zasięgu tego testu:** przypięta zostaje połowa dziennikowa, bo `src/main/lobbyLog.ts` jest nowy i bierze zależności parametrami (wzór z `src/main/updateLogger.ts`, jedynego modułu z `src/main` objętego testami). Połowa dotycząca próbek NIE jest przypięta testem jednostkowym: `src/main/diagnosticsRecorder.ts` importuje `app` i `ipcMain` na poziomie modułu, więc w gołym Node nie da się go wczytać, a to repozytorium nie ma żadnego mockowania Electrona i ta część nie jest dobrym miejscem, żeby je zakładać. Tam niezmiennik pilnuje czytanie kodu (rejestracja kanałów podglądu musi stać POZA jakimkolwiek warunkiem) i sprawdzenie właściciela w żywym oknie. Nie pisz na to testu-atrapy, który tylko wygląda na dowód.
+   **Uczciwie o zasięgu tego testu:** przypięta zostaje połowa dziennikowa, bo `src/main/lobbyLog.ts` jest nowy i bierze zależności parametrami (wzór z `src/main/updateLogger.ts`; takich modułów jest dziś **trzy** — doszły `main/settings.ts` z zadania 1 i `main/lobbyLog.ts` z zadania 4). Połowa dotycząca próbek NIE jest przypięta testem jednostkowym: `src/main/diagnosticsRecorder.ts` importuje `app` i `ipcMain` na poziomie modułu, więc w gołym Node nie da się go wczytać, a to repozytorium nie ma żadnego mockowania Electrona i ta część nie jest dobrym miejscem, żeby je zakładać. Tam niezmiennik pilnuje czytanie kodu (rejestracja kanałów podglądu musi stać POZA jakimkolwiek warunkiem) i sprawdzenie właściciela w żywym oknie. Nie pisz na to testu-atrapy, który tylko wygląda na dowód.
 
 ---
 
@@ -520,6 +522,11 @@ Etykieta mówi, co to robi, a nie jak się nazywa w kodzie: chodzi o zapisywanie
 ```bash
 git rm companion-app/scripts/diagnostyka.ps1
 ```
+
+**Dwie pułapki od wykonawcy zadania 4, który ten plik otwierał obok:**
+
+- **Asymetria `setRecordToDisk`, której NIE WOLNO ujednolicać.** W `diagnosticsRecorder.ts` włączenie **musi** dodatkowo zawołać `openLog()`, bo `appendLine` wychodzi na wejściu przy `logPath === null` (długi komentarz na miejscu tłumaczy dlaczego). W `main/lobbyLog.ts` **nie musi i nie wolno tego kopiować** — tamten plik otwiera się leniwie przy pierwszej linii. Wyglądają na bliźniacze, a nie są.
+- **Zdublowana konwencja znacznika czasu w nazwie pliku.** `diagnosticsRecorder.openLog` ma prywatną kopię tych pięciu linii (`pad`, data, godzina), a `lobbyLogFileName` w `src/shared/lobbyLog.ts` ma tę samą rzecz, tylko **przetestowaną**. To ta sama dubla, którą zadanie 3 wycięło dla `formatGigabytes`, i nikt jej dotąd nie przydzielił. Zawołaj wspólny pomocnik z `shared/lobbyLog.ts` w `openLog`, zamiast trzymać dwie konwencje nazw plików w jednym katalogu.
 
 Usuń też wpis `"diagnostyka"` ze `scripts` w `companion-app/package.json` (linia 34) — wskazuje na plik, którego po tym kroku nie ma, więc zostałby martwym skrótem wywalającym się przy wywołaniu. **Nie ruszaj** `"e2e:diagnostyka"` (linia 24), to inny, żywy skrypt.
 
