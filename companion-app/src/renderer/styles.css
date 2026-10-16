@@ -1222,14 +1222,20 @@ h3 {
   }
 }
 
-/* ---------- diagnostyka (tylko przy fladze --diagnostics) ---------- */
+/* ---------- diagnostyka (bez żadnego włączania, od 0.3.4) ---------- */
 
 /* Pasek zużycia: prawy dolny róg, nad całą zawartością, nieklikany — nie może
-   przechwytywać kliknięć w kafelki pod nim. */
+   przechwytywać kliknięć w kafelki pod nim.
+   `bottom` liczone od guzika dziennika, który stoi pod paskiem w tym samym
+   rogu: 8 px jego odstępu od krawędzi + 24 px jego wysokości + 4 px przerwy.
+   Pasek jest nad guzikiem, a nie pod nim, bo rośnie i kurczy się razem
+   z treścią (dochodzi linia o karcie, która potrafi się złamać na trzy
+   wiersze) — gdyby to on stał w rogu, guzik skakałby wraz z nim i w ruchomy
+   celownik trudno trafić. */
 .resource-badge {
   position: fixed;
   right: 10px;
-  bottom: 8px;
+  bottom: 36px;
   z-index: 40;
   padding: 3px 8px;
   border-radius: 4px;
@@ -1266,9 +1272,61 @@ h3 {
    `--diagnostics` już w tym warunku nie ma, bo pasek widzi każdy.
    Od 0.3.4 pasek ma DWIE linie (druga to nazwa karty), a przy karcie bez
    odczytu zużycia druga łamie się na dwa wiersze — stąd odstęp na trzy
-   wiersze (~46 px) wraz z marginesem od dołu, nie na jeden. */
+   wiersze (~46 px) wraz z marginesem od dołu, nie na jeden.
+   DWIE reguły, nie jedna, bo w tym rogu stoją teraz dwie rzeczy o różnym
+   czasie życia: guzik dziennika jest od pierwszej chwili, pasek dopiero od
+   pierwszej próbki. Kolejność reguł jest znacząca — mają tę samą swoistość
+   (`#root` + `.peers`), więc wygrywa ta niżej, i to ona musi być tą z większym
+   budżetem. */
+
+/* Sam guzik: 8 px odstępu + 24 px wysokości + 8 px luzu. */
+#root:has(.lobby-log-toggle) .peers {
+  padding-bottom: 40px;
+}
+
+/* Guzik i pasek razem: 36 px (dolna krawędź paska) + ~46 px jego trzech
+   wierszy + 6 px luzu. */
 #root:has(.resource-badge) .peers {
-  padding-bottom: 64px;
+  padding-bottom: 88px;
+}
+
+/* Guzik dziennika: ten sam róg co pasek zużycia, ale najniżej i jako jedyna
+   klikalna rzecz w tej okolicy (pasek ma `pointer-events: none`).
+   Wysokość podana JAWNIE, a nie zostawiona metryce czcionki: od niej zależy
+   `bottom` paska wyżej i budżet odstępu listy uczestników, więc musi być
+   liczbą, a nie wypadkową kroju.
+   Warstwa pod panelami (50): panel dziennika zostawia na niego miejsce
+   u dołu (`.diag--log`), więc nie trzeba go przepychać nad panel, żeby dało
+   się nim zamknąć to, co otworzył. */
+.lobby-log-toggle {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lobby-log-toggle:hover {
+  color: var(--text);
+  background: #35373c;
+}
+
+/* Otwarty dziennik widać na guziku, nie tylko w panelu: guzik zostaje pod
+   panelem, a bez tego nic nie mówi, że to on jest wejściem do tego, co
+   zasłoniło okno. */
+.lobby-log-toggle[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .diag {
@@ -1389,4 +1447,56 @@ h3 {
 /* Wiersze z przestarzałych danych: ostatnio znane, nie bieżące. */
 .diag__row--stale {
   color: var(--text-muted);
+}
+
+/* Panel dziennika: ta sama warstwa i ten sam wzór co `.diag`, z dwiema
+   różnicami.
+   Po pierwsze dolna krawędź: 8 px odstępu guzika + 24 px jego wysokości
+   + 8 px przerwy = 40 px, żeby panel nie przykrywał guzika, którym się go
+   zamyka.
+   Po drugie przewijanie: przewija się lista, nie cały panel, bo nagłówek
+   z liczbą wpisów i podpowiedzią o `Esc` ma zostać widoczny także wtedy, gdy
+   czytający przewinie do początku sesji. */
+.diag--log {
+  inset: 24px 24px 40px;
+  overflow: hidden;
+}
+
+/* Krój stałej szerokości, ten sam zwyczaj co `.peers__room`: wszystkie wpisy
+   zaczynają się godziną i znacznikiem poziomu, więc w kroju stałej szerokości
+   ustawiają się w kolumny i wzrok leci po nich w dół, a nie szuka początku
+   treści w każdym wierszu. Ten tekst się też dyktuje przez telefon. */
+.diag-log {
+  flex: 1;
+  /* Bez tego dziecko flexa nie kurczy się poniżej swojej treści: lista
+     rozepchnęłaby panel, zamiast się przewijać w środku. */
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Łamane, nie ucinane: wpis niesie całe zdanie po polsku („Michał — połączenie
+   padło"), a ucięte zdanie nie mówi, co się stało. */
+.diag-log__line {
+  padding: 1px 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Kolor jest tu DRUGIM nośnikiem różnicy, nigdy jedynym. Pierwszym jest
+   znacznik `[BŁĄD]` w treści wpisu (`formatLogEntry` w `shared/lobbyLog.ts`),
+   i to on działa wtedy, gdy kolor nie: przy nierozróżnianiu czerwieni, po
+   skopiowaniu wiersza do wiadomości i w pliku na dysku, do którego lecą te
+   same linie. Idzie też do drzewa dostępności, bo jest tekstem, a nie
+   wyglądem. Czerwień jak przy osobie niedostępnej
+   (`.participant__badge--unreachable`), żeby „coś nie działa" miało w całej
+   aplikacji jeden kolor. */
+.diag-log__line--error {
+  color: #ff9a9d;
 }

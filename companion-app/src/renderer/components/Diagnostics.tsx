@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   SAMPLE_INTERVAL_MS,
   advancePanelTimeline,
@@ -16,10 +16,25 @@ import {
   type StreamDirection
 } from '@shared/diagnostics'
 import { formatGpuCard, type GpuCard } from '@shared/gpuInfo'
+import { formatLogEntry, type LogEntry } from '@shared/lobbyLog'
 
 function formatRate(value: number | null): string {
   return value === null ? '—' : value.toFixed(1)
 }
+
+/**
+ * Jak często otwarty dziennik dociąga pierścień z procesu głównego.
+ *
+ * Własna stała, a nie `SAMPLE_INTERVAL_MS`, choć obie mają dziś tę samą
+ * wartość: tamta jest okresem PRÓBKOWANIA zużycia i zmieni się, gdy zmieni się
+ * koszt próbki, a ta jest tylko odświeżaniem widoku listy. Sklejenie ich
+ * znaczyłoby, że przestawienie jednej po cichu przestawia drugą.
+ *
+ * Sekunda, a nie szybciej: wpisy i tak powstają z przerysowań renderera, więc
+ * częstsze pytanie nie pokazałoby nic nowego, a dokładałoby przejść granicy
+ * procesów w aplikacji, w której diagnozujemy lag.
+ */
+const LOBBY_LOG_REFRESH_MS = 1_000
 
 interface StreamCellProps {
   column: StreamColumn
@@ -208,6 +223,103 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
   )
 }
 
+/** Ile pikseli od dołu listy liczy się jeszcze jako „czytający jest na końcu". */
+const BOTTOM_STICK_EPSILON_PX = 24
+
+/**
+ * Czy odczyt przyniósł ten sam pierścień, co poprzedni.
+ *
+ * Bez tego porównania dziennik byłby dokładnie tym, czego specyfikacja
+ * zabrania („sama diagnostyka nie może być przyczyną zacinania"): IPC oddaje
+ * przy KAŻDYM odczycie nową tablicę, więc `setLogEntries` co sekundę
+ * podmieniałby referencję, React przerysowywałby całą listę (do 2 000
+ * wierszy), a efekt dociągania do końca co sekundę pisałby `scrollTop`, czyli
+ * wymuszał przeliczenie układu — wszystko to w sesji, w której nic się nie
+ * stało.
+ *
+ * Porównujemy DŁUGOŚĆ i OSTATNI wpis, a nie całą zawartość: wpisy wyłącznie
+ * dochodzą na koniec i wypadają z początku (`appendLogEntry`), więc przy
+ * równej długości i tym samym ostatnim wpisie pierścienie mogłyby się różnić
+ * tylko wtedy, gdyby między dwoma odczytami doszło ich dokładnie tyle, ile ma
+ * cały pierścień. Przy najgorszym realnym tempie (jeden wpis na tyknięcie
+ * sesji) to 2 000 sekund pracy upchnięte w jedną — czyli nigdy, a karą za
+ * pomyłkę jest i tak tylko widok starszy o sekundę.
+ */
+function isSameRing(before: readonly LogEntry[], after: readonly LogEntry[]): boolean {
+  if (before.length !== after.length) return false
+  const last = before.at(-1)
+  const fresh = after.at(-1)
+  // Oba `undefined` znaczy „oba puste", czyli ten sam pierścień.
+  if (last === undefined || fresh === undefined) return last === fresh
+  return last.at === fresh.at && last.level === fresh.level && last.text === fresh.text
+}
+
+interface LobbyLogListProps {
+  entries: readonly LogEntry[]
+}
+
+/**
+ * Lista wpisów dziennika: najstarszy na górze, najnowszy na dole.
+ *
+ * KOLEJNOŚĆ I PRZEWIJANIE. Najnowszy na dole, jak w każdym pliku dziennika —
+ * a skoro tak, to otwarty panel musi stać na końcu listy, bo inaczej czytający
+ * widzi wpisy z początku sesji i musi przewijać, żeby zobaczyć to, po co
+ * otworzył panel. Do końca dociągamy jednak tylko wtedy, gdy czytający tam
+ * JEST: przewinięcie w górę to czynność świadoma („co się stało pięć minut
+ * temu"), a wyrywanie go z powrotem na dół przy każdym nowym wpisie
+ * uniemożliwiłoby czytanie dokładnie w chwili, w której coś się dzieje.
+ *
+ * Osobny komponent, a nie kawałek `Diagnostics`: montuje się razem
+ * z otwarciem panelu, więc „czytający jest na końcu" wraca do stanu
+ * początkowego samo, bez kasowania ref-a ręcznie przy każdym otwarciu.
+ *
+ * TEKST BIERZEMY Z `formatLogEntry`, nie składamy własnego. To ta sama linia,
+ * którą proces główny zapisuje do pliku (`src/main/lobbyLog.ts`), a te dwie
+ * postacie muszą być identyczne: plik dziennika czyta się często komuś przez
+ * telefon, mając okno przed sobą, i rozjazd formatu znaczyłby, że dwie osoby
+ * patrzą na „to samo" zapisane inaczej.
+ */
+function LobbyLogList({ entries }: LobbyLogListProps): JSX.Element {
+  const listRef = useRef<HTMLOListElement | null>(null)
+  const pinnedToBottom = useRef(true)
+
+  useEffect(() => {
+    const list = listRef.current
+    if (list === null || !pinnedToBottom.current) return
+    list.scrollTop = list.scrollHeight
+  }, [entries])
+
+  return (
+    <ol
+      className="diag-log"
+      ref={listRef}
+      onScroll={(event) => {
+        const list = event.currentTarget
+        pinnedToBottom.current =
+          list.scrollHeight - list.scrollTop - list.clientHeight < BOTTOM_STICK_EPSILON_PX
+      }}
+    >
+      {entries.map((entry, index) => (
+        /*
+         * Klucz z indeksu, bo wpisy nie mają tożsamości: `at` powtarza się
+         * (wejście i dwa strumienie tej samej osoby padają w tej samej
+         * milisekundzie), a lista jest tylko tekstem do czytania — nie ma tu
+         * stanu ani pola, które przy przesunięciu pierścienia mogłoby
+         * wylądować w złym wierszu.
+         */
+        <li
+          key={index}
+          className={
+            entry.level === 'error' ? 'diag-log__line diag-log__line--error' : 'diag-log__line'
+          }
+        >
+          {formatLogEntry(entry)}
+        </li>
+      ))}
+    </ol>
+  )
+}
+
 /**
  * Pasek zużycia i panel diagnostyczny. Wisi w `main.tsx` jako rodzeństwo
  * `<App />`, a nie w jego środku: `App` ma własne wczesne wyjścia
@@ -219,13 +331,28 @@ function StreamsSection({ shown, previous }: StreamsSectionProps): JSX.Element {
  * wywołanie kanału kończyłoby się odrzuconą obietnicą („No handler
  * registered"). Pole wyboru z ustawień dotyczy WYŁĄCZNIE zapisu plików
  * w procesie głównym i tego komponentu nie dotyczy: i pasek, i panel pod
- * `Ctrl+Shift+D` czytają bufor w pamięci, który istnieje niezależnie od
- * zapisu na dysk.
+ * `Ctrl+Shift+D`, i dziennik lobby czytają bufory w pamięci, które istnieją
+ * niezależnie od zapisu na dysk.
+ *
+ * Trzy rzeczy w jednym komponencie: pasek zużycia, panel tabeli strumieni pod
+ * `Ctrl+Shift+D` i dziennik lobby pod guzikiem. Razem, bo wszystkie trzy
+ * zajmują ten sam róg i tę samą warstwę nad oknem, a ich wzajemne położenie
+ * (co stoi nad czym, co zamyka co) jest jedną decyzją — rozdzielone na trzy
+ * komponenty, rozjechałoby się przy pierwszej zmianie któregokolwiek.
  */
 export function Diagnostics(): JSX.Element {
   const [latest, setLatest] = useState<DiagnosticsSample | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [timeline, setTimeline] = useState<PanelTimeline>({ samples: [], cursor: 0 })
+  const [logOpen, setLogOpen] = useState(false)
+  /*
+   * Wpisów NIE czyścimy przy zamknięciu panelu: przy ponownym otwarciu
+   * mignąłby pusty dziennik, zanim odpowiedź z procesu głównego wróci.
+   * Najgorszy przypadek to pełny pierścień, czyli ~317 KiB (rachunek przy
+   * `LOG_RING_MAX_ENTRIES`) — obok bufora próbek, który ma ~3,3 MiB, to nie
+   * jest koszt wart migania.
+   */
+  const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([])
   /*
    * `undefined` znaczy „jeszcze nie zapytaliśmy", `null` — „zapytaliśmy
    * i karty nie rozpoznano". Bez tego rozróżnienia pasek pisałby „nie
@@ -289,6 +416,8 @@ export function Diagnostics(): JSX.Element {
         // Suwak staje na końcu: najpierw pokazujemy teraźniejszość, a przewijanie
         // w tył jest czynnością świadomą.
         setTimeline({ samples, cursor: Math.max(0, samples.length - 1) })
+        // Ta sama warstwa i to samo miejsce co dziennik — patrz `toggleLog`.
+        setLogOpen(false)
         setPanelOpen(true)
       })
       .catch((err: unknown) => {
@@ -325,6 +454,79 @@ export function Diagnostics(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [panelOpen, openPanel])
 
+  /*
+   * Dziennik dociągamy TYLKO przy otwartym panelu — zegar chodzący przy
+   * zamkniętym dokładałby przejście granicy procesów co sekundę w aplikacji,
+   * w której diagnozujemy lag, i to po dane, których nikt w tej chwili nie
+   * patrzy. Odczyt przy otwarciu i odświeżanie to jedna sprawa, więc i jeden
+   * efekt: `tick()` leci od razu, a potem z zegara.
+   *
+   * Pierścienia nie da się „zasubskrybować": właścicielem jest proces główny,
+   * a wpychanie każdej zmiany do każdego okna znaczyłoby ruch na granicy
+   * procesów także wtedy, gdy nikt dziennika nie otworzył. Pytanie raz na
+   * sekundę przy otwartym panelu jest tańsze od tego i wystarcza, bo wpisy
+   * powstają z przerysowań, a nie z osobnego strumienia zdarzeń.
+   */
+  useEffect(() => {
+    if (!logOpen) return
+    let cancelled = false
+    const tick = (): void => {
+      void window.companion
+        .readLobbyLog()
+        .then((entries) => {
+          if (cancelled) return
+          // Referencję podmieniamy tylko wtedy, gdy pierścień naprawdę się
+          // zmienił — patrz `isSameRing`.
+          setLogEntries((current) => (isSameRing(current, entries) ? current : entries))
+        })
+        .catch((err: unknown) => {
+          // Jak przy pozostałych kanałach: bez tej gałęzi zostałoby
+          // nieobsłużone odrzucenie obietnicy, i to raz na sekundę.
+          console.debug('[dziennik] nieudany odczyt pierścienia:', err)
+        })
+    }
+    tick()
+    const timer = setInterval(tick, LOBBY_LOG_REFRESH_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [logOpen])
+
+  /*
+   * Oba panele zajmują to samo miejsce i tę samą warstwę, więc otwarcie
+   * jednego zamyka drugi. Bez tego leżałyby jeden na drugim i wierzchni
+   * (kolejność w DOM-ie, nie wybór człowieka) przykrywałby ten, który ktoś
+   * właśnie otworzył.
+   */
+  const toggleLog = useCallback(() => {
+    if (logOpen) {
+      setLogOpen(false)
+      return
+    }
+    setPanelOpen(false)
+    setLogOpen(true)
+  }, [logOpen])
+
+  /*
+   * `Escape` zamyka dziennik. Nasłuch tylko przy otwartym panelu — nie zostaje
+   * przy zamkniętym, bo ten klawisz nie należy do tego komponentu i przyszłe
+   * okno dialogowe ma prawo go dostać.
+   *
+   * Panel tabeli strumieni zamyka się swoim własnym skrótem i tak zostaje: on
+   * nie ma guzika, więc skrót jest tam jedynym wejściem i jedynym wyjściem.
+   */
+  useEffect(() => {
+    if (!logOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setLogOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [logOpen])
+
   const { samples, cursor } = timeline
   const shown = samples[cursor] ?? null
   const previous = cursor > 0 ? samples[cursor - 1] : undefined
@@ -345,6 +547,58 @@ export function Diagnostics(): JSX.Element {
               wprost, czego o niej nie wiemy. */}
           {card !== undefined && (
             <div className="resource-badge__card">{formatGpuCard(card)}</div>
+          )}
+        </div>
+      )}
+
+      {/* Guzik stoi NIŻEJ niż pasek zużycia, w samym rogu, i nie zależy od
+          pierwszej próbki: pasek pojawia się dopiero, gdy proces główny coś
+          zmierzy, a dziennik należy do każdego od pierwszej chwili. Dzięki temu
+          guzik ani razu nie drgnie — pasek nad nim rośnie w górę, gdy dojdzie
+          linia z nazwą karty. */}
+      <button
+        type="button"
+        className="lobby-log-toggle"
+        aria-expanded={logOpen}
+        title="Co się działo w lobby: kto wszedł, kto wyszedł, co odbił serwer"
+        onClick={toggleLog}
+      >
+        Dziennik
+      </button>
+
+      {logOpen && (
+        /*
+         * PANEL W TYM SAMYM OKNIE, NIE DRUGIE OKNO SYSTEMOWE. Drugi
+         * `BrowserWindow` to drugi proces renderera, czyli własny koszt
+         * procesora w aplikacji, w której diagnozujemy lag, plus drugie
+         * wejście w `electron-vite`. Panel ma tu działający wzór (`.diag`).
+         *
+         * CENA TEJ DECYZJI jest realna i ma być zapisana, nie przemilczana:
+         * dziennika nie da się czytać na drugim monitorze, patrząc
+         * jednocześnie na strumienie — panel zasłania to, czego dotyczy. Jeśli
+         * właściciel tego zażąda, zamiana na prawdziwe okno jest osobnym
+         * zadaniem, a nie poprawką tutaj.
+         */
+        <div className="diag diag--log" role="dialog" aria-label="Dziennik lobby">
+          <header className="diag__header">
+            <strong>Dziennik lobby</strong>
+            {/* Liczba wpisów bez odmiany („wpisów: 7"), bo polska liczba mnoga
+                zależy od liczby i „7 wpisy" byłoby błędem w każdej innej. */}
+            <span className="diag__legend">
+              wpisów: {logEntries.length} · najnowszy na dole ·{' '}
+              <span className="diag__legend-mark">[BŁĄD]</span> to awaria
+            </span>
+            <span className="diag__hint">Esc zamyka</span>
+          </header>
+
+          {logEntries.length === 0 ? (
+            <p className="diag__empty">
+              Dziennik jest pusty. Wpisy powstają ze zmian w lobby — ktoś wszedł, ktoś zaczął
+              nadawać, połączenie zgłosiło błąd — więc przy uruchomieniu bez wtyczki (sam
+              podgląd, bez pokoju) nie pojawi się tu nic.
+            </p>
+          ) : (
+            <LobbyLogList entries={logEntries} />
           )}
         </div>
       )}
