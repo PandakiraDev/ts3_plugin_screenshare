@@ -112,8 +112,16 @@ export interface TileLayout {
  * klucz jest już wtedy w `presentKeys` i nigdy nie został zapomniany. To
  * odstępstwo od litery reguły „zakończony strumień zapomina o sobie wszystko”.
  * Zamknięcie szpary wymagałoby pamiętania, że strumień danego klucza się
- * skończył, czyli drugiego źródła prawdy obok sygnalizacji. Ukrytych szpara
- * nie dotyczy: te przycinamy samą sygnalizacją.
+ * skończył, czyli drugiego źródła prawdy obok sygnalizacji.
+ *
+ * Ukrytych ta szpara nie dotyczy, ale uczciwie: nie dlatego, że mechanizm jest
+ * inny, tylko dlatego, że jest WĘŻSZY. Ukryte przycina samo `presentKeys`, bez
+ * `onScreenKeys`, więc wystarczy JEDEN render między końcem i ponownym
+ * ogłoszeniem strumienia, żeby ukrycie zostało zapomniane. Gdyby oba zdarzenia
+ * trafiły do tego samego taktu pętli zdarzeń, React zgrupowałby je w jeden
+ * render i ukrycie przeżyłoby restart. W praktyce nieosiągalne — zdjęcie
+ * i ponowny start transmisji to dwa kliknięcia człowieka i dwa obiegi do
+ * serwera — ale to własność grupowania renderów, nie samej sygnalizacji.
  */
 export function forgetMissingTiles(
   hidden: ReadonlySet<string>,
@@ -249,4 +257,26 @@ export function restoreUnrenderedKeys(
     if (waiting) result.push(...waiting)
   }
   return result
+}
+
+/**
+ * OBOWIĄZUJĄCA kolejność kluczy wszystkich kafelków — także ukrytych i tych,
+ * które jeszcze nie mają obrazu.
+ *
+ * To ta sama reguła, którą układa się siatkę (`applyTileOrder`), więc przy
+ * pustym `order` wychodzi z niej porządek źródłowy. Osobna funkcja, bo jest to
+ * odniesienie dla `restoreUnrenderedKeys` przy upuszczeniu kafelka i pomyłka
+ * w jego doborze jest cicha: samo `order` jest PUSTE do pierwszego upuszczenia
+ * w każdej sesji (układ nie jest zapamiętywany), a klucz ukryty przed pierwszym
+ * przeciągnięciem nigdy do niego nie trafił. Odniesienie z samego `order`
+ * gubiłoby więc ukryty kafelek na koniec siatki przy pierwszym przestawieniu,
+ * a objaw byłby widoczny dopiero po odkryciu — nikt by go nie powiązał
+ * z przeciąganiem.
+ */
+export function effectiveOrder<T>(
+  tiles: readonly T[],
+  order: readonly string[],
+  keyOf: (tile: T) => string
+): string[] {
+  return applyTileOrder(tiles, order, keyOf).map(keyOf)
 }

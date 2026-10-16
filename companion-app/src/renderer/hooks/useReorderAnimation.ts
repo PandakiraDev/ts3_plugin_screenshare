@@ -4,6 +4,12 @@ import { reducedMotion } from '../reducedMotion'
 /** Krócej niż wejście i wyjście kafelka (400 ms) — przestawianie ma być żywe. */
 const REORDER_DURATION_MS = 200
 
+/** Położenie kafelka w UKŁADZIE, bez wpływu transformacji. */
+interface Spot {
+  left: number
+  top: number
+}
+
 /**
  * Animuje zmianę miejsca kafelków techniką FLIP.
  *
@@ -22,16 +28,31 @@ const REORDER_DURATION_MS = 200
  * zmierzone, a przy najbliższej zmianie kolejności kafelki wyjechałyby
  * z miejsc sprzed dwóch układów.
  *
- * Kafelki wchodzące i wychodzące są POMIJANE: `tile-in` i `tile-out` animują
- * `transform` (sprawdzone w `styles.css`), więc FLIP biłby się z nimi o tę samą
- * właściwość.
+ * Mierzymy `offsetLeft`/`offsetTop`, a NIE `getBoundingClientRect()`, i to jest
+ * istotne, nie kosmetyczne: prostokąt z `getBoundingClientRect()` jest liczony
+ * PO transformacji, a `.tile` dostaje `animation: tile-in 400ms` bezwarunkowo
+ * (skala 0.78 → 1.04 → 1). Każdy render w ciągu tych 400 ms zapisywałby więc
+ * położenie przeskalowanego kafelka i przy następnym wychodziła z tego różnica
+ * kilkudziesięciu pikseli — przesunięcie, którego w układzie nie było.
+ * `offsetLeft`/`offsetTop` transformacji nie widzą. Dodatkowa korzyść: gdy
+ * przesunie się cała siatka (np. pojawi się pasek ostrzeżenia nad nią),
+ * współrzędne względem rodzica się nie zmieniają, więc nie animujemy
+ * wszystkich kafelków za jednym zamachem.
+ *
+ * Kafelki z TRWAJĄCĄ animacją CSS są pomijane. To jedno sprawdzenie zamiast
+ * wyliczania klas `tile--leaving` i czasu wejścia: `tile-in` i `tile-out`
+ * animują `transform`, a animacje tworzone skryptem mają w kaskadzie wyższy
+ * priorytet niż animacje CSS — FLIP nadpisałby je na swoje 200 ms, po czym
+ * CSS odzyskałby kontrolę w swojej bieżącej klatce i kafelek skoczyłby dwa
+ * razy. Sprawdzenie samego mechanizmu, a nie nazw klas, samo nadąża za CSS-em:
+ * nowa animacja na kafelku nie zacznie po cichu bić się z FLIP-em.
  *
  * Transformacja na elemencie z żywym wideo wymusza kompozytowanie. Trwa to
  * ułamek sekundy i tylko przy świadomym przeciąganiu, więc jest przyjęte — ale
  * dlatego czas jest krótki i nie animujemy nic poza przesunięciem.
  */
 export function useReorderAnimation(containerRef: React.RefObject<HTMLElement>): void {
-  const boxesRef = useRef<Map<string, DOMRect>>(new Map())
+  const spotsRef = useRef<Map<string, Spot>>(new Map())
 
   useLayoutEffect(() => {
     const container = containerRef.current
@@ -40,22 +61,25 @@ export function useReorderAnimation(containerRef: React.RefObject<HTMLElement>):
     // Pomiary zapisujemy także przy wyłączonych animacjach. Inaczej pierwszy
     // ruch po ich włączeniu wyjechałby z pustego stanu.
     const skipAnimation = reducedMotion()
-    const previous = boxesRef.current
-    const next = new Map<string, DOMRect>()
+    const previous = spotsRef.current
+    const next = new Map<string, Spot>()
 
     for (const child of container.querySelectorAll<HTMLElement>(':scope > [data-tile-key]')) {
       const key = child.dataset.tileKey
       if (key === undefined) continue // selektor to wyklucza; to tylko dla typów
 
-      const box = child.getBoundingClientRect()
-      next.set(key, box)
+      const spot: Spot = { left: child.offsetLeft, top: child.offsetTop }
+      next.set(key, spot)
 
       // Brak poprzedniego pomiaru znaczy, że kafelek właśnie wszedł.
       const before = previous.get(key)
-      if (skipAnimation || !before || child.classList.contains('tile--leaving')) continue
+      if (skipAnimation || !before) continue
+      if (child.getAnimations().some((a) => a instanceof CSSAnimation && a.playState === 'running')) {
+        continue
+      }
 
-      const dx = before.left - box.left
-      const dy = before.top - box.top
+      const dx = before.left - spot.left
+      const dy = before.top - spot.top
       if (dx === 0 && dy === 0) continue
 
       child.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
@@ -72,6 +96,6 @@ export function useReorderAnimation(containerRef: React.RefObject<HTMLElement>):
      * położenia sprzed powiększenia i kafelki wyjeżdżałyby z miejsc, w których
      * nikt ich nie widział.
      */
-    boxesRef.current = next
+    spotsRef.current = next
   })
 }

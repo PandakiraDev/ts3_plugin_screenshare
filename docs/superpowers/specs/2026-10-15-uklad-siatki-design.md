@@ -145,9 +145,12 @@ i przycinanie po nim działałoby o 400 ms za późno.
 
 Ważniejszy jest jednak stan **połączeń WebRTC**: on potrafi mignąć w obie
 strony przy ponownym uzgadnianiu, a każde mignięcie zdjęłoby ukrycie. Prawda
-z sygnalizacji (`streamerRefs`) zmienia się wyłącznie na `start-stream`,
-`stream-stopped` i `peer-left` — czyli dokładnie wtedy, kiedy chcemy
-zapominać, i nigdy przy zadyszce sieci.
+z sygnalizacji (`streamerRefs`) zmienia się tylko w czterech miejscach:
+wypełnieniu z `joined.streams` przy wejściu do pokoju oraz na zdarzeniach
+`stream-started`, `stream-stopped` i `peer-left` — czyli dokładnie wtedy, kiedy
+chcemy zapominać, i nigdy przy zadyszce sieci. (Zdarzenie nazywa się
+`stream-started`. `start-stream` to ŻĄDANIE klient→serwer i `streamerRefs` go
+w ogóle nie widzi; pierwsza wersja tego akapitu podawała tę nazwę błędnie.)
 
 ### Sterowanie w dwóch miejscach, bo jedno nie wystarcza
 

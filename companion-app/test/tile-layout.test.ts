@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest'
 import {
   applyTileOrder,
+  effectiveOrder,
   forgetMissingTiles,
   moveTile,
   orderAfterDrop,
@@ -464,4 +465,47 @@ test('gdy nic nie brakuje, wynik jest równy nowej kolejności', () => {
 
 test('pusta poprzednia kolejność niczego nie dokłada', () => {
   expect(restoreUnrenderedKeys([], ['b', 'a'])).toEqual(['b', 'a'])
+})
+
+test('effectiveOrder przy pustej kolejności daje porządek źródłowy', () => {
+  // To jest cały powód istnienia tej funkcji: `order` jest pusta do pierwszego
+  // upuszczenia w każdej sesji, a odniesienie dla `restoreUnrenderedKeys` musi
+  // wtedy mimo to znać wszystkie kafelki.
+  const tiles = [tile('a', 'screen'), tile('b', 'screen'), tile('c', 'screen')]
+  expect(effectiveOrder(tiles, [], (t) => t.tileKey)).toEqual([
+    'a:screen',
+    'b:screen',
+    'c:screen'
+  ])
+})
+
+test('effectiveOrder szanuje ustawioną kolejność i dokleja nowe na koniec', () => {
+  const tiles = [tile('a', 'screen'), tile('b', 'screen'), tile('c', 'screen')]
+  expect(effectiveOrder(tiles, ['c:screen', 'a:screen'], (t) => t.tileKey)).toEqual([
+    'c:screen',
+    'a:screen',
+    'b:screen'
+  ])
+})
+
+test('pierwsze przestawienie nie gubi kafelka ukrytego przed nim', () => {
+  /*
+   * Powtórzenie usterki z przeglądu gałęzi, złożone DOKŁADNIE tak, jak składa to
+   * `LobbyView` przy upuszczeniu kafelka. Cztery kafelki w porządku źródłowym,
+   * widz chowa `b`, potem przeciąga `d` na początek. Wcześniej odniesieniem było
+   * samo `order` — puste w tej chwili — więc `b` wypadał z kolejności i po
+   * odkryciu wracał na KONIEC, choć widz nigdy go nie ruszał.
+   */
+  const tiles = [tile('a', 'screen'), tile('b', 'screen'), tile('c', 'screen'), tile('d', 'screen')]
+  const everyKey = effectiveOrder(tiles, [], (t) => t.tileKey)
+  // To, co zwraca `orderAfterDrop`: permutacja samych NARYSOWANYCH kluczy,
+  // czyli bez ukrytego `b`.
+  const dropped = ['d:screen', 'a:screen', 'c:screen']
+
+  expect(restoreUnrenderedKeys(everyKey, dropped)).toEqual([
+    'd:screen',
+    'a:screen',
+    'b:screen',
+    'c:screen'
+  ])
 })

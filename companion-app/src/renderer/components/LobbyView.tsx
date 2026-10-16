@@ -34,6 +34,7 @@ import { useReorderAnimation } from '../hooks/useReorderAnimation'
 import { shortRoomFingerprint } from '@shared/diagnostics'
 import {
   applyTileOrder,
+  effectiveOrder,
   orderAfterDrop,
   pruneLayout,
   restoreUnrenderedKeys,
@@ -240,6 +241,16 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
      * wstawia je z powrotem za ich poprzednikami, dzięki czemu ukrywanie
      * i przestawianie nie psują się w zderzeniu: po odkryciu kafelek wraca na
      * swoje miejsce, a nie na koniec.
+     *
+     * Odniesieniem NIE MOŻE być samo `current.order`. Ta lista jest pusta do
+     * pierwszego upuszczenia w każdej sesji (układ nie jest zapamiętywany, nic
+     * jej nie dosiewa), a klucz ukryty przed pierwszym przeciągnięciem nigdy do
+     * niej nie trafił — czyli `restoreUnrenderedKeys` nie miałaby skąd odtworzyć
+     * jego pozycji i wariant „schowaj, czego nie chcę, potem ułóż resztę"
+     * gubiłby ukryty kafelek na koniec siatki. Odniesieniem jest więc
+     * OBOWIĄZUJĄCA kolejność wszystkich kafelków, ukrytych też: `applyTileOrder`
+     * na `tiles` tą samą regułą, którą układa się siatkę, więc przy pustym
+     * `order` wychodzi z niej porządek źródłowy.
      */
     const centers: TileCenter[] = []
     for (const element of grid.querySelectorAll<HTMLElement>(':scope > [data-tile-key]')) {
@@ -251,10 +262,10 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
 
     const dropped = orderAfterDrop(centers, fromKey, { x: event.clientX, y: event.clientY })
     if (dropped !== null) {
-      setLayout((current) => ({
-        ...current,
-        order: restoreUnrenderedKeys(current.order, dropped)
-      }))
+      setLayout((current) => {
+        const everyKey = effectiveOrder(tiles, current.order, (tile) => tile.tileKey)
+        return { ...current, order: restoreUnrenderedKeys(everyKey, dropped) }
+      })
     }
   }
 
@@ -314,7 +325,6 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * a hook wywołany po takim wyjściu łamie zasady Reacta i wywala aplikację
    * przy pierwszym otwarciu pickera. Ta sama pułapka wystąpiła w 0.3.2.
    */
-  // Też hook, więc obowiązuje go ta sama zasada co niżej: przed wyjściami.
   useReorderAnimation(gridRef)
 
   useDiagnosticsReporter(lobby, options.diagnostics)
