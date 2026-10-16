@@ -10,6 +10,38 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-15-uklad-siatki-design.md`
 
+---
+
+## Stan: część 1 WYKONANA (16 października 2026)
+
+Wszystkie jedenaście zadań zamkniętych. Ewidencją przebiegu jest dziennik SDD
+`.superpowers/sdd/2026-10-15-uklad-siatki/progress.md` (kratki `- [ ]` w tym
+pliku nie były odhaczane — plan był materiałem, nie listą kontrolną).
+
+| zadanie | commit | uwaga |
+|---|---|---|
+| 1-7 | do `81f34c9` | czyste funkcje układu, ukrywanie, rezygnacja z odbioru w protokole |
+| 8 | `6349204`, poprawki `16e80fd` | zapominanie zakończonych strumieni, `pruneLayout` z tożsamością |
+| 9 | `0efc4b1`, poprawki `de80d72` | przesuwanie uchwytem, przywracanie kluczy nienarysowanych |
+| 10 | `c242b3f` | animacja FLIP |
+| 11 | `81282a8` | sprawdzian wyśrodkowania (NIEURUCHOMIONY) |
+
+**Stan weryfikacji:** `tsc` bez błędów, 324 testy, pełny `npm run build`
+przechodzi. Trzy rzeczy pozostają niesprawdzone, bo nie da się ich sprawdzić
+bez żywego okna, a uruchamianie `e2e/` jest decyzją właściciela:
+
+1. wyśrodkowanie przy 3, 4 i 5 kafelkach — ma to zmierzyć `npm run e2e:siatka`;
+2. przeciąganie kafelków (uchwyt, przechwycenie wskaźnika, przygaszenie) —
+   **świadomie** nie ma na to sprawdzianu: udawany gest przez CDP może przejść
+   tam, gdzie prawdziwy nie działa, czyli dałby fałszywe poczucie bezpieczeństwa;
+3. animacja przestawiania.
+
+**Odstąpienia od planu w trakcie wykonania** (każde z uzasadnieniem w dzienniku):
+`zoomAfterHide` z zadania 5 **odwołane** (zdejmowanie powiększenia robi
+ogólniejszy efekt z zadania 3); animacja dostała `useLayoutEffect` i pomiar po
+każdym renderze zamiast tablicy `[order]`; wczesny `return` przy wyłączonych
+animacjach zamieniony na flagę, bo pomiary muszą działać dalej.
+
 ## Global Constraints
 
 - **Nazwy w kodzie po angielsku, komentarze i teksty dla użytkownika po polsku, z PEŁNYMI diakrytykami** (`ą ć ę ł ń ó ś ź ż`). Komunikaty commitów w ASCII, spójnie z historią.
@@ -1255,7 +1287,7 @@ Uwaga: zagnieżdżony ustawiacz wyżej jest nieelegancki. Jeśli przy wykonaniu 
 - [ ] **Step 4: Sprawdź budowanie i testy**
 
 Run: `cd companion-app && npm run build && npm test`
-Expected: `tsc` bez błędów, **co najmniej 285 testów**.
+Expected: `tsc` bez błędów. Faktycznie po zadaniu 8: **312 testów** (307 przed rundą poprawek).
 
 - [ ] **Step 5: Commit**
 
@@ -1400,7 +1432,7 @@ W `StreamTile.tsx`, na korzeniu kafelka: `data-tile-key={tileKey}`. Wymaga doło
 - [ ] **Step 5: Sprawdź budowanie i testy**
 
 Run: `cd companion-app && npm run build && npm test`
-Expected: `tsc` bez błędów, co najmniej 285 testów. Samej obsługi wskaźnika nie da się przetestować bez jsdom — testy ma `moveTile` z zadania 1.
+Expected: `tsc` bez błędów. Faktycznie **318 testów**, a po poprawce gubionych kluczy **324**. Samej obsługi wskaźnika nie da się przetestować bez jsdom — testy mają `moveTile`, `orderAfterDrop` i `restoreUnrenderedKeys` z `tileLayout.ts`.
 
 - [ ] **Step 6: Commit**
 
@@ -1508,7 +1540,7 @@ na początku efektu, **po** pobraniu kontenera i **przed** animowaniem — pomia
 - [ ] **Step 4: Sprawdź budowanie i testy**
 
 Run: `cd companion-app && npm run build && npm test`
-Expected: `tsc` bez błędów, co najmniej 285 testów. Animacji nie da się przetestować bez jsdom.
+Expected: `tsc` bez błędów, **324 testy**. Animacji nie da się przetestować bez jsdom — do sprawdzenia ludzkim okiem.
 
 - [ ] **Step 5: Commit**
 
@@ -1595,7 +1627,7 @@ W `companion-app/package.json`, obok `"e2e:diagnostyka"`:
 - [ ] **Step 3: Weryfikacja statyczna**
 
 Run: `cd companion-app && node --check e2e/siatka.mjs && npm run build && npm test`
-Expected: składnia OK, `tsc` bez błędów, co najmniej 285 testów.
+Expected: składnia OK, `tsc` bez błędów, **324 testy**.
 
 - [ ] **Step 4: Commit**
 

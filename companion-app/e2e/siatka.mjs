@@ -117,6 +117,13 @@ const SHARE_BUTTON = `(() => {
 const MEASURE = `(() => {
   const grid = document.querySelector('.siatka')
   if (!grid) return JSON.stringify({ error: 'brak siatki' })
+  // Pas bezpieczenstwa. Nic w tym scenariuszu nie wlacza powiekszenia, ale gdyby
+  // je wlaczylo (przypadkowe klikniecie w obraz), w siatce zostalby JEDEN kafelek,
+  // a reguly klasy siatka--zoom nadpisuja cala geometrie. Pomiar bylby wtedy bez
+  // sensu, a jego niepowodzenie nieczytelne — wiec mowimy wprost, co sie stalo.
+  if (grid.classList.contains('siatka--zoom')) {
+    return JSON.stringify({ error: 'powiekszenie wlaczone, pomiar geometrii bez sensu' })
+  }
   const tiles = [...grid.querySelectorAll(':scope > [data-tile-key]')]
   if (tiles.length === 0) return JSON.stringify({ error: 'brak kafelkow' })
   const last = tiles[tiles.length - 1]
