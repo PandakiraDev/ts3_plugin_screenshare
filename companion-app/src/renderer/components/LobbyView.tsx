@@ -30,6 +30,7 @@ import {
 } from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
+import { useLobbyLog } from '../hooks/useLobbyLog'
 import { useReorderAnimation } from '../hooks/useReorderAnimation'
 import { shortRoomFingerprint } from '@shared/diagnostics'
 import {
@@ -332,6 +333,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   useReorderAnimation(gridRef)
 
   useDiagnosticsReporter(lobby)
+
+  // Dziennik lobby: oba hooki powyżej i ten stoją razem, PRZED instrukcjami
+  // `return` — patrz uwaga nad `useReorderAnimation`. Wpisy powstają z różnicy
+  // kolejnych `lobby.state`, bo callbacki sesji niosą stan, nie zdarzenia.
+  useLobbyLog(lobby)
 
   /*
    * Pokazujemy skrót ORAZ wejścia, z których powstał. Sam skrót powie tylko
