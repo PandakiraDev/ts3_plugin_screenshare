@@ -482,6 +482,8 @@ git commit -m "feat(dziennik): okno dziennika lobby pod guzikiem"
 - Modify: `companion-app/src/main/lobbyLog.ts`
 - Modify: `companion-app/src/renderer/components/SettingsPanel.tsx`
 - Modify: `companion-app/src/shared/ipc.ts`, `companion-app/src/preload/index.ts`
+- Modify: `companion-app/package.json` (usunięcie skryptu npm, patrz krok 6)
+- Modify: `companion-app/e2e/diagnostyka.mjs` (patrz krok 7 — NIE uruchamiaj go)
 - Delete: `companion-app/scripts/diagnostyka.ps1`
 - Test: `companion-app/test/cli.test.ts` (istniejący), `companion-app/test/settings.test.ts` (istniejący)
 
@@ -519,10 +521,23 @@ Etykieta mówi, co to robi, a nie jak się nazywa w kodzie: chodzi o zapisywanie
 git rm companion-app/scripts/diagnostyka.ps1
 ```
 
-- [ ] **Step 7: Sprawdź całość i zacommituj**
+Usuń też wpis `"diagnostyka"` ze `scripts` w `companion-app/package.json` (linia 34) — wskazuje na plik, którego po tym kroku nie ma, więc zostałby martwym skrótem wywalającym się przy wywołaniu. **Nie ruszaj** `"e2e:diagnostyka"` (linia 24), to inny, żywy skrypt.
+
+- [ ] **Step 7: Napraw `e2e/diagnostyka.mjs`, który po odbramkowaniu pilnuje ODWROTNOŚCI celu**
+
+**Tego skryptu NIE URUCHAMIAJ** — otwiera prawdziwe okna Electrona i przechwytuje pulpit właściciela. Naprawiasz go czytając; sprawdzenie naprawy należy do właściciela i w raporcie powiedz wprost, że jest niesprawdzona.
+
+Dwa niezależne miejsca, oba potwierdzone czytaniem:
+
+1. **Linia 517**, asercja `[2 pasek] pasek pokazał się BEZ flagi — diagnostyka nie jest bramkowana`, traktuje odbramkowanie jako AWARIĘ. Był to poprawny sprawdzian w 0.3.3 i jest dokładną odwrotnością celu 0.3.4. Odwróć go: pasek ma być teraz obecny w OBU instancjach, bo widzi go każdy. Nagłówek pliku (linie 1 i 8) też mówi o bramkowaniu flagą — popraw.
+2. **Linia 414** uruchamia instancję z `--diagnostics` (flaga już nie istnieje) do świeżego katalogu z `mkdtempSync`, a linia 475 wymaga, by powstał plik `YYYY-MM-DD-HHmmss.jsonl`. Zapis bierze się teraz z `settings.json`, którego w świeżym katalogu nie ma, więc domyślnie jest wyłączony i asercja pada. Zapisz `settings.json` z `recordDiagnostics: true` do katalogu danych tej instancji **przed** uruchomieniem i zdejmij flagę z wywołania.
+
+Na koniec `node --check e2e/diagnostyka.mjs` oraz `grep -n -- "--diagnostics" e2e/diagnostyka.mjs` — nie ma zostać ani jedno odwołanie do flagi.
+
+- [ ] **Step 8: Sprawdź całość i zacommituj**
 
 Run: `npx tsc --noEmit && npm test && npm run build`
-Expected: `tsc` zero; żadnego odwołania do `options.diagnostics` w drzewie (`grep -rn "options.diagnostics" src/` ma być puste).
+Expected: `tsc` zero; `grep -rn "options.diagnostics" src/` puste — **po zadaniu 3 już jest**, więc usunięcie pola z `LaunchOptions` jest czysto mechaniczne.
 
 ```bash
 git add -A companion-app/src companion-app/test

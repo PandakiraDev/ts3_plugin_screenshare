@@ -121,8 +121,15 @@ Renderer wypycha wpisy, proces główny trzyma pierścień i ewentualnie pisze n
 dysk. Pierścień przeżywa przeładowanie renderera.
 
 **Wykrywanie karty raz, przy starcie, nie przy próbce.** Odczyt rejestru
-(`HardwareInformation.qwMemorySize`) zmierzony na 6 ms, ale karta nie zmienia
-się w trakcie sesji. `Win32_VideoController.AdapterRAM` jest bezużyteczne:
+(`HardwareInformation.qwMemorySize`) zmierzony na **24 ms** end-to-end, przy dwóch
+równoległych zapytaniach o konkretne wartości, ale karta nie zmienia się
+w trakcie sesji. (Pierwsza wersja tej specyfikacji podawała 6 ms — nieprawda:
+sam klucz klasy odpowiada w 11,5 ms, ale NIE zawiera danych o kartach, te leżą
+w podkluczach; zapytanie rekurencyjne po całej klasie przekracza trzysekundowy
+limit i dawałoby kartę `null` na stałe u każdego. Zmierzone przy wykonaniu.)
+Obok poprawnej wartości leży `HardwareInformation.MemorySize` typu `REG_DWORD`
+z DOKŁADNIE tym samym przepełnieniem — 4095 MB dla karty 12 GB — więc nie wolno
+jej użyć nawet jako źródła zapasowego. `Win32_VideoController.AdapterRAM` jest bezużyteczne:
 raportuje 4095 MB dla karty 12 GB (przepełnienie uint32) — zmierzone.
 
 **Plik ustawień to `<userData>/settings.json`.** Jeden klucz na teraz,
