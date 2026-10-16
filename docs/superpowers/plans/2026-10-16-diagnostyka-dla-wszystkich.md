@@ -18,6 +18,7 @@
 - `src/shared/diagnostics.ts` ma 783 linie — nowe rzeczy idą do NOWYCH plików w `src/shared/`.
 - Stan wyjściowy każdego zadania **odczytaj pomiarem** (`npm test`), nie z tego planu. Liczba rośnie z każdym zadaniem i każdy wpisany tu numer po dniu jest nieprawdą — ta linia mówiła „340 w 18 plikach", gdy faktycznie było 371 w 20.
 - **Zadanie, które dodaje kanał IPC, modyfikuje TAKŻE `src/main/index.ts`.** Stałe w `shared/ipc.ts` i funkcja w preloadzie nie wystarczą — bez `ipcMain.handle` kanał jest martwym napisem. Nadziałem się na to dwa razy: raz z `formatGpuCard` (zadanie 2 wyprodukowało tekst, którego nikt nie wołał, co wyszło dopiero z bundla), raz z kanałami dziennika. Sprawdzaj obecność w `out/main/index.js`, a nie tylko w źródle.
+- **Funkcja z `src/shared/*`, ktorej nikt nie wola, WYPADA Z BUNDLA przy tree-shakingu — niezaleznie od tego, ile ma testow.** To samo pietro wyzej niz regula o `ipcMain.handle`: wykonawca zadania 6 zmierzyl, ze `formatLogEntry` bylo w bundlu renderera obecne **zero razy** przed jego zadaniem, choc zadanie 4 mialo na nia test — test przypinal wiec decyzje, ktorej nic nie pokazywalo. Sprawdzaj grepem `out/renderer/assets/*.js`, `out/preload/index.js` i `out/main/index.js` OSOBNO, bo kazdy bundel ma inna poprawna odpowiedz: czesc napisow ma byc w jednym i nie ma byc w drugim.
 - `vi.useFakeTimers()` jest **dozwolone** (pierwszy raz użyte w zadaniu 4, zegar przywracany w `finally`). Alternatywą byłby test czekający sekundę, czyli wolniejszy i chwiejny.
 - **NIE URUCHAMIAJ** aplikacji ani niczego z `companion-app/e2e/` — te skrypty otwierają prawdziwe okna na maszynie właściciela i przechwytują jego pulpit. Dozwolone: `npx tsc --noEmit`, `npm test`, `npm run build`, `node --check`.
 - Windows jest jedyną platformą docelową.
@@ -175,7 +176,7 @@ Run: `npx vitest run test/gpu-info.test.ts`
 
 - [ ] **Step 5: Wykryj kartę RAZ, przy starcie, w `src/main/metrics.ts`**
 
-> **WYKONANE** (commit `688d350`, 370 testów). Sprostowanie pomiaru: **„6 ms" było nieprawdą.** Zmierzone na maszynie właściciela — sam klucz klasy bez `/s` to 11,5 ms, ale **nie zawiera żadnych danych o karcie** (te leżą w podkluczach ` 0`, ` 1`, …); `/s` po całej klasie przekracza 3 s i wpada w `timeout`, czyli oczywista droga z planu dawała `null` na stałe u KAŻDEGO. Działające rozwiązanie to dwa równoległe zapytania `/s /v` o konkretne wartości: **24 ms end-to-end**. Dalej „dziesiątki milisekund", ale cztery razy drożej niż obiecałem.
+> **WYKONANE** (commit `688d350`, 370 testów). Sprostowanie pomiaru: **„6 ms" było nieprawdą.** Zmierzone na maszynie właściciela — sam klucz klasy bez `/s` to 11,5 ms, ale **nie zawiera żadnych danych o karcie** (te leżą w podkluczach `0000`, `0001`, …); `/s` po całej klasie przekracza 3 s i wpada w `timeout`, czyli oczywista droga z planu dawała `null` na stałe u KAŻDEGO. Działające rozwiązanie to dwa równoległe zapytania `/s /v` o konkretne wartości: **24 ms end-to-end**. Dalej „dziesiątki milisekund", ale cztery razy drożej niż obiecałem.
 
 Dodaj `detectGpuCard(): Promise<GpuCard | null>` czytające
 `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}` przez `execFile('reg', ...)` — tak samo nieblokująco jak dzisiejsze `runNvidiaSmi`, i z takim samym `timeout`. Wynik zapamiętaj w module; karta nie zmienia się w trakcie sesji. `startGpuPolling` ma **nie odpytywać `nvidia-smi` wcale**, gdy wykryta karta nie jest NVIDIĄ: dziś uruchamia proces co 5 s tylko po to, żeby dostać błąd.
@@ -454,7 +455,7 @@ git commit -m "feat(dziennik): zdarzenia lobby zamieniane na wpisy czystymi funk
 
 ---
 
-### Task 6: Okno dziennika pod guzikiem
+### Task 6: Panel dziennika pod guzikiem
 
 **Files:**
 - Modify: `companion-app/src/renderer/components/Diagnostics.tsx`
@@ -604,6 +605,52 @@ Expected: `tsc` zero; subskrypcja zamknięcia gniazda obecna w `useLobby.ts`.
 ```bash
 git add companion-app/src/renderer/hooks/useLobby.ts companion-app/src/shared/lobbyEvents.ts companion-app/test/lobby-events.test.ts
 git commit -m "feat(dziennik): zerwanie polaczenia z serwerem trafia do dziennika"
+```
+
+---
+
+### Task 9: Dziennik nie może mylić stanu ze zdarzeniem
+
+**Files:**
+- Modify: `companion-app/src/renderer/components/Diagnostics.tsx`
+- Modify: `companion-app/src/shared/lobbyLog.ts`
+- Modify: `companion-app/src/renderer/styles.css`
+- Test: `companion-app/test/lobby-log.test.ts` (istniejący, dopisanie)
+
+**Interfaces:**
+- Consumes: `formatLogEntry`, `LogEntry` z zadania 4
+- Produces: funkcja składająca nagłówek daty dla panelu
+
+> **Zadanie dopisane po zadaniu 6.** Jego wykonawca zgłosił dwie rzeczy jako decyzje właściciela, zamiast rozstrzygać je sam, i obie przyjmuję do wykonania. To nie są kosmetyki: dotyczą tego, czy dziennik mówi prawdę o CZASIE, a cały ten przyrząd istnieje po to, żeby odpowiedzieć na pytanie „co się stało i kiedy".
+
+**Rzecz pierwsza: skład obecny przed naszym wejściem jest opisany jak zdarzenie.** Punktem odniesienia dla różnicy stanów jest stan pusty, więc wszyscy, którzy siedzieli w pokoju, zanim weszliśmy, dostają wpis „wszedł do lobby" **ze znacznikiem chwili naszego wejścia**. Czytający weźmie to za dowód, że ktoś wszedł o 22:31, choć siedział tam od godziny. Napraw to jedną wyciszoną linią nad listą, mówiącą wprost, że pierwsze wpisy to skład zastany w chwili dołączenia, a nie zdarzenia. Kosztuje ~30 px stałej wysokości panelu i jest tego warte: dziennik, który myli stan ze zdarzeniem, prowadzi diagnozę w złą stronę, a to jest dokładnie ta szkoda, której ten przyrząd ma zapobiegać.
+
+**Rzecz druga: `formatLogEntry` nie niesie daty.** W zadaniu 4 było to świadome („w oknie wszystkie wpisy są z tej sesji"), ale sesja przechodząca przez północ daje w oknie godziny niejednoznaczne — a wieczorne sesje grania przez północ przechodzą regularnie. Na dysku datę niesie tylko nazwa pliku. **Nie dodawaj daty do każdej linii** (rozdęłaby plik i okno bez potrzeby); pokaż ją RAZ, w nagłówku panelu, i zadbaj o to, żeby przy sesji przechodzącej przez północ nagłówek nie kłamał — czyli albo podaj zakres dat, albo wstaw wiersz rozdzielający w liście. Rozstrzygnij które i uzasadnij w komentarzu.
+
+- [ ] **Step 1: Napisz failujące testy**
+
+Dopisz do `test/lobby-log.test.ts` testy funkcji składającej nagłówek: dla wpisów z jednego dnia, dla wpisów z dwóch dni (przejście przez północ), i dla pustego pierścienia. Nazwij w asercjach dokładne napisy, nie kształty.
+
+- [ ] **Step 2: Uruchom i potwierdź, że padają**
+
+Run: `npx vitest run test/lobby-log.test.ts`
+
+- [ ] **Step 3: Zaimplementuj funkcję w `src/shared/lobbyLog.ts`**
+
+Czysta funkcja, bo to jedyne miejsce w tym repozytorium, które daje się przetestować.
+
+- [ ] **Step 4: Dołóż obie linie w panelu i styl**
+
+Wyciszona linia o składzie zastanym oraz nagłówek daty. Styl obok istniejących reguł `.diag-log*`; pamiętaj o budżecie rogu, który zadanie 6 ustawiło na dwóch regułach `:has()` o różnym czasie życia — panel rośnie o te dwie linie, więc sprawdź, czy jego dolna krawędź nadal nie przykrywa guzika, którym się go zamyka.
+
+- [ ] **Step 5: Sprawdź całość i zacommituj**
+
+Run: `npx tsc --noEmit && npm test && npm run build`
+Expected: `tsc` zero; nowe napisy obecne w `out/renderer/assets/*.js` (ta pułapka wyszła na tej gałęzi już trzy razy — funkcja z `src/shared/*` bez wywołania wypada z bundla przy tree-shakingu, niezależnie od tego, ile ma testów).
+
+```bash
+git add companion-app/src/shared/lobbyLog.ts companion-app/src/renderer/components/Diagnostics.tsx companion-app/src/renderer/styles.css companion-app/test/lobby-log.test.ts
+git commit -m "fix(dziennik): panel nie myli skladu zastanego ze zdarzeniem"
 ```
 
 ---
