@@ -173,6 +173,8 @@ Run: `npx vitest run test/gpu-info.test.ts`
 
 - [ ] **Step 5: Wykryj kartę RAZ, przy starcie, w `src/main/metrics.ts`**
 
+> **WYKONANE** (commit `688d350`, 370 testów). Sprostowanie pomiaru: **„6 ms" było nieprawdą.** Zmierzone na maszynie właściciela — sam klucz klasy bez `/s` to 11,5 ms, ale **nie zawiera żadnych danych o karcie** (te leżą w podkluczach ` 0`, ` 1`, …); `/s` po całej klasie przekracza 3 s i wpada w `timeout`, czyli oczywista droga z planu dawała `null` na stałe u KAŻDEGO. Działające rozwiązanie to dwa równoległe zapytania `/s /v` o konkretne wartości: **24 ms end-to-end**. Dalej „dziesiątki milisekund", ale cztery razy drożej niż obiecałem.
+
 Dodaj `detectGpuCard(): Promise<GpuCard | null>` czytające
 `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}` przez `execFile('reg', ...)` — tak samo nieblokująco jak dzisiejsze `runNvidiaSmi`, i z takim samym `timeout`. Wynik zapamiętaj w module; karta nie zmienia się w trakcie sesji. `startGpuPolling` ma **nie odpytywać `nvidia-smi` wcale**, gdy wykryta karta nie jest NVIDIĄ: dziś uruchamia proces co 5 s tylko po to, żeby dostać błąd.
 
@@ -194,11 +196,15 @@ git commit -m "feat(diagnostyka): wykrywanie karty graficznej, nie tylko NVIDII"
 - Modify: `companion-app/src/main/index.ts:169`
 - Modify: `companion-app/src/renderer/components/Diagnostics.tsx`
 - Modify: `companion-app/src/renderer/hooks/useDiagnosticsReporter.ts`
+- Modify: `companion-app/src/shared/ipc.ts`, `companion-app/src/preload/index.ts`
+- Modify: `companion-app/src/shared/diagnostics.ts` (jedno słowo `export`, patrz krok 6)
 - Test: `companion-app/test/diagnostics.test.ts` (istniejący, dopisanie)
 
 **Interfaces:**
-- Consumes: `readSettings` z zadania 1
-- Produces: `registerDiagnostics(options: { recordToDisk: boolean })` — podgląd rejestrowany bezwarunkowo, zapis na dysk za flagą z ustawień
+- Consumes: `readSettings` z zadania 1; `detectedGpuCard(): GpuCard | null` i `formatGpuCard` z zadania 2
+- Produces: `registerDiagnostics(options: { recordToDisk: boolean })` — podgląd rejestrowany bezwarunkowo, zapis na dysk za flagą z ustawień; kanał `IPC_GPU_CARD`
+
+> **POPRAWKA PLANU po zadaniu 2.** Zadanie 2 wyprodukowało `formatGpuCard`, ale pierwotny plan **nie przydzielił go nikomu do wywołania** — wykonawca udowodnił to buildem: napisy były wytrzebione z bundla, bo nic ich nie importuje. Bez tego kroku punkt 2 z „Review Focus" (użytkownik AMD ma odróżnić „nie mam karty NVIDIA" od „sterownik się zawiesił") zostałby niedostarczony po cichu, a część 2 zamknęłaby się z martwym kodem. Konsumenta dostaje to zadanie — kroki 5 i 6 niżej.
 
 - [ ] **Step 1: Napisz test punktu 3 z Review Focus**
 
@@ -232,13 +238,26 @@ Expected: ten test ma PRZEJŚĆ od razu, bo mechanizm istnieje. To test regresji
 
 W `Diagnostics.tsx` usuń stan `enabled`, odczyt `getLaunch()` i `if (!enabled) return null`. W `useDiagnosticsReporter.ts` usuń parametr `enabled` i jego gałąź. **Usuń też komentarze, które po tej zmianie kłamią:** oba pliki ostrzegają dziś, że wołanie kanału bez flagi kończy się odrzuconą obietnicą („No handler registered") — to przestaje być prawdą, a komentarz, który kłamie, jest w tym projekcie gorszy niż brak komentarza. W miejsce tego ostrzeżenia wpisz, dlaczego obsługa jest teraz bezwarunkowa.
 
-- [ ] **Step 5: Sprawdź całość i zacommituj**
+- [ ] **Step 5: Wystaw wykrytą kartę na ekran**
+
+Dodaj kanał `IPC_GPU_CARD` do `src/shared/ipc.ts`, wystaw go w `src/preload/index.ts` obok istniejących, obsłuż w procesie głównym przez `detectedGpuCard()` z zadania 2 (rejestracja **bezwarunkowa**, jak pozostałe kanały podglądu) i wyrenderuj `formatGpuCard(card)` przy pasku zużycia w `Diagnostics.tsx`.
+
+Kartę czytaj **raz**, przy montowaniu — nie zegarem. Nie zmienia się w trakcie sesji, a zadanie 2 wykrywa ją jednorazowo przy starcie.
+
+Tekst o karcie musi wyglądać **inaczej** niż kreska z godziną, którą pokazuje istniejący mechanizm przestarzałego odczytu (`GPU_STALE_AFTER_MS`). Inaczej dołożysz drugą nieodróżnialną kreskę i nie rozwiążesz punktu 2 z „Review Focus", tylko go przepiszesz w nowe miejsce.
+
+- [ ] **Step 6: Zlikwiduj zdublowaną konwencję zapisu liczb**
+
+`formatGigabytes` jest prywatne w `src/shared/diagnostics.ts`, a zadanie 2 musiało powtórzyć te trzy linie w `gpuInfo.ts`, żeby nie wychodzić poza swoją listę plików. Konwencja zapisu wielkości pamięci jest więc teraz w dwóch miejscach i rozjedzie się przy pierwszej zmianie. Dopisz `export` w `diagnostics.ts`, zaimportuj w `gpuInfo.ts`, usuń kopię.
+
+- [ ] **Step 7: Sprawdź całość i zacommituj**
 
 Run: `npx tsc --noEmit && npm test && npm run build`
+Expected: `tsc` zero; `grep -rn "formatGpuCard" src/` pokazuje co najmniej jedno WYWOŁANIE poza `gpuInfo.ts`, nie tylko wzmianki w komentarzach.
 
 ```bash
-git add companion-app/src/main/diagnosticsRecorder.ts companion-app/src/main/index.ts companion-app/src/renderer/components/Diagnostics.tsx companion-app/src/renderer/hooks/useDiagnosticsReporter.ts companion-app/test/diagnostics.test.ts
-git commit -m "feat(diagnostyka): licznik zuzycia widoczny bez flagi"
+git add companion-app/src/main/diagnosticsRecorder.ts companion-app/src/main/index.ts companion-app/src/renderer/components/Diagnostics.tsx companion-app/src/renderer/hooks/useDiagnosticsReporter.ts companion-app/src/shared/ipc.ts companion-app/src/preload/index.ts companion-app/src/shared/diagnostics.ts companion-app/src/shared/gpuInfo.ts companion-app/test/diagnostics.test.ts
+git commit -m "feat(diagnostyka): licznik zuzycia i karta graficzna widoczne bez flagi"
 ```
 
 ---
