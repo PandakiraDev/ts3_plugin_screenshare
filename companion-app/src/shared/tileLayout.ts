@@ -20,6 +20,54 @@ export function visibleTiles(tiles: readonly Tile[], hidden: ReadonlySet<string>
 }
 
 /**
+ * Czy po kliknięciu oczka albo krzyżyka przy kafelku mamy ODBIERAĆ ten
+ * strumień. `null` = nie ma od kogo przestać odbierać ani kogo prosić
+ * o powrót, bo własny podgląd jest lokalny i nie przychodzi z sieci.
+ *
+ * Jedno wyrażenie zamiast podwójnej negacji rozłożonej na dwie warstwy.
+ * Wcześniej komponent liczył `hiding = !hidden.has(tileKey)` i wołał
+ * `setStreamSubscribed(…, !hiding)`, a hook rozstrzygał z tego rezygnację
+ * albo powrót. Odwrócenie KTÓREJKOLWIEK z tych negacji przechodziło
+ * kompilację — oba warianty są `boolean` — i nie ruszało żadnego testu,
+ * a dla człowieka znaczyło, że krzyżyk na kafelku każe nadawcy PRZYSŁAĆ
+ * obraz, a odkrycie kafelka każe mu przestać nadawać. `!hiding` zwija się
+ * do `hidden.has(tileKey)`: kliknięcie ukrywa to, co widać, więc odbierać
+ * mamy dokładnie to, co było ukryte.
+ *
+ * `hidden` MUSI być stanem SPRZED aktualizacji. Liczenie kierunku w środku
+ * aktualizatora `setLayout` jest wykluczone: ten musi być czysty, bo React
+ * w StrictMode wywołuje go dwa razy, a wiadomość do sieci czysta nie jest —
+ * na jedno kliknięcie poszłyby DWIE.
+ */
+export function subscriptionAfterToggle(
+  hidden: ReadonlySet<string>,
+  tileKey: string,
+  isMe: boolean
+): boolean | null {
+  if (isMe) return null
+  return hidden.has(tileKey)
+}
+
+/**
+ * Zbiór ukrytych po tym samym kliknięciu: widoczny kafelek znika, ukryty wraca.
+ *
+ * Para dla `subscriptionAfterToggle`, i tutaj z tego samego powodu — w
+ * `src/shared` da się ją sprawdzić testem, w komponencie nie. Zgodności tej
+ * pary (dokładamy klucz do `hidden` wtedy i tylko wtedy, gdy przestajemy
+ * odbierać) pilnuje osobna asercja w teście: rozjazd byłby cichy, bo kafelek
+ * zniknąłby z siatki, a obraz dalej by się odbierał i dekodował.
+ *
+ * Nowy zbiór, nie mutacja wejścia: wynik idzie wprost do stanu Reacta, który
+ * rozpoznaje zmianę po referencji.
+ */
+export function hiddenAfterToggle(hidden: ReadonlySet<string>, tileKey: string): Set<string> {
+  const next = new Set(hidden)
+  if (next.has(tileKey)) next.delete(tileKey)
+  else next.add(tileKey)
+  return next
+}
+
+/**
  * Układa elementy według zapamiętanej kolejności kluczy.
  *
  * Element NIEOBECNY w `order` idzie na KONIEC, nie w środek: nowy strumień nie

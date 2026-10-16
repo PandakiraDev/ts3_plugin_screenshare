@@ -35,9 +35,11 @@ import { shortRoomFingerprint } from '@shared/diagnostics'
 import {
   applyTileOrder,
   effectiveOrder,
+  hiddenAfterToggle,
   orderAfterDrop,
   pruneLayout,
   restoreUnrenderedKeys,
+  subscriptionAfterToggle,
   visibleTiles,
   type TileCenter,
   type TileLayout
@@ -158,18 +160,20 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   // `useLeaveTransition` wyżej.
   const toggleHidden = useCallback(
     (tileKey: string, peerId: string, kind: StreamKind, isMe: boolean) => {
-      // Kierunek liczymy z `hidden` PRZED aktualizacją, a nie w jej środku:
-      // aktualizator musi być czysty (React w StrictMode wywołuje go w dev dwa razy),
-      // a wiadomość do sieci czystą nie jest — poszłyby dwie na jedno kliknięcie.
-      const hiding = !hidden.has(tileKey)
-      setLayout((current) => {
-        const nextHidden = new Set(current.hidden)
-        if (hiding) nextHidden.add(tileKey)
-        else nextHidden.delete(tileKey)
-        return { ...current, hidden: nextHidden }
-      })
-      // Własny podgląd jest lokalny — nie ma od kogo przestać go odbierać.
-      if (!isMe) setStreamSubscribed(peerId, kind, !hiding)
+      // Kierunek dla SIECI liczymy z `hidden` PRZED aktualizacją, a nie w jej
+      // środku: aktualizator musi być czysty (React w StrictMode wywołuje go
+      // w dev dwa razy), a wiadomość do sieci czysta nie jest — poszłyby dwie
+      // na jedno kliknięcie. `null` = własny podgląd, czyli nie ma od kogo.
+      const subscribed = subscriptionAfterToggle(hidden, tileKey, isMe)
+      // Sam zbiór przełączamy z `current`, nie z domknięcia: aktualizator ma
+      // się scalić z najświeższym stanem (efekt `pruneLayout` chodzi po każdym
+      // renderze), a `hiddenAfterToggle` jest czyste, więc podwójne wywołanie
+      // w StrictMode daje ten sam wynik.
+      setLayout((current) => ({
+        ...current,
+        hidden: hiddenAfterToggle(current.hidden, tileKey)
+      }))
+      if (subscribed !== null) setStreamSubscribed(peerId, kind, subscribed)
     },
     [hidden, setStreamSubscribed]
   )

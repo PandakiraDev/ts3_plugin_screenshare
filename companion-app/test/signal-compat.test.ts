@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { unsubscribePayload } from '../src/renderer/webrtc/signalCompat'
+import { subscribePayload, unsubscribePayload } from '../src/renderer/webrtc/signalCompat'
 
 /*
  * Dlaczego ten plik istnieje.
@@ -40,6 +40,35 @@ test('treść rezygnacji nie ma pola `candidate` ani `owner`', () => {
   // nieszkodliwe tylko przez przypadek, a `owner` równy nam skierowałby
   // starego klienta do drugiego bufora.
   const payload = unsubscribePayload('screen')
+  expect('candidate' in payload).toBe(false)
+  expect('owner' in payload).toBe(false)
+})
+
+/*
+ * To samo dla POWROTU do odbioru, i nie na zapas: `subscribe` leci tą samą
+ * ścieżką do tego samego starego `onSignal` i spada w nim w to samo miejsce,
+ * bo też nie jest ani `quality`, ani ofertą, ani odpowiedzią. Reguła jest
+ * więc wspólna dla obu wiadomości, a plik, który deklaruje, że pilnuje
+ * zgodności wstecz „z własnym testem obok", musi pilnować obu — nie połowy.
+ *
+ * Asercje przez operator `in`, a nie `toEqual`: `toEqual` IGNORUJE pola
+ * o wartości `undefined`, więc przepuściłby dołożone `candidate: undefined` —
+ * dokładnie ten kształt, którego stara ścieżka ICE boi się najbardziej (to jej
+ * `addIceCandidate(undefined)` znaczy „koniec kandydatów").
+ */
+
+test('treść powrotu do odbioru NIE MA pola `stream` — ten sam warunek zgodności', () => {
+  const payload = subscribePayload('screen')
+  expect('stream' in payload).toBe(false)
+})
+
+test('rodzaj strumienia w powrocie też jedzie w polu `streamKind`', () => {
+  expect(subscribePayload('screen').streamKind).toBe('screen')
+  expect(subscribePayload('camera').streamKind).toBe('camera')
+})
+
+test('treść powrotu nie ma pola `candidate` ani `owner`', () => {
+  const payload = subscribePayload('screen')
   expect('candidate' in payload).toBe(false)
   expect('owner' in payload).toBe(false)
 })

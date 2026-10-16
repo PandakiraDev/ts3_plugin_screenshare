@@ -43,7 +43,24 @@ const JOINED: JoinResult = {
   streams: [{ peerId: 'michal', kind: 'screen' }]
 }
 
-function harness(callbacks: Partial<LobbyCallbacks> = {}): Harness {
+/**
+ * Michał nadaje ekran ORAZ kamerę. Konfiguracja celowo wspierana (patrz
+ * `src/shared/tileLayout.ts`: „Ta sama osoba nadająca ekran i kamerę ma DWA
+ * klucze i to jest celowe") i jedyna, w której widać, czy operacja na jednym
+ * rodzaju nie rusza drugiego. Przy atrapie z jednym strumieniem każda ścieżka
+ * rodzaju mogła być zepsuta i test by tego nie zauważył.
+ */
+const JOINED_BOTH: JoinResult = {
+  peerId: 'ja',
+  displayName: 'Ja',
+  peers: [{ peerId: 'michal', displayName: 'Michał' }],
+  streams: [
+    { peerId: 'michal', kind: 'screen' },
+    { peerId: 'michal', kind: 'camera' }
+  ]
+}
+
+function harness(callbacks: Partial<LobbyCallbacks> = {}, joined: JoinResult = JOINED): Harness {
   const listeners = new Map<string, Listener[]>()
   const sent: Harness['sent'] = []
   const signaling = {
@@ -63,7 +80,7 @@ function harness(callbacks: Partial<LobbyCallbacks> = {}): Harness {
     ...NO_CALLBACKS,
     ...callbacks
   })
-  session.begin(JOINED)
+  session.begin(joined)
   return {
     session,
     sent,
@@ -389,4 +406,161 @@ test('rezygnacja widza gasi nieaktualne ostrzeżenie o awarii połączenia wycho
     fire('signal', 'michal', { kind: 'unsubscribe', streamKind: 'screen' })
     await flush()
     expect(unreachable).toStrictEqual([['michal'], []])
+  }))
+
+// --- jedna osoba nadająca OBA rodzaje ------------------------------------
+
+/*
+ * Niezmiennik: ekran i kamera to osobne strumienie z osobnymi połączeniami, więc
+ * operacja na jednym rodzaju nie ma prawa ruszyć drugiego. Testy wyżej używają
+ * atrapy z JEDNYM strumieniem Michała, w której żadna ścieżka rodzaju nie jest
+ * sprawdzana — a stawka jest konkretna: jedno kliknięcie krzyżyka gasiłoby dwa
+ * kafelki, albo krzyżyk na kamerze kazałby nadawcy wyłączyć ekran.
+ */
+
+/** Rodzaje połączeń danego kierunku, w kolejności powstawania. */
+function connectionKinds(session: LobbySession, direction: 'inbound' | 'outbound'): string[] {
+  return session
+    .diagnosticConnections()
+    .filter((connection) => connection.direction === direction)
+    .map((connection) => connection.kind)
+}
+
+/** Atrapa NASZEGO strumienia lokalnego; `hintContent` ustawia `contentHint` na ścieżce. */
+function localVideoStream(): MediaStream {
+  const track = { kind: 'video', contentHint: '' }
+  return {
+    getTracks: () => [track],
+    getVideoTracks: () => [track]
+  } as unknown as MediaStream
+}
+
+/** Same wiadomości o odbiorze — oferty i odpowiedzi negocjacji nas tu nie dotyczą. */
+function subscriptionMessages(sent: Harness['sent']): Harness['sent'] {
+  return sent.filter(
+    (message) =>
+      message.payload['kind'] === 'unsubscribe' || message.payload['kind'] === 'subscribe'
+  )
+}
+
+test('rezygnacja z odbioru ekranu nie zamyka kamery tej samej osoby', () =>
+  withFakeConnections(async () => {
+    const remote: [string, string, MediaStream | null][] = []
+    const { session, sent, fire } = harness(
+      { onRemoteStream: (peerId, kind, stream) => remote.push([peerId, kind, stream]) },
+      JOINED_BOTH
+    )
+
+    // Oba strumienie Michała zestawiają się niezależnie: dwie oferty, dwa
+    // osobne połączenia przychodzące.
+    fire('signal', 'michal', {
+      kind: 'offer',
+      sdp: 'sdp-ekranu',
+      owner: 'michal',
+      stream: 'screen'
+    })
+    fire('signal', 'michal', {
+      kind: 'offer',
+      sdp: 'sdp-kamery',
+      owner: 'michal',
+      stream: 'camera'
+    })
+    await flush()
+    // Kontrola: bez dwóch połączeń dalsze asercje byłyby prawdziwe na pusto.
+    expect(connectionKinds(session, 'inbound')).toStrictEqual(['screen', 'camera'])
+
+    session.unsubscribeFrom('michal', 'screen')
+    // Zostaje DOKŁADNIE kamera — jedno kliknięcie krzyżyka gasi jeden kafelek.
+    expect(connectionKinds(session, 'inbound')).toStrictEqual(['camera'])
+    // Interfejs zapomina tylko o ekranie; kafelek kamery zachowuje swój obraz.
+    expect(remote).toStrictEqual([['michal', 'screen', null]])
+    // A do nadawcy idzie jedna wiadomość i tylko o ekranie.
+    expect(subscriptionMessages(sent)).toStrictEqual([
+      { to: 'michal', payload: { kind: 'unsubscribe', streamKind: 'screen' } }
+    ])
+  }))
+
+test('rezygnacja z odbioru kamery mówi nadawcy o kamerze, nie o ekranie', () => {
+  // Bez atrapy połączeń: nic nie zostało zestawione, a `closeIncoming`
+  // nieistniejącego połączenia jest bezpieczne — tu chodzi o samą treść.
+  const { session, sent } = harness({}, JOINED_BOTH)
+  session.unsubscribeFrom('michal', 'camera')
+  expect(sent).toStrictEqual([
+    { to: 'michal', payload: { kind: 'unsubscribe', streamKind: 'camera' } }
+  ])
+})
+
+test('przyjęta rezygnacja widza z ekranu nie zwija nadawanej mu kamery', () =>
+  withFakeConnections(async () => {
+    // Tu oba rodzaje nadajemy MY: ten jeden widz ma od nas dwa połączenia
+    // wychodzące, każde pod własnym `connectionKey`.
+    const { session, fire } = harness({}, JOINED_BOTH)
+    await session.startStream(localVideoStream(), 'screen')
+    await session.startStream(localVideoStream(), 'camera')
+    await flush()
+    expect(connectionKinds(session, 'outbound')).toStrictEqual(['screen', 'camera'])
+
+    fire('signal', 'michal', { kind: 'unsubscribe', streamKind: 'screen' })
+    await flush()
+    // Krzyżyk na kafelku ekranu nie może wyłączyć naszej kamery u tego widza.
+    expect(connectionKinds(session, 'outbound')).toStrictEqual(['camera'])
+  }))
+
+test('powrót widza do kamery daje ofertę na kamerę, nie na ekran', () =>
+  withFakeConnections(async () => {
+    const { session, sent, fire } = harness({}, JOINED_BOTH)
+    await session.startStream(localVideoStream(), 'screen')
+    await session.startStream(localVideoStream(), 'camera')
+    await flush()
+    expect(sent).toHaveLength(2)
+
+    fire('signal', 'michal', { kind: 'unsubscribe', streamKind: 'camera' })
+    await flush()
+    // Rezygnacja widza niczego nie wysyła — zwija tylko nasze połączenie.
+    expect(sent).toHaveLength(2)
+
+    fire('signal', 'michal', { kind: 'subscribe', streamKind: 'camera' })
+    await flush()
+    // Trzecia wiadomość MUSI się pojawić. Gdyby powrót brał rodzaj skądkolwiek
+    // indziej niż z treści prośby, trafiłby w nadal istniejące połączenie
+    // ekranu, `callPeer` uznałby je za gotowe i oferta nie poszłaby wcale.
+    expect(sent).toHaveLength(3)
+    expect(sent[2]).toStrictEqual({
+      to: 'michal',
+      payload: { kind: 'offer', sdp: 'sdp-atrapa', owner: 'ja', stream: 'camera' }
+    })
+    expect(connectionKinds(session, 'outbound')).toStrictEqual(['screen', 'camera'])
+  }))
+
+test('`setSubscribed` kieruje: `false` to rezygnacja, `true` to powrót', () => {
+  // Jedno wejście z interfejsu. Gałąź siedzi w sesji właśnie po to, żeby dało
+  // się ją sprawdzić: w hooku jej odwrócenie przechodzi kompilację (oba
+  // warianty mają ten sam typ) i cały zestaw testów, a dla człowieka znaczy,
+  // że krzyżyk każe nadawcy PRZYSŁAĆ obraz.
+  const { session, sent } = harness({}, JOINED_BOTH)
+  session.setSubscribed('michal', 'screen', false)
+  session.setSubscribed('michal', 'camera', true)
+  expect(sent).toStrictEqual([
+    { to: 'michal', payload: { kind: 'unsubscribe', streamKind: 'screen' } },
+    { to: 'michal', payload: { kind: 'subscribe', streamKind: 'camera' } }
+  ])
+})
+
+test('prośba o powrót od osoby, która już wyszła, nie daje oferty', () =>
+  withFakeConnections(async () => {
+    // Strażnik obecności w `callPeer`. Oferta do nieobecnego wraca od serwera
+    // błędem `Nieznany peer: …`, a ten — niezaadresowany — trafia
+    // w NAJSTARSZE wiszące żądanie i wywraca zupełnie inną operację. Samo
+    // sprawdzenie w `subscribeTo` tu nie pomaga: prośba przychodzi z sieci,
+    // a nie od naszego widoku.
+    const { session, sent, fire } = harness()
+    await session.startStream(localVideoStream(), 'screen')
+    await flush()
+    // Kontrola: nadajemy, więc jest o co prosić.
+    expect(sent).toHaveLength(1)
+
+    fire('peer-left', 'michal')
+    fire('signal', 'michal', { kind: 'subscribe', streamKind: 'screen' })
+    await flush()
+    expect(sent).toHaveLength(1)
   }))

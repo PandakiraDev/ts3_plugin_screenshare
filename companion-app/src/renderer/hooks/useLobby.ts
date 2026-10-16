@@ -327,11 +327,12 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
 
   const setStreamSubscribed = useCallback(
     (peerId: string, kind: StreamKind, subscribed: boolean): void => {
-      // Brak sesji = nic nie odbieramy, więc nie ma z czego rezygnować ani do czego wracać.
-      const session = sessionRef.current
-      if (!session) return
-      if (subscribed) session.subscribeTo(peerId, kind)
-      else session.unsubscribeFrom(peerId, kind)
+      // Sam przekaz, bez gałęzi. Rozstrzygnięcie „rezygnacja czy powrót" siedzi
+      // w `LobbySession.setSubscribed`, bo tylko tam da się je sprawdzić
+      // testem — vitest chodzi w gołym Node, bez jsdom, więc tego hooka nikt
+      // nie wywoła. Tu zostaje jedna rzecz: brak sesji = nic nie odbieramy,
+      // więc nie ma z czego rezygnować ani do czego wracać.
+      sessionRef.current?.setSubscribed(peerId, kind, subscribed)
     },
     []
   )

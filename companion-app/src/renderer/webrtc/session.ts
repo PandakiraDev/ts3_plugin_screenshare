@@ -489,9 +489,30 @@ export class LobbySession {
     return connection
   }
 
+  /**
+   * Wysyła ofertę JEDNEMU widzowi na JEDEN rodzaj strumienia.
+   *
+   * `peers.has(peerId)` jest wśród strażników celowo, choć dla dwóch z trzech
+   * wywołań jest tożsamościowy — `startStream` i obsługa `peer-joined` chodzą
+   * po samej liście `peers`. Realnie chroni ścieżkę `subscribe`: prośba
+   * o powrót przychodzi od widza, a ten mógł właśnie wyjść, a między tym
+   * sprawdzeniem i wysyłką oferty stoją DWA `await` (`createOffer`
+   * i `setLocalDescription`) — okno na wyjście jest więc realne.
+   *
+   * Czym kończy się oferta do nieobecnego, stoi przy `subscribeTo`: serwer
+   * odbija ją błędem `Nieznany peer: <id>`, a ten — jako niezaadresowany —
+   * wywraca NAJSTARSZE wiszące żądanie, czyli zupełnie inną operację.
+   */
   private async callPeer(peerId: string, kind: StreamKind): Promise<void> {
     const key = connectionKey(peerId, kind)
-    if (this.disposed || this.outgoing.has(key) || !this.localStreams.has(kind)) return
+    if (
+      this.disposed ||
+      !this.peers.has(peerId) ||
+      this.outgoing.has(key) ||
+      !this.localStreams.has(kind)
+    ) {
+      return
+    }
     const connection = this.createOutgoing(peerId, kind)
     const offer = await connection.createOffer()
     await connection.setLocalDescription(offer)
@@ -632,6 +653,22 @@ export class LobbySession {
     this.signaling.signal(peerId, subscribePayload(kind))
   }
 
+  /**
+   * Jedno wejście dla interfejsu: widz chce ten strumień albo go nie chce.
+   *
+   * Gałąź stoi TUTAJ, a nie w hooku `useLobby`, i to jest jedyny powód jej
+   * istnienia: vitest chodzi w tym projekcie w gołym Node, bez jsdom, więc
+   * hooka nikt nie wywoła i odwrócenie gałęzi w nim nie zapaliłoby żadnej
+   * lampki — oba warianty mają ten sam typ i przechodzą kompilację. Pomyłka
+   * kierunku jest przy tym najgorszym możliwym błędem w tym miejscu: krzyżyk
+   * na kafelku kazałby nadawcy PRZYSŁAĆ obraz, a odkrycie kafelka — przestać
+   * go nadawać.
+   */
+  setSubscribed(peerId: string, kind: StreamKind, subscribed: boolean): void {
+    if (subscribed) this.subscribeTo(peerId, kind)
+    else this.unsubscribeFrom(peerId, kind)
+  }
+
   // --- sygnalizacja ------------------------------------------------------
 
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
@@ -658,11 +695,16 @@ export class LobbySession {
 
     if (payload.kind === 'subscribe') {
       /*
-       * Widz wraca. NIE dublujemy tu warunków: `callPeer` już sprawdza, czy
-       * sesja nie jest zamknięta, czy połączenie już nie istnieje i czy ten
-       * rodzaj FAKTYCZNIE nadajemy (`!this.localStreams.has(kind)`).
+       * Widz wraca. NIE dublujemy tu warunków: `callPeer` sprawdza wszystkie
+       * CZTERY — czy sesja nie jest zamknięta, czy ta osoba wciąż jest
+       * w pokoju (`!this.peers.has(peerId)`), czy połączenie już nie istnieje
+       * i czy ten rodzaj FAKTYCZNIE nadajemy (`!this.localStreams.has(kind)`).
        * Powtórzenie tych sprawdzeń tworzyłoby drugie źródło tej samej prawdy,
        * które rozjedzie się przy pierwszej zmianie w `callPeer`.
+       *
+       * Strażnik obecności liczy się właśnie TUTAJ: to jedyne wywołanie
+       * `callPeer`, które może dostać kogoś, kogo już nie ma — pozostałe dwa
+       * chodzą w pętli po `this.peers`.
        */
       void this.callPeer(from, payload.streamKind)
       return

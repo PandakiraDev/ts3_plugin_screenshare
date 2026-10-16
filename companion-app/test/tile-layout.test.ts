@@ -3,10 +3,12 @@ import {
   applyTileOrder,
   effectiveOrder,
   forgetMissingTiles,
+  hiddenAfterToggle,
   moveTile,
   orderAfterDrop,
   pruneLayout,
   restoreUnrenderedKeys,
+  subscriptionAfterToggle,
   visibleTiles,
   type TileCenter,
   type TileLayout
@@ -508,4 +510,48 @@ test('pierwsze przestawienie nie gubi kafelka ukrytego przed nim', () => {
     'b:screen',
     'c:screen'
   ])
+})
+
+/*
+ * Kliknięcie oczka przy nazwie albo krzyżyka na kafelku. Dwie funkcje, bo jedno
+ * kliknięcie robi dwie rzeczy naraz — zmienia siatkę i rusza sieć — a przedtem
+ * liczył je sam komponent podwójną negacją rozłożoną na dwie warstwy
+ * (`hiding = !hidden.has(tileKey)` w widoku i `!hiding` przekazane dalej).
+ * Tutaj obie decyzje da się sprawdzić: testów komponentów w tym projekcie nie
+ * ma w ogóle, bo vitest chodzi w gołym Node, bez jsdom.
+ */
+
+test('kliknięcie kafelka UKRYTEGO wraca do odbioru, WIDOCZNEGO — rezygnuje', () => {
+  const hidden = new Set(['a:screen'])
+  expect(subscriptionAfterToggle(hidden, 'a:screen', false)).toBe(true)
+  expect(subscriptionAfterToggle(hidden, 'b:camera', false)).toBe(false)
+})
+
+test('własny podgląd nie ma od kogo być odbierany', () => {
+  // `null`, nie `false`: „nie wysyłaj nic" to inna decyzja niż „poproś, żeby
+  // przestał nadawać" — a ta druga poszłaby do nas samych.
+  expect(subscriptionAfterToggle(new Set(), 'ja:camera', true)).toBe(null)
+  expect(subscriptionAfterToggle(new Set(['ja:camera']), 'ja:camera', true)).toBe(null)
+})
+
+test('kliknięcie przełącza ukrycie jednego klucza i nie rusza pozostałych', () => {
+  const hidden = new Set(['a:screen', 'b:camera'])
+  expect([...hiddenAfterToggle(hidden, 'c:screen')]).toEqual([
+    'a:screen',
+    'b:camera',
+    'c:screen'
+  ])
+  expect([...hiddenAfterToggle(hidden, 'a:screen')]).toEqual(['b:camera'])
+  // Wejście zostaje nietknięte: wynik idzie do stanu Reacta jako NOWY zbiór.
+  expect([...hidden]).toEqual(['a:screen', 'b:camera'])
+})
+
+test('obie decyzje jednego kliknięcia są zgodne: ukrywamy to, czego przestajemy odbierać', () => {
+  // Rozjazd tej pary byłby cichy w obie strony: kafelek zniknąłby z siatki,
+  // a obraz dalej by się odbierał i dekodował, albo odwrotnie — kafelek zostałby
+  // widoczny, a nadawca dostałby prośbę, żeby przestać nadawać.
+  for (const hidden of [new Set<string>(), new Set(['a:screen'])]) {
+    const subscribed = subscriptionAfterToggle(hidden, 'a:screen', false)
+    expect(hiddenAfterToggle(hidden, 'a:screen').has('a:screen')).toBe(!subscribed)
+  }
 })
