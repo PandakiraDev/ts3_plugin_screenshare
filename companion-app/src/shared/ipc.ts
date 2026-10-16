@@ -70,3 +70,25 @@ export const IPC_DIAGNOSTICS_READ = 'diagnostics:read'
  * tego samego napisu sześćset razy.
  */
 export const IPC_GPU_CARD = 'diagnostics:gpu-card'
+
+/*
+ * Dziennik lobby. Dwa kanały: renderer wypycha wpisy, okno dziennika czyta
+ * cały pierścień.
+ *
+ * Pierścień trzyma PROCES GŁÓWNY (`src/main/lobbyLog.ts`), bo renderer jest
+ * tym, co diagnozujemy: gdyby był właścicielem, przestawałby zapisywać
+ * dokładnie w interesującej nas chwili, a jego przeładowanie czyściłoby
+ * dziennik. Rejestracja obu kanałów jest BEZWARUNKOWA, tak samo jak przy
+ * podglądzie zużycia — dziennik należy od 0.3.4 do każdego, a jedyne
+ * ustawienie (zapis na dysk) dotyczy wyłącznie procesu głównego, więc renderer
+ * nie ma z niego nic do odczytania.
+ *
+ * `PUSH` bierze TABLICĘ wpisów, nie jeden: jedna zmiana stanu w lobby daje
+ * często kilka wpisów naraz (ktoś wszedł i od razu nadaje ekran oraz kamerę),
+ * a rozbijanie ich na osobne wywołania byłoby kilkoma przejściami granicy
+ * procesów po to samo. Osobny `READ` zamiast odsyłania pierścienia w
+ * odpowiedzi na `PUSH`, bo czyta go tylko otwarte okno dziennika — wypycha
+ * każda sesja, czyta rzadko kto.
+ */
+export const IPC_LOBBY_LOG_PUSH = 'lobby-log:push'
+export const IPC_LOBBY_LOG_READ = 'lobby-log:read'

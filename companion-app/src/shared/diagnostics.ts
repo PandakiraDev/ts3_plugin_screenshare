@@ -558,9 +558,20 @@ export function shouldAppendLine(
  *
  * Decyzja jest osobno od `node:fs`, bo to jedyna część tej retencji, w której
  * da się pomylić stronę sortowania albo zgubić plik, który właśnie otwieramy.
+ *
+ * `suffix` jest parametrem od 0.3.4, bo tę samą retencję ma teraz dziennik
+ * lobby (`src/main/lobbyLog.ts`), a jego pliki mają rozszerzenie `.log`. Oba
+ * rodzaje leżą w jednym katalogu i to rozszerzenie jest JEDYNĄ rzeczą, która je
+ * rozdziela: wspólne znaczyłoby, że sprzątanie po próbkach kasuje dzienniki
+ * i odwrotnie. Wartość domyślna zostaje przy próbkach, żeby wołający z 0.3.3
+ * znaczył dokładnie to, co znaczył.
  */
-export function logFilesToDelete(names: readonly string[], keep: number): string[] {
-  const logs = names.filter((name) => name.endsWith('.jsonl')).sort()
+export function logFilesToDelete(
+  names: readonly string[],
+  keep: number,
+  suffix = '.jsonl'
+): string[] {
+  const logs = names.filter((name) => name.endsWith(suffix)).sort()
   return logs.slice(0, Math.max(logs.length - keep, 0))
 }
 

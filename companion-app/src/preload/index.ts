@@ -4,6 +4,7 @@ import type { LaunchParseResult } from '@shared/cli'
 import type { AppAudioFormat } from '@shared/audio'
 import type { DiagnosticsSample, StreamStats } from '@shared/diagnostics'
 import type { GpuCard } from '@shared/gpuInfo'
+import type { LogEntry } from '@shared/lobbyLog'
 import {
   IPC_AUDIO_PORT,
   IPC_AUDIO_START,
@@ -17,6 +18,8 @@ import {
   IPC_GET_UPDATE_STATE,
   IPC_GET_VERSION,
   IPC_GPU_CARD,
+  IPC_LOBBY_LOG_PUSH,
+  IPC_LOBBY_LOG_READ,
   IPC_SET_API_KEY,
   IPC_SET_CAPTURE_TARGET,
   IPC_UPDATE_STATE
@@ -58,6 +61,18 @@ const api = {
    * przy montowaniu, nie zegarem — karta nie zmienia się w trakcie sesji.
    */
   getGpuCard: (): Promise<GpuCard | null> => ipcRenderer.invoke(IPC_GPU_CARD),
+  /**
+   * Wpisy dziennika lobby w górę. Tablica, nie jeden wpis: jedna zmiana stanu
+   * daje często kilka wpisów naraz — patrz komentarz przy kanale.
+   */
+  pushLobbyLog: (entries: LogEntry[]): Promise<void> =>
+    ipcRenderer.invoke(IPC_LOBBY_LOG_PUSH, entries),
+  /**
+   * Cały pierścień dziennika. Okno czyta go tylko wtedy, gdy jest otwarte —
+   * zegar chodzący przy zamkniętym dokładałby pracy w aplikacji, w której
+   * diagnozujemy lag.
+   */
+  readLobbyLog: (): Promise<LogEntry[]> => ipcRenderer.invoke(IPC_LOBBY_LOG_READ),
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_GET_UPDATE_STATE),
   /** Zwraca funkcję odsubskrybowania — bez niej `useEffect` zostawiłby wyciek. */
   onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {

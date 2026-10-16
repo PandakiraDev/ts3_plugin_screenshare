@@ -5,13 +5,17 @@ import {
   IPC_GET_API_KEY,
   IPC_GET_LAUNCH,
   IPC_GET_SOURCES,
+  IPC_LOBBY_LOG_PUSH,
+  IPC_LOBBY_LOG_READ,
   IPC_SET_API_KEY,
   IPC_SET_CAPTURE_TARGET
 } from '@shared/ipc'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 import { registerAppAudio } from './audio'
+import { isLogEntry } from '@shared/lobbyLog'
 import { registerDiagnostics } from './diagnosticsRecorder'
+import { createLobbyLog, createLobbyLogAppender } from './lobbyLog'
 import { readSettings } from './settings'
 import { registerUpdates } from './update'
 
@@ -175,9 +179,46 @@ app.whenReady().then(() => {
    * importuje `app` — patrz komentarz w tamtym pliku. Odczyt jest
    * synchroniczny i jednorazowy, tak samo jak `api-key.txt` wyżej.
    */
-  registerDiagnostics({
-    recordToDisk: readSettings(app.getPath('userData')).recordDiagnostics
+  const userDataPath = app.getPath('userData')
+  /*
+   * Jeden odczyt ustawień na dwóch odbiorców zapisu (próbki i dziennik). To
+   * JEDNO ustawienie, więc dwa osobne odczyty mogłyby się różnić, gdyby ktoś
+   * podmienił plik akurat w tej sekundzie — a wtedy pasek pisałby na dysk,
+   * dziennik nie, i nic by tego nie wyjaśniało.
+   */
+  const recordToDisk = readSettings(userDataPath).recordDiagnostics
+  registerDiagnostics({ recordToDisk })
+  /*
+   * Dziennik lobby: pierścień w procesie głównym i dwa kanały, oba
+   * BEZWARUNKOWE jak kanały podglądu zużycia.
+   *
+   * Rejestracja stoi TUTAJ, a nie w `main/lobbyLog.ts`, bo tamten plik celowo
+   * nie importuje `electron` — i tylko dlatego jego bramkowanie zapisu da się
+   * sprawdzić testem w gołym vitest (patrz nagłówek tamtego pliku, oraz
+   * `diagnosticsRecorder.ts`, który tego wzoru nie trzyma i nie ma ani jednego
+   * testu).
+   *
+   * Instancja zostaje w tym zasięgu, żeby obsługa zapisu ustawień mogła
+   * przestawić `setRecordToDisk` na gorąco, bez restartu aplikacji.
+   */
+  const lobbyLog = createLobbyLog({
+    appendLine: createLobbyLogAppender(userDataPath),
+    recordToDisk
   })
+  ipcMain.handle(IPC_LOBBY_LOG_PUSH, (_event, entries: unknown) => {
+    /*
+     * Wpisy przychodzą z drugiej strony granicy procesów, więc sprawdzamy je
+     * tak samo, jak rejestrator próbek sprawdza `Array.isArray(streams)`. Wpis
+     * nie do przyjęcia jest POMIJANY, a nie naprawiany: zgadywanie, co miało
+     * tam być, wpisałoby do dziennika zdanie, którego nikt nie napisał —
+     * a dziennik czyta się jak dowód.
+     */
+    if (!Array.isArray(entries)) return
+    for (const entry of entries) {
+      if (isLogEntry(entry)) lobbyLog.push(entry)
+    }
+  })
+  ipcMain.handle(IPC_LOBBY_LOG_READ, () => lobbyLog.read())
   // Getter, a nie referencja do okna: `activate` na macOS potrafi utworzyć nowe
   // okno, a rejestracja uchwytów IPC może się odbyć tylko raz.
   registerUpdates(() => BrowserWindow.getAllWindows()[0] ?? null)
