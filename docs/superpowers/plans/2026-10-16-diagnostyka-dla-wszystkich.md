@@ -565,6 +565,49 @@ git commit -m "feat(ustawienia): pole wyboru zapisu diagnostyki zamiast flagi"
 
 ---
 
+### Task 8: Zerwanie połączenia z serwerem trafia do dziennika
+
+**Files:**
+- Modify: `companion-app/src/renderer/hooks/useLobby.ts`
+- Modify: `companion-app/src/shared/lobbyEvents.ts`
+- Test: `companion-app/test/lobby-events.test.ts` (istniejący, dopisanie)
+
+**Interfaces:**
+- Consumes: `LogEntry` z zadania 4; `LobbySnapshot`, `lobbyLogEntries` z zadania 5
+- Produces: pole w `LobbySnapshot` niosące zerwanie oraz wpis o poziomie `error`
+
+> **Zadanie dopisane po zadaniu 5.** Jego wykonawca znalazł to w kodzie, a ja potwierdziłem: `SignalingClient` emituje zdarzenie zamknięcia gniazda (`SignalingClient.ts:61-64`), ale **nikt go nie subskrybuje** — ani `session.ts`, ani `useLobby.ts`; grep po obu wzorcach nazwy tego zdarzenia w obu plikach jest pusty. Czyli gdy gniazdo do serwera sygnalizacyjnego padnie, ani `connection`, ani `error` się nie zmienia: aplikacja wygląda na połączoną, choć jest głucha, a dziennik nie pokaże najważniejszego wiersza przy „nagle wszystko stanęło". To jest dokładnie ten objaw, który właściciel zgłosił jako najbardziej dokuczliwy — ktoś wychodzi i nie może wrócić do tego samego lobby, trzeba wyjść i wejść.
+
+**ZAKRES: wyłącznie diagnostyczny.** Dopisujesz WPIS do dziennika i nic więcej. **Nie** zmieniaj `connection` na `error`, **nie** dodawaj ponawiania połączenia, **nie** ruszaj interfejsu. Zmiana zachowania przy zerwanym gnieździe to osobna sprawa z listy właściciela — tutaj chodzi tylko o to, żeby dziennik przestał milczeć o najważniejszej przyczynie.
+
+- [ ] **Step 1: Napisz failujący test wpisu**
+
+Dopisz do `test/lobby-events.test.ts` test, że zerwanie połączenia daje dokładnie jeden wpis o poziomie `error`, oraz że powtórzone zerwanie bez odzyskania połączenia nie mnoży wpisów. Trzymaj się reguły MIANOWNIKA z zadania 5 — nazwy z nicków TS3 nie da się odmienić po polsku.
+
+- [ ] **Step 2: Uruchom i potwierdź, że pada**
+
+Run: `npx vitest run test/lobby-events.test.ts`
+
+- [ ] **Step 3: Rozszerz `LobbySnapshot` i `lobbyLogEntries`**
+
+Nowe pole w migawce; różnica liczona tak jak pozostałe. Żadnej nowej ścieżki — wpis jedzie tym samym kanałem co reszta.
+
+- [ ] **Step 4: Zasubskrybuj zamknięcie gniazda w `useLobby`**
+
+Tylko odnotowanie w stanie, które zasila migawkę. **Nie** dotykaj `connection`. Napisz w komentarzu, dlaczego zakres jest celowo wąski: zachowanie przy zerwaniu to osobna decyzja właściciela, a mieszanie jej z diagnostyką zmieniłoby to, co widzi użytkownik, w zadaniu, które miało tylko zacząć notować.
+
+- [ ] **Step 5: Sprawdź całość i zacommituj**
+
+Run: `npx tsc --noEmit && npm test && npm run build`
+Expected: `tsc` zero; subskrypcja zamknięcia gniazda obecna w `useLobby.ts`.
+
+```bash
+git add companion-app/src/renderer/hooks/useLobby.ts companion-app/src/shared/lobbyEvents.ts companion-app/test/lobby-events.test.ts
+git commit -m "feat(dziennik): zerwanie polaczenia z serwerem trafia do dziennika"
+```
+
+---
+
 ## Na koniec części 2
 
 1. Przegląd całej gałęzi — **obu** części razem, bo część pierwsza była recenzowana osobno i jej recenzent nie widział tego kodu.
