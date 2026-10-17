@@ -8,6 +8,7 @@ import {
   lobbyLogEntries,
   nameResolver,
   peerChangeEntries,
+  signalingClosedEntries,
   streamChangeEntries,
   unreachableEntries,
   type LobbySnapshot,
@@ -30,7 +31,8 @@ const EMPTY: LobbySnapshot = {
   peers: [],
   streams: [],
   error: null,
-  unreachablePeerIds: []
+  unreachablePeerIds: [],
+  signalingClosed: false
 }
 
 // --- osoby ----------------------------------------------------------------
@@ -188,6 +190,62 @@ test('wpis błędu niesie komunikat bez przerabiania', () => {
   )
 })
 
+// --- zerwane gniazdo do serwera -------------------------------------------
+
+test('zerwanie połączenia z serwerem daje dokładnie jeden wpis o poziomie błędu', () => {
+  // To jest NAJWAŻNIEJSZY wiersz przy „nagle wszystko stanęło": aplikacja
+  // wygląda wtedy na połączoną, bo ani `connection`, ani `error` się nie
+  // zmienia, a lobby jest od tej chwili głuche.
+  const entries = signalingClosedEntries(false, true, 7)
+  expect(entries).toHaveLength(1)
+  expect(entries[0]?.level).toBe('error')
+  expect(entries[0]?.at).toBe(7)
+})
+
+test('wpis o zerwaniu mówi dokładnie to zdanie', () => {
+  // Dokładny napis, nie kształt: ten wiersz czyta człowiek, który nie zna kodu,
+  // i po nim ma wiedzieć, że dalsza cisza w lobby nie jest ciszą w pokoju.
+  expect(signalingClosedEntries(false, true, 0)[0]?.text).toBe(
+    'Połączenie z serwerem sygnalizacyjnym zerwane — wejścia, wyjścia i nowe transmisje nie będą już widoczne'
+  )
+})
+
+test('powtórzone zerwanie bez odzyskania połączenia nie mnoży wpisów', () => {
+  // Pole jest STANEM gniazda, nie kolejką zdarzeń: dopóki nikt nie zaczął
+  // nowej próby połączenia, nie ma nowej informacji do zapisania.
+  expect(signalingClosedEntries(true, true, 1)).toEqual([])
+})
+
+test('nowa próba połączenia nie daje wpisu o powrocie', () => {
+  // Wyzerowanie pola to sprzątnięcie przed kolejną próbą, a nie zdarzenie
+  // w lobby — ta sama reguła co przy czyszczeniu `error` na `null`. Wpis
+  // „połączono" musiałby czytać `connection`, czego ten dziennik świadomie nie
+  // robi (patrz nagłówek przy `signalingClosedEntries`).
+  expect(signalingClosedEntries(true, false, 1)).toEqual([])
+})
+
+test('gniazdo całą sesję sprawne nie daje żadnego wpisu', () => {
+  expect(signalingClosedEntries(false, false, 1)).toEqual([])
+})
+
+test('wpis o zerwaniu nie obarcza nim żadnego uczestnika', () => {
+  // Reguła MIANOWNIKA jest tu spełniona trywialnie, bo tekst nie nosi nazwy
+  // osoby — i to jest celowe. Gniazdo należy do serwera, nie do uczestnika,
+  // a wpisy o konkretnych ludziach robi `unreachableEntries`. Wpis z nickiem
+  // wskazywałby winnego, którego nie ma.
+  const nick = 'xXx_Marek_xXx'
+  expect(signalingClosedEntries(false, true, 0)[0]?.text).not.toContain(nick)
+})
+
+test('zerwanie gniazda jedzie tym samym złożeniem co reszta źródeł', () => {
+  // Żadnej nowej ścieżki: wpis powstaje z różnicy dwóch migawek i wychodzi
+  // tym samym kanałem co wejścia, wyjścia i błędy.
+  const entries = lobbyLogEntries(EMPTY, { ...EMPTY, signalingClosed: true }, 3)
+  expect(entries).toHaveLength(1)
+  expect(entries[0]?.level).toBe('error')
+  expect(entries[0]?.at).toBe(3)
+})
+
 // --- czas i nazwy ---------------------------------------------------------
 
 test('każdy wpis niesie podaną chwilę', () => {
@@ -236,17 +294,30 @@ test('w resolwerze wygrywa PIERWSZE wystąpienie identyfikatora', () => {
 
 // --- złożenie -------------------------------------------------------------
 
-test('lobbyLogEntries składa wpisy ze wszystkich czterech źródeł', () => {
+test('lobbyLogEntries składa wpisy ze wszystkich pięciu źródeł', () => {
   const after: LobbySnapshot = {
     me: peer('me', 'Ja'),
     peers: [peer('a', 'Anna')],
     streams: [{ peerId: 'a', kind: 'screen' }],
     error: 'Serwer odrzucił zgłoszenie',
-    unreachablePeerIds: ['a']
+    unreachablePeerIds: ['a'],
+    signalingClosed: true
   }
   const entries = lobbyLogEntries(EMPTY, after, 0)
-  expect(entries).toHaveLength(4)
-  expect(entries.filter((entry) => entry.level === 'error')).toHaveLength(2)
+  expect(entries).toHaveLength(5)
+  expect(entries.filter((entry) => entry.level === 'error')).toHaveLength(3)
+})
+
+test('zerwanie gniazda czyta się PRZED skutkami z tego samego tyknięcia', () => {
+  // Kolejność nie jest kosmetyką: zerwanie jest PRZYCZYNĄ, a wszystko inne
+  // w tym samym tyknięciu jej skutkiem. Czytający ma zobaczyć przyczynę pierwszą.
+  const entries = lobbyLogEntries(EMPTY, {
+    ...EMPTY,
+    peers: [peer('a', 'Anna')],
+    signalingClosed: true
+  }, 0)
+  expect(entries).toHaveLength(2)
+  expect(entries[0]?.text).toContain('serwerem sygnalizacyjnym')
 })
 
 test('identyczne stany nie dają ani jednego wpisu', () => {
@@ -255,7 +326,8 @@ test('identyczne stany nie dają ani jednego wpisu', () => {
     peers: [peer('a', 'Anna')],
     streams: [{ peerId: 'a', kind: 'camera' }],
     error: 'coś padło',
-    unreachablePeerIds: ['a']
+    unreachablePeerIds: ['a'],
+    signalingClosed: true
   }
   expect(lobbyLogEntries(snapshot, { ...snapshot }, 0)).toEqual([])
 })

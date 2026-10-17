@@ -112,6 +112,20 @@ export interface LobbyState {
   /** peerId osób, z którymi połączenie padło. Puste = wszystko w porządku. */
   unreachablePeerIds: string[]
   /**
+   * Czy gniazdo do serwera sygnalizacyjnego padło bez naszego udziału.
+   *
+   * CZYTA TO WYŁĄCZNIE DZIENNIK i tak ma zostać. To pole nie zmienia ani
+   * `connection`, ani `error`, ani niczego w interfejsie — a to znaczy, że po
+   * zerwaniu aplikacja NADAL wygląda na połączoną, choć nie dostaje już zmian
+   * składu. Tak jest celowo: zachowanie przy zerwanym gnieździe (ponowienie
+   * połączenia, komunikat dla użytkownika, zmiana `connection` na `error`) to
+   * osobna decyzja właściciela, a przemycenie jej w zmianie o logach zmieniłoby
+   * to, co widzi użytkownik, bez jego zgody. Najpierw dziennik ma pokazać na
+   * jego maszynie, czy to naprawdę jest przyczyna objawu „ktoś wyszedł i nie
+   * może wrócić do tego samego lobby".
+   */
+  signalingClosed: boolean
+  /**
    * Kiedy ruszyła bieżąca próba połączenia; null gdy nie łączymy.
    * Po tym liczy się, jak długo czekamy na budzący się serwer.
    */
@@ -129,6 +143,7 @@ const INITIAL: LobbyState = {
   me: null,
   error: null,
   unreachablePeerIds: [],
+  signalingClosed: false,
   connectingSince: null
 }
 
@@ -176,7 +191,12 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
       ...current,
       connection: 'connecting',
       connectingSince: Date.now(),
-      error: null
+      error: null,
+      // Zerujemy razem z `error` i z tego samego powodu: zaczyna się NOWA próba,
+      // a zerwanie, które zapisał dziennik, dotyczyło poprzedniego gniazda.
+      // Bez tego kolejne zerwanie nie byłoby już żadną zmianą stanu i nie
+      // dałoby wpisu.
+      signalingClosed: false
     }))
 
     let cancelled = false
@@ -188,6 +208,33 @@ export function useLobby(options: LaunchOptions, apiKeyVersion = 0): Lobby {
           return
         }
         signalingRef.current = signaling
+
+        /*
+         * Zamknięcie gniazda do serwera sygnalizacyjnego — JEDYNY subskrybent
+         * tego zdarzenia i zarazem pierwszy w historii tego projektu.
+         * `SignalingClient` emitował je od początku, ale nikt nie słuchał, więc
+         * padnięcie gniazda po udanym wejściu nie zostawiało ŻADNEGO śladu:
+         * `connection` zostaje na `ready`, `error` się nie zmienia (odrzucone
+         * zgłoszenia strumieni lądują w lokalnym stanie `LobbyView`, nie tutaj),
+         * a lobby od tej chwili nie dostaje już wejść ani wyjść.
+         *
+         * ZAKRES CELOWO WĄSKI — tylko odnotowanie w stanie, żeby dziennik miał
+         * co pokazać. NIE dotykamy `connection` i nie ponawiamy połączenia:
+         * zachowanie przy zerwaniu to osobna decyzja właściciela, a zmieszanie
+         * jej z diagnostyką zmieniłoby to, co widzi użytkownik, w zadaniu, które
+         * miało tylko zacząć notować. Najpierw chcemy wiedzieć z dziennika na
+         * jego maszynie, czy to jest ta przyczyna, zamiast zgadywać.
+         *
+         * `cancelled` odsiewa zamknięcia NA NASZE ŻĄDANIE: sprzątanie efektu
+         * ustawia tę flagę przed `signalingRef.current?.close()`, więc wyjście
+         * z pokoju, zmiana klucza API i drugie montowanie w `StrictMode` nie
+         * dopisują wpisu o awarii, której nie było. Zdarzenie `close` przychodzi
+         * asynchronicznie, już po ustawieniu flagi.
+         */
+        signaling.on('close', () => {
+          if (cancelled) return
+          setState((current) => ({ ...current, signalingClosed: true }))
+        })
 
         const session = new LobbySession(signaling, {
           onRemoteStream: (peerId, kind, stream) => {

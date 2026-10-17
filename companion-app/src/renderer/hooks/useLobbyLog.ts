@@ -20,7 +20,8 @@ const EMPTY_SNAPSHOT: LobbySnapshot = {
   peers: [],
   streams: [],
   error: null,
-  unreachablePeerIds: []
+  unreachablePeerIds: [],
+  signalingClosed: false
 }
 
 /**
@@ -76,7 +77,8 @@ export function useLobbyLog(lobby: Lobby): void {
       peers: state.peers,
       streams: state.streams,
       error: state.error,
-      unreachablePeerIds: state.unreachablePeerIds
+      unreachablePeerIds: state.unreachablePeerIds,
+      signalingClosed: state.signalingClosed
     }
     // Czas, w którym ZOBACZYLIŚMY zmianę, nie w którym padła na serwerze.
     // Różnica to jedno przerysowanie, czyli poniżej rozdzielczości sekundowej
@@ -96,5 +98,12 @@ export function useLobbyLog(lobby: Lobby): void {
       // w `useDiagnosticsReporter`.
       console.debug('[dziennik] nieudane wypchnięcie wpisów:', err)
     })
-  }, [state.me, state.peers, state.streams, state.error, state.unreachablePeerIds])
+  }, [
+    state.me,
+    state.peers,
+    state.streams,
+    state.error,
+    state.unreachablePeerIds,
+    state.signalingClosed
+  ])
 }

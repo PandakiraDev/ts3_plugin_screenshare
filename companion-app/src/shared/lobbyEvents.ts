@@ -208,6 +208,61 @@ export function errorEntry(message: string, at: number): LogEntry {
 }
 
 /**
+ * Zdanie o zerwanym gnieździe — osobna stała, bo pilnuje go test dokładnym
+ * napisem, a nie kształtem.
+ *
+ * Mówi też, CO Z TEGO WYNIKA, a nie tylko co się stało: „zerwane" bez drugiej
+ * połowy zdania czyta się jak chwilowe potknięcie, a to jest trwała głuchota
+ * tego okna — nic w aplikacji nie ponawia tego połączenia.
+ */
+const SIGNALING_CLOSED_TEXT =
+  'Połączenie z serwerem sygnalizacyjnym zerwane — wejścia, wyjścia i nowe transmisje nie będą już widoczne'
+
+/**
+ * Wpis o zerwaniu gniazda do serwera sygnalizacyjnego.
+ *
+ * PO CO TO JEST. `SignalingClient` emituje zamknięcie gniazda, ale do 0.3.4
+ * nikt tego zdarzenia nie subskrybował — ani sesja WebRTC, ani `useLobby`.
+ * Skutek: gdy gniazdo padało PO udanym wejściu do pokoju, ani `connection`, ani
+ * `error` się nie zmieniało, więc aplikacja wyglądała na połączoną, choć była
+ * głucha, a dziennik milczał o najważniejszej przyczynie „nagle wszystko
+ * stanęło". Nie pomagało odrzucenie czekających żądań (`failPending`): po
+ * wejściu wiszą tam już tylko zgłoszenia start/stop strumienia, a ich komunikat
+ * ląduje w LOKALNYM stanie `LobbyView` (`cameraError`, `startError`), nie
+ * w `lobby.state.error`. Jedyny przypadek, który dziennik widział wcześniej, to
+ * zerwanie W TRAKCIE wejścia — wtedy odrzucone `join` idzie przez `error`, ale
+ * tam połączenia jeszcze nie było. Po wejściu ten wpis jest jedynym śladem.
+ *
+ * BOOLEAN, A NIE NAPIS — i to jest świadome rozstrzygnięcie, nie przypadek.
+ * Przy `error` znana szpara bierze się z tego, że JEDNO nadpisywane pole gubi
+ * drugi identyczny komunikat (opis przy `lobbyLogEntries`). Tutaj tej szpary
+ * nie ma, bo pole nie niesie treści: możliwa jest dokładnie jedna informacja
+ * („gniazdo padło"), a zdarzenie `close` pojedynczego gniazda WebSocket odpala
+ * się najwyżej raz. Drugie zerwanie wymaga drugiego gniazda, a nowe gniazdo
+ * powstaje tylko po wyzerowaniu pola przez nową próbę połączenia — więc każde
+ * faktyczne zerwanie ma własny wpis i nic się nie gubi.
+ *
+ * CZEGO TU NIE MA. Wpisu „połączono z serwerem": wyzerowanie pola to
+ * sprzątnięcie przed kolejną próbą, a nie zdarzenie w lobby (ta sama reguła co
+ * przy czyszczeniu `error` na `null`). Nie ma też wpisu o nieudanym PIERWSZYM
+ * połączeniu — tam gniazdo nigdy się nie otwiera, więc nie ma czego zamykać,
+ * a komunikat idzie przez `error`.
+ *
+ * ZAKRES CELOWO WĄSKI. Ten plik tylko NOTUJE. Zachowanie aplikacji przy
+ * zerwanym gnieździe (zmiana `connection`, ponawianie połączenia, komunikat
+ * w interfejsie) to osobna decyzja właściciela i mieszanie jej z dziennikiem
+ * zmieniłoby to, co widzi użytkownik, w zmianie, która miała tylko zacząć
+ * notować. Najpierw dziennik ma pokazać, czy to naprawdę ta przyczyna.
+ */
+export function signalingClosedEntries(
+  before: boolean,
+  after: boolean,
+  at: number
+): LogEntry[] {
+  return after && !before ? [entry(at, 'error', SIGNALING_CLOSED_TEXT)] : []
+}
+
+/**
  * Stan lobby w jednej chwili — tyle, ile dziennik potrzebuje.
  *
  * Podzbiór `LobbyState` z `useLobby`, a nie on sam: tamten niesie też
@@ -220,15 +275,30 @@ export interface LobbySnapshot {
   streams: readonly StreamRef[]
   error: string | null
   unreachablePeerIds: readonly string[]
+  /**
+   * Czy gniazdo do serwera sygnalizacyjnego padło BEZ NASZEGO UDZIAŁU.
+   *
+   * Nie „czy jest zamknięte": zamknięcie na nasze żądanie (wyjście z pokoju,
+   * zmiana klucza, podwójne montowanie w `StrictMode`) nie jest awarią i do
+   * dziennika nie trafia. Odsiewa to `useLobby`, bo tylko on wie, czy sam o to
+   * zamknięcie poprosił.
+   */
+  signalingClosed: boolean
 }
 
 /**
  * Wszystkie wpisy wynikające z przejścia między dwoma stanami lobby.
  *
- * Kolejność źródeł jest kolejnością czytania: kto się pojawił i zniknął, co
- * zaczął nadawać, z kim padło połączenie, co odbił serwer. Wszystkie wpisy
- * jednego przejścia mają ten sam `at` — bo naprawdę stały się w tej samej
- * chwili.
+ * Kolejność źródeł jest kolejnością czytania: najpierw zerwanie gniazda do
+ * serwera, potem kto się pojawił i zniknął, co zaczął nadawać, z kim padło
+ * połączenie, co odbił serwer. Wszystkie wpisy jednego przejścia mają ten sam
+ * `at` — bo naprawdę stały się w tej samej chwili.
+ *
+ * Zerwanie gniazda stoi PIERWSZE, choć dopisane zostało na końcu: jest
+ * przyczyną, a wszystko, co może się wydarzyć z nim w jednym tyknięciu, jej
+ * skutkiem. Przy równym `at` nic innego nie ustawi kolejności, a czytający
+ * szukający odpowiedzi na „dlaczego wszystko stanęło" ma trafić na przyczynę
+ * przed skutkami.
  *
  * Resolwer nazw składamy z NOWEGO stanu, a za nim z poprzedniego (pierwsze
  * wystąpienie wygrywa, patrz `nameResolver`). To ratuje najczęstszy przypadek
@@ -261,6 +331,7 @@ export function lobbyLogEntries(
 ): LogEntry[] {
   const nameOf = nameResolver(after.me ?? before.me, [...after.peers, ...before.peers])
   const entries = [
+    ...signalingClosedEntries(before.signalingClosed, after.signalingClosed, at),
     ...peerChangeEntries(before.peers, after.peers, at),
     ...streamChangeEntries(before.streams, after.streams, at, nameOf),
     ...unreachableEntries(before.unreachablePeerIds, after.unreachablePeerIds, at, nameOf)
