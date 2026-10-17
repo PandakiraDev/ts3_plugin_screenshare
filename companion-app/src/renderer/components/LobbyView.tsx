@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from 'react'
 import type { CameraSettings, CaptureSource, QualitySettings, StreamKind } from '@shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS, DEFAULT_QUALITY } from '@shared/types'
 import type { UpdateState } from '@shared/update'
@@ -10,16 +16,58 @@ import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
 import { SettingsPanel } from './SettingsPanel'
 import { StreamTile } from './StreamTile'
+import { ResourceBadge } from './ResourceBadge'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 import { AppVersion, UpdateNotice } from './UpdateNotice'
 import { useConnectionHealth } from '../hooks/useConnectionHealth'
 import { useViewerQuality } from '../hooks/useViewerQuality'
 import { ConnectionNotice } from './ConnectionNotice'
 import { allViewersStruggling } from '@shared/viewerQuality'
-import { buildParticipants } from '@shared/participants'
+import {
+  buildParticipants,
+  emptyGridMessage,
+  streamCountLabel,
+  type EmptyGridMessage
+} from '@shared/participants'
 import { useLeaveTransition } from '../hooks/useLeaveTransition'
 import { useDiagnosticsReporter } from '../hooks/useDiagnosticsReporter'
+import { useLobbyLog } from '../hooks/useLobbyLog'
+import { useReorderAnimation } from '../hooks/useReorderAnimation'
 import { shortRoomFingerprint } from '@shared/diagnostics'
+import {
+  applyTileOrder,
+  effectiveOrder,
+  hiddenAfterToggle,
+  orderAfterDrop,
+  pruneLayout,
+  restoreUnrenderedKeys,
+  subscriptionAfterToggle,
+  visibleTiles,
+  type TileCenter,
+  type TileLayout
+} from '@shared/tileLayout'
+import { connectionKey } from '../webrtc/session'
+
+/*
+ * Zdania o pustej siatce. `Record` po wariancie, nie `switch`: nowa przyczyna
+ * nie skompiluje się bez własnego zdania.
+ *
+ * `all-hidden-unrecoverable` jest parą dla `all-hidden` i NIE obiecuje
+ * powrotu. Zdanie o oczku byłoby tam nieprawdą: prośba `subscribe` jedzie
+ * martwym gniazdem i ginie po cichu, a oczka przy cudzych strumieniach są
+ * wtedy nieaktywne (`canToggleStream`). Rada jest ta sama co na pasku
+ * połączenia — jedyna, jaką mamy.
+ */
+const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
+  'nobody-streaming': 'Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy.',
+  connecting: 'Odbieranie obrazu…',
+  'all-hidden':
+    'Wszystkie strumienie są ukryte. Oczko przy nazwie w liście uczestników przywraca je.',
+  'all-hidden-unrecoverable':
+    'Wszystkie strumienie są ukryte, a połączenie z serwerem jest zerwane — cudzych ' +
+    'nie da się już przywrócić w tym oknie. Otwórz okno ponownie z menu kanału ' +
+    'w TeamSpeaku.'
+}
 
 interface LobbyViewProps {
   options: LaunchOptions
@@ -49,6 +97,24 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   const [cameraEnabled, setCameraEnabled] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  /*
+   * Ukryte kafelki i kolejność. BEZ zapisywania na dysk — decyzja właściciela:
+   * „za każdym razem będą inni użytkownicy strimać i inna ilość użytkowników".
+   * Klucze to `tileKey`, czyli `connectionKey(peerId, kind)`.
+   *
+   * Oba zbiory w JEDNYM stanie, bo `pruneLayout` przycina je razem: jeden
+   * aktualizator i jedno wywołanie, zamiast dwóch stanów, których spójność
+   * trzymałoby tylko grupowanie aktualizacji w jednym efekcie. Zagnieżdżenie
+   * jednego ustawiacza w aktualizatorze drugiego odpada: aktualizator musi
+   * być czysty, a w StrictMode wykonuje się dwa razy.
+   */
+  const [layout, setLayout] = useState<TileLayout>(() => ({ hidden: new Set(), order: [] }))
+  const { hidden, order } = layout
+  // Klucz przeciąganego kafelka albo `null`. Stan, a nie ref: od niego zależy
+  // wygląd (przygaszony kafelek, kursor na siatce), a przeciąganie ma jedno
+  // źródło prawdy zamiast pary ref plus stan, które mogłyby się rozjechać.
+  const [draggingKey, setDraggingKey] = useState<string | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
 
   const capture = useCapture(selected, quality)
   const camera = useCamera(cameraEnabled, cameraSettings)
@@ -58,7 +124,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     lobby,
     allViewersStruggling([...viewerQuality.values()])
   )
-  const { startStream, stopStream, replaceStream, applyQuality } = lobby
+  const { startStream, stopStream, replaceStream, applyQuality, setStreamSubscribed } = lobby
 
   const sharingScreen = lobby.state.myStreamKinds.includes('screen')
   const sharingCamera = lobby.state.myStreamKinds.includes('camera')
@@ -93,7 +159,185 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     unreachablePeerIds: lobby.state.unreachablePeerIds
   })
   const participantRows = useLeaveTransition(participants, (view) => view.peerId)
-  const tileRows = useLeaveTransition(tiles, (tile) => tile.tileKey)
+  /*
+   * Odsiewanie ukrytych PRZED przejściem wyjścia, a kolejność PO nim.
+   *
+   * Przed: ukrycie wygląda wtedy jak każde inne zniknięcie strumienia, czyli
+   * dostaje darmową animację wyjścia, a odkrycie animację wejścia.
+   * Po: `useLeaveTransition` ma własną kolejność, a my chcemy, żeby decydowała
+   * nasza — gasnący kafelek zachowuje klucz, więc zachowuje miejsce i nie
+   * przeskakuje w trakcie zanikania.
+   */
+  const shownTiles = visibleTiles(tiles, hidden)
+  const transitioned = useLeaveTransition(shownTiles, (tile) => tile.tileKey)
+  const tileRows = applyTileOrder(transitioned, order, (row) => row.item.tileKey)
+
+  // Też hook, więc stoi przed instrukcjami `return` z tego samego powodu co
+  // `useLeaveTransition` wyżej.
+  const toggleHidden = useCallback(
+    (tileKey: string, peerId: string, kind: StreamKind, isMe: boolean) => {
+      // Kierunek dla SIECI liczymy z `hidden` PRZED aktualizacją, a nie w jej
+      // środku: aktualizator musi być czysty (React w StrictMode wywołuje go
+      // w dev dwa razy), a wiadomość do sieci czysta nie jest — poszłyby dwie
+      // na jedno kliknięcie. `null` = własny podgląd, czyli nie ma od kogo.
+      const subscribed = subscriptionAfterToggle(hidden, tileKey, isMe)
+      // Sam zbiór przełączamy z `current`, nie z domknięcia: aktualizator ma
+      // się scalić z najświeższym stanem (efekt `pruneLayout` chodzi po każdym
+      // renderze), a `hiddenAfterToggle` jest czyste, więc podwójne wywołanie
+      // w StrictMode daje ten sam wynik.
+      setLayout((current) => ({
+        ...current,
+        hidden: hiddenAfterToggle(current.hidden, tileKey)
+      }))
+      if (subscribed !== null) setStreamSubscribed(peerId, kind, subscribed)
+    },
+    [hidden, setStreamSubscribed]
+  )
+
+  /*
+   * Przeciąganie kafelka uchwytem. Zdarzenia wskaźnika, nie HTML5 drag-and-drop:
+   * ten rysuje własny obraz przeciąganego elementu, czego przy kafelku z żywym
+   * wideo nie da się opanować, nie działa sensownie z dotykiem i nie pozwala
+   * animować. Zwykłe funkcje, nie `useCallback`: nie są hookami, a świeże
+   * domknięcie za każdym renderem daje im aktualne `zoomed` i `draggingKey`.
+   */
+  const startTileDrag =
+    (tileKey: string) =>
+    (event: ReactPointerEvent<HTMLElement>): void => {
+      // Prawy i środkowy przycisk myszy nie zaczynają przeciągania.
+      if (event.button !== 0) return
+      event.preventDefault()
+      // Przechwycenie wskaźnika: bez niego ruch poza uchwyt gubi zdarzenia,
+      // a puszczenie przycisku poza kafelkiem nie dochodzi do siatki.
+      event.currentTarget.setPointerCapture(event.pointerId)
+      setDraggingKey(tileKey)
+    }
+
+  const endTileDrag = (event: ReactPointerEvent<HTMLElement>): void => {
+    // Handler wisi na całej siatce, więc łapie też zwykłe kliknięcia w kafelki.
+    if (draggingKey === null) return
+    const fromKey = draggingKey
+    setDraggingKey(null)
+
+    /*
+     * Zamek drugi z dwóch (pierwszy to brak `onDragStart` w kafelku przy
+     * powiększeniu). Przy powiększeniu siatka rysuje JEDEN kafelek, więc z jej
+     * dzieci wyszłaby kolejność o jednym kluczu, a zapisana wyrzuciłaby z układu
+     * wszystkie pozostałe: po wyjściu z powiększenia poleciałyby na koniec, w
+     * kolejności ze źródła, nie w ustawionej ręcznie. Całe ułożenie człowieka
+     * przepada po jednym geście.
+     *
+     * Żaden zamek sam nie wystarcza. Sam brak uchwytu nie obejmuje gestu, który
+     * zaczął się PRZED powiększeniem: przechwycenie wskaźnika nie blokuje
+     * klawiatury, a `.tile__stage` ma `role="button"` i reaguje na Enter, więc
+     * powiększenie włączy się w trakcie przeciągania. Sam ten zamek zostawiałby
+     * z kolei uchwyt na powiększonym kafelku: można by go chwycić, dostać kursor
+     * i przygaszenie, a po puszczeniu nic by się nie stało — funkcja wyglądałaby
+     * na zepsutą. Stan przeciągania gasimy wyżej przed tym wyjściem, żeby nie
+     * zostawał ustawiony.
+     */
+    if (zoomed) return
+
+    const grid = gridRef.current
+    if (!grid) return
+
+    /*
+     * Środki liczymy tylko dla dzieci z `data-tile-key`: dziecko bez klucza
+     * mogłoby zostać wybrane jako najbliższe, a kafelek wstawiłby się wtedy
+     * względem nieistniejącego celu.
+     *
+     * Bierzemy WSZYSTKIE narysowane, także wiersze jeszcze dogasające
+     * (`tile--leaving`, stoją w DOM-ie przez 400 ms). Nie odsiewać ich, choć ich
+     * klucze i tak wypadną przy przycinaniu: gdyby najbliższy okazał się wiersz
+     * spoza listy, indeks wyszedłby -1, `moveTile` przycięłby go do zera i
+     * kafelek wskoczyłby na początek, a nie tam, gdzie człowiek celował. Cena:
+     * klucz zakończonego strumienia może przez chwilę wejść do `order`;
+     * wyleczy się sam przy następnym przycięciu (`pruneLayout`), gdy nie będzie
+     * ani obecny, ani na ekranie.
+     *
+     * `orderAfterDrop` zwraca permutację tylko tego, co narysowane, więc samo
+     * zapisanie jej gubiłoby klucze chwilowo niewidoczne — ukryty kafelek albo
+     * strumień ogłoszony, ale jeszcze bez obrazu. `restoreUnrenderedKeys`
+     * wstawia je z powrotem za ich poprzednikami, dzięki czemu ukrywanie
+     * i przestawianie nie psują się w zderzeniu: po odkryciu kafelek wraca na
+     * swoje miejsce, a nie na koniec.
+     *
+     * Odniesieniem NIE MOŻE być samo `current.order`. Ta lista jest pusta do
+     * pierwszego upuszczenia w każdej sesji (układ nie jest zapamiętywany, nic
+     * jej nie dosiewa), a klucz ukryty przed pierwszym przeciągnięciem nigdy do
+     * niej nie trafił — czyli `restoreUnrenderedKeys` nie miałaby skąd odtworzyć
+     * jego pozycji i wariant „schowaj, czego nie chcę, potem ułóż resztę"
+     * gubiłby ukryty kafelek na koniec siatki. Odniesieniem jest więc
+     * OBOWIĄZUJĄCA kolejność wszystkich kafelków, ukrytych też: `applyTileOrder`
+     * na `tiles` tą samą regułą, którą układa się siatkę, więc przy pustym
+     * `order` wychodzi z niej porządek źródłowy.
+     */
+    const centers: TileCenter[] = []
+    for (const element of grid.querySelectorAll<HTMLElement>(':scope > [data-tile-key]')) {
+      const key = element.dataset.tileKey
+      if (key === undefined) continue // selektor to wyklucza; to tylko dla typów
+      const box = element.getBoundingClientRect()
+      centers.push({ key, x: box.left + box.width / 2, y: box.top + box.height / 2 })
+    }
+
+    const dropped = orderAfterDrop(centers, fromKey, { x: event.clientX, y: event.clientY })
+    if (dropped !== null) {
+      setLayout((current) => {
+        const everyKey = effectiveOrder(tiles, current.order, (tile) => tile.tileKey)
+        return { ...current, order: restoreUnrenderedKeys(everyKey, dropped) }
+      })
+    }
+  }
+
+  // Przerwany gest (np. system zabrał wskaźnik) to NIE upuszczenie: współrzędne
+  // takiego zdarzenia nie wskazują miejsca, w które człowiek celował, więc
+  // niczego nie przestawiamy.
+  const cancelTileDrag = (): void => setDraggingKey(null)
+
+  /*
+   * Zakończony strumień zapomina o sobie wszystko: wypada z ukrytych i z
+   * kolejności, więc gdy wróci, jest nowym kafelkiem — widocznym i na końcu.
+   *
+   * `presentKeys` to `lobby.state.streams` i NIC więcej. Ta lista zawiera
+   * także nasze własne strumienie: serwer odsyła `stream-started` nadawcy
+   * (przypięte testem „nadający dostaje zdarzenie także o własnej transmisji”
+   * w `test/signaling-client.test.ts`), więc ukrycie własnego podglądu nie
+   * zdejmuje się samo w tej samej klatce. Nie wolno składać jej z `tiles` ani
+   * z `remoteStreams`: własnych kafelków nie ma w tym drugim, a ukryty cudzy
+   * strumień wypada z obu.
+   *
+   * Prawda z SYGNALIZACJI, nie ze stanu połączeń ani z DOM-u, bo oba są
+   * przejściowe w DWÓCH kierunkach: kafelek wisi w DOM-ie jeszcze 400 ms
+   * animacji wyjścia po końcu strumienia, a połączenie bywa zrywane
+   * i zestawiane od nowa, choć strumień trwa.
+   *
+   * Wyjątek dotyczy tylko kolejności: wiersze, które jeszcze stoją na ekranie
+   * (`onScreenKeys`, czyli `transitioned`), zachowują w niej miejsce do końca
+   * animacji, bo inaczej, jako nieznane, przeskoczyłyby na koniec w trakcie
+   * zanikania. Bierzemy wszystkie, nie tylko dogasające: nie zależymy wtedy od
+   * tego, czy przerysowanie po końcu strumienia zdążyło już oznaczyć wiersz
+   * jako dogasający. Cena tego wyjątku, opisana przy `forgetMissingTiles`:
+   * strumień ogłoszony na nowo w ciągu 400 ms od końca wraca na stare miejsce.
+   *
+   * Bez `useMemo`: efekt niżej chodzi po każdym renderze, więc tożsamość tego
+   * zbioru nic nie znaczy, a zbudowanie go kosztuje ok. 2 µs przy 20
+   * strumieniach (zmierzone).
+   */
+  const presentKeys = new Set(lobby.state.streams.map((ref) => connectionKey(ref.peerId, ref.kind)))
+
+  /*
+   * Bez tablicy zależności, tak jak efekt powiększenia niżej: `transitioned` to
+   * nowa tablica w każdym renderze, więc jakakolwiek lista zależności i tak
+   * odpalałaby się za każdym razem. Pętli nie ma dzięki tożsamości, którą
+   * pilnuje `pruneLayout` (gdy nic nie wypada, oddaje ten sam obiekt, a React
+   * pomija przerysowanie). Zależność `transitioned` od `hidden` też jej nie
+   * tworzy: zdjęcie klucza z ukrytych zmienia siatkę tylko wtedy, gdy kafelek
+   * tego klucza istnieje, a przy zakończonym strumieniu nie istnieje.
+   */
+  useEffect(() => {
+    const onScreenKeys = new Set(transitioned.map((row) => row.item.tileKey))
+    setLayout((current) => pruneLayout(current, presentKeys, onScreenKeys))
+  })
 
   /*
    * UWAGA: musi stać tutaj, przed instrukcjami `return` niżej. LobbyView
@@ -101,7 +345,14 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * a hook wywołany po takim wyjściu łamie zasady Reacta i wywala aplikację
    * przy pierwszym otwarciu pickera. Ta sama pułapka wystąpiła w 0.3.2.
    */
-  useDiagnosticsReporter(lobby, options.diagnostics)
+  useReorderAnimation(gridRef)
+
+  useDiagnosticsReporter(lobby)
+
+  // Dziennik lobby: oba hooki powyżej i ten stoją razem, PRZED instrukcjami
+  // `return` — patrz uwaga nad `useReorderAnimation`. Wpisy powstają z różnicy
+  // kolejnych `lobby.state`, bo callbacki sesji niosą stan, nie zdarzenia.
+  useLobbyLog(lobby)
 
   /*
    * Pokazujemy skrót ORAZ wejścia, z których powstał. Sam skrót powie tylko
@@ -183,9 +434,23 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
     })
   }, [cameraEnabled, sharingCamera, stopStream])
 
-  // Powiekszony kafelek moze zniknac (nadajacy skonczyl) — wtedy wracamy do siatki.
+  // Powiększony kafelek może zniknąć (nadający skończył albo my go ukryliśmy) —
+  // wtedy wracamy do siatki. Sprawdzamy `shownTiles`, nie `tiles`: ukryty kafelek
+  // dalej jest w `tiles`, a bez tego powiększenie zostałoby włączone na kafelku,
+  // którego nie ma w siatce, i została pusta scena bez drogi powrotu.
   useEffect(() => {
-    if (zoomed && !tiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
+    if (zoomed && !shownTiles.some((t) => t.tileKey === zoomed)) setZoomed(null)
+  })
+
+  // Przeciągany kafelek mógł zniknąć w trakcie gestu (koniec strumienia) albo
+  // gest zastało powiększenie. Wtedy puszczenie przycisku może nie dojść do
+  // siatki (przechwytujący element wyszedł z DOM-u), a bez tego kursor
+  // `grabbing` i przygaszenie zostałyby ustawione na stałe.
+  useEffect(() => {
+    if (draggingKey === null) return
+    if (zoomed || !tileRows.some((row) => row.item.tileKey === draggingKey)) {
+      setDraggingKey(null)
+    }
   })
 
   const confirmSelection = async (): Promise<void> => {
@@ -251,6 +516,32 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
   // odrzucona przez serwer. Bez tego paska jedynym śladem byłaby konsola.
   const cameraErrorText = cameraError ?? camera.error
 
+  /*
+   * Powód pustej siatki liczymy po `lobby.state.streams` (to, co ogłosił
+   * serwer, razem z naszymi własnymi), a NIE po `tiles`. Kafelek powstaje
+   * dopiero, gdy obraz dojdzie, więc po `tiles` strumień „w drodze" byłby
+   * niewidoczny: przy pustych `tiles` wyszłoby „Nikt nie nadaje", choć ktoś
+   * nadaje, a „Odbieranie obrazu…" nie pokazałoby się nigdy.
+   */
+  const emptyGridText =
+    EMPTY_GRID_TEXT[
+      emptyGridMessage({
+        streams: lobby.state.streams,
+        hidden,
+        myPeerId: lobby.state.me?.peerId ?? null,
+        signalingClosed: lobby.state.signalingClosed
+      })
+    ]
+
+  /*
+   * Licznik w nagłówku z tego samego źródła co komunikat pustej siatki, bo
+   * z `tiles` rozjeżdżały się: ukryty cudzy strumień wypada z `tiles` (rezygnacja
+   * z odbioru zdejmuje jego obraz), więc po ukryciu jedynej transmisji nagłówek
+   * mówiłby „Nikt nie nadaje obrazu", a środek ekranu — że wszystkie są ukryte.
+   * Liczymy ukryte też: transmisja trwa, tylko jej nie oglądasz.
+   */
+  const streamCount = lobby.state.streams.length
+
   return (
     <div className="app">
       <header className="app__titlebar">
@@ -260,9 +551,9 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           {lobby.state.connection === 'connecting' && 'Łączenie z kanałem…'}
           {lobby.state.connection === 'error' && 'Brak połączenia'}
           {lobby.state.connection === 'ready' &&
-            (tiles.length === 0
+            (streamCount === 0
               ? 'Nikt nie nadaje obrazu'
-              : `${tiles.length} ${tiles.length === 1 ? 'transmisja' : 'transmisje'}` +
+              : streamCountLabel(streamCount) +
                 (sharingScreen || sharingCamera
                   ? ` · Ty: ${
                       lobby.state.viewerPeerIds.length === 0
@@ -327,6 +618,16 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
 
       <div className="lobby">
         <div className="viewer">
+          {/* Licznik zużycia NAD sceną i POZA operatorem warunkowym niżej.
+              Scena ma trzy gałęzie — błąd połączenia, pusta siatka, siatka
+              z kafelkami — i w DOM-ie stoi zawsze dokładnie jedna, więc jedyne
+              miejsce, z którego licznik widać we wszystkich trzech, jest przed
+              nimi. „Czy aplikacja zjada maszynę" jest pytaniem sensownym także
+              wtedy, gdy nikt nie nadaje i siatka jest pusta.
+              Do 0.3.4 licznik był nakładką w prawym dolnym rogu okna
+              i przykrywał pasek sterowania prawego dolnego kafelka; cały powód
+              przeniesienia stoi przy `ResourceBadge`. */}
+          <ResourceBadge />
           {lobby.state.connection === 'error' ? (
             <div className="notice notice--error">
               <strong>Nie udało się połączyć z kanałem.</strong>
@@ -335,21 +636,32 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           ) : tileRows.length === 0 ? (
             <div className="viewer__stage">
               <div className="viewer__waiting">
-                {lobby.state.streams.length > 0
-                  ? 'Odbieranie obrazu…'
-                  : 'Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy.'}
+                {emptyGridText}
               </div>
             </div>
           ) : (
             <div
+              ref={gridRef}
               className={`siatka${zoomed ? ' siatka--zoom' : ''}`}
               data-ile={Math.min(tileRows.length, 4)}
+              data-dragging={draggingKey !== null ? '' : undefined}
+              onPointerUp={endTileDrag}
+              onPointerCancel={cancelTileDrag}
+              /*
+               * Osierocony ostatni kafelek: nieparzysta liczba przy układzie
+               * dwukolumnowym. Liczymy TUTAJ, a nie w CSS po `data-ile`, bo
+               * `data-ile` jest ograniczone przez `Math.min(…, 4)` — przy pięciu
+               * kafelkach wynosi też 4, więc reguła oparta na `data-ile="3"`
+               * naprawiłaby trzy kafelki i zostawiła pięć z tą samą usterką.
+               */
+              data-sierota={tileRows.length >= 3 && tileRows.length % 2 === 1 ? '' : undefined}
             >
               {tileRows
                 .filter((row) => !zoomed || row.item.tileKey === zoomed)
                 .map((row) => (
                   <StreamTile
                     key={row.item.tileKey}
+                    tileKey={row.item.tileKey}
                     stream={row.item.stream}
                     peerId={row.item.peerId}
                     name={row.item.label}
@@ -357,6 +669,21 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     isMe={row.item.isMe}
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
+                    dragged={draggingKey === row.item.tileKey}
+                    signalingClosed={lobby.state.signalingClosed}
+                    /*
+                     * Zamek pierwszy z dwóch (drugi w `endTileDrag`): przy
+                     * powiększeniu uchwytu nie ma wcale, bo jeden widoczny
+                     * kafelek nie ma czego przestawiać. Nie ma go też na
+                     * kafelku dogasającym — przestawianie czegoś, co znika,
+                     * nie ma sensu.
+                     */
+                    onDragStart={
+                      zoomed || row.leaving ? undefined : startTileDrag(row.item.tileKey)
+                    }
+                    onHide={() =>
+                      toggleHidden(row.item.tileKey, row.item.peerId, row.item.kind, row.item.isMe)
+                    }
                     onToggleZoom={() =>
                       setZoomed((current) => (current === row.item.tileKey ? null : row.item.tileKey))
                     }
@@ -371,6 +698,11 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           collapsed={panelCollapsed}
           onToggle={() => setPanelCollapsed((current) => !current)}
           roomFingerprint={roomFingerprint}
+          hidden={hidden}
+          signalingClosed={lobby.state.signalingClosed}
+          onToggleStream={(peerId, kind, isMe) =>
+            toggleHidden(connectionKey(peerId, kind), peerId, kind, isMe)
+          }
         />
 
         {settingsOpen && (

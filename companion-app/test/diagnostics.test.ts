@@ -29,7 +29,8 @@ import {
   type PanelTimeline,
   type StreamColumn,
   type StreamRates,
-  type StreamStats
+  type StreamStats,
+  type SystemStats
 } from '../src/shared/diagnostics'
 
 test('poprawny odczyt jednej karty', () => {
@@ -855,6 +856,49 @@ test('zdrowe odpytywanie GPU nigdy nie zapala kreski', () => {
   expect(healthy).toContain('GPU 97%')
 })
 
+test('próg GPU to DWA okresy odpytywania, nie trzy', () => {
+  // Komentarz przy `GPU_STALE_AFTER_MS` ma pół strony rachunku, dlaczego dwa,
+  // a nie trzy — i nic tej liczby nie pilnowało: zmierzone, podmiana na trzy
+  // okresy przechodziła cały zestaw. Pozostałe testy progu liczą od samej
+  // stałej, więc jadą za nią, którakolwiek by była.
+  //
+  // Przybijamy ZACHOWANIE, nie samą liczbę (`toBe(2 * ...)` powtarzałoby
+  // źródło). Dwa okresy znaczą dokładnie tyle: JEDNO pominięte tyknięcie
+  // (wywołanie jeszcze nie wróciło, patrz `gpuPollInFlight` w `metrics.ts`) to
+  // jeszcze norma, a DRUGIE to zamarły sterownik. Trzeci okres tylko odsuwałby
+  // wykrycie zamarłego sterownika, czyli to, czego tu szukamy.
+  const stats = { cpuPercent: 23, memoryMb: 412, gpu: STUCK_GPU }
+
+  // Jedno pominięte tyknięcie z zapasem na drżenie zegara: jeszcze liczby.
+  expect(
+    formatResourceBadge(stats, GPU_READ_AT + 2 * GPU_POLL_INTERVAL_MS - 1)
+  ).toContain('GPU 97%')
+
+  // Dwa pełne okresy: już kreska z godziną. Przy trzech okresach ta asercja
+  // pada, bo pasek dalej podawałby przyklejone 97%.
+  expect(formatResourceBadge(stats, GPU_READ_AT + 2 * GPU_POLL_INTERVAL_MS)).toBe(
+    'CPU 23% · RAM 412 MB · GPU — (odczyt z 22:03)'
+  )
+})
+
+test('zawieszony sterownik pokazuje kreskę z godziną, nie ostatnie procenty', () => {
+  // Test REGRESJI istniejącego mechanizmu, nie nowej funkcji: `GPU_STALE_AFTER_MS`
+  // działa od 0.3.3, więc ten test przechodzi od pierwszego uruchomienia — nie szukaj
+  // brakującej implementacji.
+  //
+  // Stoi osobno dlatego, że w 0.3.4 pasek przestaje być za flagą `--diagnostics`
+  // i widzi go KAŻDY. Dotąd ten niezmiennik pilnowała także flaga: przyklejone
+  // procenty oglądałby wyłącznie ktoś, kto wiedział, co czyta. Po odbramkowaniu
+  // jest ważniejszy, nie mniej ważny — i dlatego ma własny, nazwany test.
+  const stats: SystemStats = {
+    cpuPercent: 10,
+    memoryMb: 500,
+    gpu: { utilizationPercent: 77, memoryUsedMb: 1, memoryTotalMb: 2, at: 1_000 }
+  }
+  const text = formatResourceBadge(stats, 1_000 + GPU_STALE_AFTER_MS + 1)
+  expect(text).not.toContain('77')
+})
+
 /** Zużycie systemu bez odczytu karty — bierze go każdy test, który jej nie bada. */
 const SYSTEM = { cpuPercent: 23, memoryMb: 412 }
 
@@ -868,9 +912,9 @@ test('linia panelu pokazuje godzinę odczytu GPU także przy świeżym odczycie'
   expect(line).toBe('CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB · odczyt z 22:03')
 })
 
-test('pasek w rogu milczy o godzinie, dopóki odczyt GPU jest świeży', () => {
-  // To jedyna różnica między paskiem a linią panelu, więc test trzyma je
-  // rozdzielone: pasek jest wąski i ma być cichy.
+test('licznik zużycia milczy o godzinie, dopóki odczyt GPU jest świeży', () => {
+  // To jedyna różnica między licznikiem a linią panelu, więc test trzyma je
+  // rozdzielone: licznik jest jednowierszowy i ma być cichy.
   const at = GPU_READ_AT + 1_000
   expect(formatResourceBadge({ ...SYSTEM, gpu: STUCK_GPU }, at)).toBe(
     'CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB'

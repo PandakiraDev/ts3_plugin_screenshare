@@ -560,8 +560,25 @@ h3 {
 
 /* ---------- widok widza ---------- */
 
+/* KOLUMNA, nie wiersz: `.viewer` trzyma teraz dwie rzeczy jedną nad drugą —
+   licznik zużycia (`.resource-badge`) i scenę pod nim.
+   Scena to ALTERNATYWA, nie drugie z dwóch dzieci: pusta (`.viewer__stage`),
+   siatka z kafelkami (`.siatka`) i błąd połączenia (`.notice--error`) to trzy
+   gałęzie tego samego operatora warunkowego w `LobbyView`, więc w DOM-ie stoi
+   zawsze dokładnie jedna — i zawsze pod licznikiem. `.viewer__stage` jest
+   RODZEŃSTWEM `.siatka`, a nie jej przodkiem; pomylenie tego prowadzi do
+   szukania licznika w złym miejscu.
+   `position` zostaje `static` i nie ma potrzeby tego zmieniać: kafelki mają
+   `offsetParent` w `.siatka`, bo ona sama jest `relative` (rachunek przy niej),
+   więc pojawienie się licznika przesuwa ją całą, ale nie rusza współrzędnych
+   kafelków WEWNĄTRZ niej i FLIP z `useReorderAnimation` tego nie widzi.
+   Tym, czego nie wolno ruszyć, jest `position: relative` na `.siatka`.
+   Skutek uboczny, zapisany, bo widoczny: w gałęzi błędu połączenia `.notice`
+   rozciągał się przedtem na całą wysokość sceny (oś poprzeczna wiersza biegnie
+   w pionie), a teraz bierze szerokość sceny i swoją własną wysokość. */
 .viewer {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   padding: 20px;
@@ -805,9 +822,62 @@ h3 {
   color: #ff9a9d;
 }
 
+/* Oczko w plakietce strumienia. Wyciszone, bo to sterowanie, a nie
+   informacja — ma być pod ręką, nie przyciągać wzroku. */
+.participant__eye {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0.65;
+}
+
+.participant__eye:hover,
+.participant__eye:focus-visible {
+  opacity: 1;
+}
+
+/* Wyłączony strumień: oczko zostaje widoczne, bo to jedyna droga powrotu. */
+.participant__eye--off {
+  opacity: 1;
+}
+
+/* Oczko nieaktywne, bo gniazdo sygnalizacji padło i prośba o powrót obrazu nie
+   dojdzie do nadawcy (`canToggleStream`). Przyciemnione, ale nie schowane:
+   podpowiedź na nim jest jedynym miejscem, w którym pisze, dlaczego nie da się
+   go kliknąć.
+   MUSI stać PO `--off` i po `:hover` wyżej: wszystkie trzy mają tę samą
+   swoistość (0,2,0), więc o `opacity` decyduje kolejność w pliku, a Chromium
+   dopasowuje `:hover` także do przycisków nieaktywnych. */
+.participant__eye:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 /* ---------- siatka strumieni ---------- */
 
+/* `position: relative` NIE jest tu po to, żeby cokolwiek przesunąć — niczego
+   nie przesuwa. Czyni siatkę `offsetParent` swoich kafelków, a od tego zależy
+   poprawność animacji przestawiania (`useReorderAnimation`): hook mierzy
+   `offsetLeft`/`offsetTop`, czyli współrzędne względem `offsetParent`.
+   Bez tej jednej linii żaden przodek kafelka nie jest pozycjonowany
+   (`.viewer`, `.lobby`, `.app`, `#root`, `body` — wszystkie `static`),
+   `offsetParent` wypada na `BODY`, a KAŻDY pasek pojawiający się nad siatką
+   (zerwane połączenie, zatkane łącze, zacinający widzowie, błąd kamery,
+   powiadomienie o aktualizacji, licznik zużycia) przesuwa wszystkie
+   kafelki o swoją wysokość naraz — zmierzone `dy = 39` px przy oknie 1280x800,
+   56 px przy dwuwierszowym tekście. FLIP czytał to jako przestawienie i jechał
+   200 ms transformacją z wymuszonym kompozytowaniem na każdym żywym `<video>`,
+   w aplikacji, w której diagnozujemy zacinanie.
+   Nie tworzy kontekstu nakładania: `z-index` zostaje `auto`, więc nakładki
+   (`.lobby-log-toggle` 45, `.diag` 50) dalej są nad kafelkami. Licznik zużycia
+   na tej liście już nie stoi: od 0.3.4 nie jest nakładką, nie ma `z-index`
+   i leży nad siatką w przepływie, a nie na niej. */
 .siatka {
+  position: relative;
   display: grid;
   gap: 10px;
   flex: 1;
@@ -825,9 +895,48 @@ h3 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Osierocony ostatni kafelek na środku, nie przy lewej ściance.
+   Cztery kolumny, każdy kafelek zajmuje dwie, ostatni startuje od drugiej —
+   wychodzi ta sama szerokość co pozostałe, tylko wyśrodkowana. Działa dla
+   trzech, pięciu i siedmiu, bo warunek liczy parzystość, a nie konkretną liczbę.
+
+   Musi stać PO regule `data-ile` wyżej: przy trzech kafelkach pasują obie,
+   mają tę samą specyficzność i o wyniku decyduje kolejność w pliku.
+
+   `:last-child` jest pozycyjny, więc po przestawieniu kafelków wyśrodkowany
+   jest ten, który faktycznie stoi na końcu — i to jest pożądane.
+
+   Kafelek wychodzący wlicza się do parzystości przez 400 ms animacji, bo
+   `tileRows` pochodzi z przejścia wyjścia. Skutek przyjęty świadomie: przy
+   przejściu z czterech na trzy wyśrodkowanie pojawia się PO animacji.
+   Liczenie bez wychodzących przestawiałoby układ W TRAKCIE zanikania, co jest
+   gorsze. */
+.siatka[data-sierota] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.siatka[data-sierota] > * {
+  grid-column: span 2;
+}
+
+.siatka[data-sierota] > :last-child {
+  grid-column: 2 / span 2;
+}
+
 /* Powiekszony: jeden kafelek na cala scene. */
 .siatka--zoom {
   grid-template-columns: 1fr !important;
+}
+
+/* `!important` wyżej unieważnia tylko kolumny. Reguły `grid-column` z
+   `[data-sierota]` zostają w mocy, a `data-sierota` liczy się z WSZYSTKICH
+   kafelków, nie z tego jednego, który zostaje po powiększeniu. Jedyny widoczny
+   kafelek jest wtedy zarazem `:last-child`, dostaje `2 / span 2` w siatce
+   o jednej kolumnie, a przeglądarka dokłada dwie niejawne kolumny `auto`:
+   kafelek ląduje w nich z prawej, o szerokości zależnej od zawartości, a
+   pierwsza kolumna (`1fr`) zostaje pusta. */
+.siatka--zoom > * {
+  grid-column: auto !important;
 }
 
 .tile {
@@ -927,12 +1036,124 @@ h3 {
   color: var(--accent);
 }
 
+/* Guziki na kafelku pojawiają się pod kursorem, bo przy oglądaniu obrazu
+   nie mają prawa niczego zasłaniać. `z-index` nie jest potrzebny: guzik jest
+   pozycjonowany, a `.tile__stage` nie, więc przeglądarka maluje go nad obrazem
+   niezależnie od kolejności w DOM-ie. Gdyby scena kiedyś dostała `position`,
+   kolejność zacznie się liczyć, a guzik stoi w DOM-ie PRZED nią. */
+.tile__hide {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* `:focus-visible` pokazuje guzik także bez myszy — inaczej byłby nieosiągalny
+   z klawiatury, bo przy `opacity: 0` nikt nie wie, że ma na nim focus. */
+.tile:hover .tile__hide,
+.tile__hide:focus-visible {
+  opacity: 1;
+}
+
+/* Krzyżyk nieaktywny, z tego samego powodu co oczko wyżej: ukrycie cudzego
+   obrazu przy martwym gnieździe byłoby nieodwracalne. Pojawianie się pod
+   kursorem zostaje nietknięte — guzik ma się pokazać właśnie po to, żeby dało
+   się przeczytać jego podpowiedź. Nieaktywny guzik wypada z kolejności
+   tabulacji, co jest kosztem przyjętym: w tym stanie nie robił nic, a powodów
+   szuka się na pasku połączenia i w środku pustej siatki, oba czytane
+   i czytnikiem ekranu. */
+.tile__hide:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* Uchwyt przeciągania, symetrycznie do krzyżyka: pod kursorem, po lewej.
+   `touch-action: none` jest konieczne — bez niego przeglądarka przechwytuje
+   gest jako przewijanie i `pointermove` nie dochodzi.
+
+   Bez reguły `:focus-visible`, w odróżnieniu od krzyżyka: uchwyt jest poza
+   kolejnością tabulacji (przestawianie tylko wskaźnikiem — patrz komentarz
+   w StreamTile.tsx), więc nie ma kiedy dostać focusu z klawiatury. */
+.tile__grip {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: grab;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+/* Przeciągany kafelek zachowuje widoczny uchwyt: z przechwyconym wskaźnikiem
+   stan `:hover` nie jest gwarantowany, a bez tego uchwyt zgasłby pod ręką. */
+.tile:hover .tile__grip,
+.tile--dragged .tile__grip {
+  opacity: 1;
+}
+
+/* Jedyny znak gestu między chwyceniem a puszczeniem: bez podglądu miejsca
+   wstawienia (to osobne zadanie), ale z przygaszeniem ciągniętego kafelka
+   i kursorem na CAŁEJ siatce — dzieci mają własne kursory (`zoom-in` na
+   scenie), więc reguła musi sięgać też do nich. `user-select` chroni przed
+   zaznaczaniem napisów po drodze. */
+.tile--dragged {
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.siatka[data-dragging],
+.siatka[data-dragging] * {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .settings__checkbox {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
   font-size: 13px;
+}
+
+/* Ścieżka katalogu diagnostyki w podpowiedzi pola wyboru. Krój stałej
+   szerokości, bo tę ścieżkę się przepisuje i dyktuje przez telefon (ten sam
+   powód co `.peers__room`), a `anywhere`, bo panel ma 260 px i pełna ścieżka
+   Windows nie zmieści się w jednej linii — bez łamania rozepchnęłaby panel. */
+.settings__path {
+  font-family: Consolas, 'Courier New', monospace;
+  overflow-wrap: anywhere;
+}
+
+/* Nieudany zapis pliku ustawień: ostrzeżenie, nie błąd — ustawienie działa
+   w tej sesji, tylko nie przeżyje restartu. Ten sam bursztyn co
+   `.app__connection`, żeby „coś nie działa dobrze, ale aplikacja pracuje
+   dalej" miało w całej aplikacji jeden kolor. */
+.settings__hint--warning {
+  color: #f0c674;
 }
 
 /* ---------- klucz dostępu ---------- */
@@ -1077,41 +1298,144 @@ h3 {
   }
 }
 
-/* ---------- diagnostyka (tylko przy fladze --diagnostics) ---------- */
+/* ---------- diagnostyka (bez żadnego włączania, od 0.3.4) ---------- */
 
-/* Pasek zużycia: prawy dolny róg, nad całą zawartością, nieklikany — nie może
-   przechwytywać kliknięć w kafelki pod nim. */
+/* Licznik zużycia: WŁASNY WIERSZ nad siatką kafelków, w zwykłym przepływie.
+   Do 0.3.4 była to nakładka `position: fixed` w prawym dolnym rogu okna i to
+   ona przykrywała pasek sterowania prawego dolnego kafelka. Dopóki licznik
+   siedział za flagą, widział go wyłącznie deweloper; od chwili, w której widzi
+   go każdy i zawsze, ta sama kolizja jest kłopotem każdego. Kliknięcia
+   przechodziły (`pointer-events: none`), więc guzik powiększenia i suwak
+   głośności DZIAŁAŁY — tylko ich nie było widać pod tłem nakładki, a guzika,
+   którego nie widać, nikt nie szuka.
+   CO TO KOSZTUJE SIATKĘ, bo właściciel zgodził się na koszt, nie na brak
+   kosztu: 14,86 px wiersza tekstu (zmierzona wysokość wiersza przy
+   `font-size: 11px` w tym oknie) + 6 px marginesu dolnego = 20,86 px, na stałe,
+   od pierwszej próbki. Przy dwuwierszowym złamaniu (ciasne okno albo długa
+   nazwa karty) dochodzi 14,86 px wiersza i 2 px `row-gap`, czyli 37,72 px.
+   Bez tła, obramowania i `z-index`: wiersz nad niczym nie leży, a tło chipa na
+   tle okna byłoby samym hałasem. Bez `pointer-events: none` — nie ma pod nim
+   czego przepuszczać, a odczyt diagnostyczny wypada dać do zaznaczenia
+   i skopiowania.
+   `flex-shrink: 0`, bo rodzic jest kolumną elastyczną: bez tego wiersz oddałby
+   swoją jedyną linię siatce przy ciasnym oknie, czyli zniknąłby dokładnie
+   wtedy, gdy miejsca brakuje — a wtedy pytanie o zużycie jest najżywsze.
+   Margines boczny 4 px zgrywa tekst z lewą krawędzią kafelków: `.siatka` ma
+   tyle samo `padding`. */
 .resource-badge {
-  position: fixed;
-  right: 10px;
-  bottom: 8px;
-  z-index: 40;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: rgba(30, 31, 34, 0.82);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  flex-shrink: 0;
+  margin: 0 4px 6px;
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }
 
-/* Pasek wisi w prawym dolnym rogu okna, a lista uczestników sięga prawej
-   krawędzi i pełnej wysokości, więc przykrywał jej ostatni wiersz. Kliknięcia
-   przechodziły (`pointer-events: none`), ale tekst był nieczytelny.
-   Odstęp robimy na dole LISTY, a nie przesuwamy paska: każde inne miejsce
+/* Nazwa karty graficznej i jej pamięć: stała przez całą sesję, w odróżnieniu
+   od liczb obok.
+   OBOK, a nie pod nimi, i stąd nie ma już `max-width: 320px`. Ograniczenie
+   istniało, bo nakładka była przyklejona do prawej krawędzi okna i bez niego
+   rosłaby w lewo, w kafelki. Wiersz biegnie przez całą szerokość sceny, więc
+   nie ma czego ograniczać, a jedna linia zamiast dwóch to 14,86 px, których
+   siatka nie traci. Przy ciasnym oknie albo długiej nazwie karty
+   (`formatGpuCard` daje do ~130 znaków) `flex-wrap` zrzuca ten napis do
+   drugiej linii — całą, nieuciętą, bo przy karcie bez pomiaru zużycia niesie
+   zdanie wyjaśniające, dlaczego obok stoi „GPU —", a ucięte zdanie nie
+   wyjaśnia niczego.
+   `margin-left: auto` dosuwa go do prawej krawędzi wiersza i to nie jest
+   kosmetyka: napis z liczbami zmienia szerokość (9% → 10%), więc wszystko, co
+   za nim stoi, drgałoby w poziomie — w aplikacji, w której diagnozujemy
+   drgania obrazu. Dosunięty do prawej nie zależy od szerokości tego, co stoi
+   po lewej. */
+.resource-badge__card {
+  margin-left: auto;
+  opacity: 0.8;
+}
+
+/* Guzik dziennika wisi w prawym dolnym rogu okna, a lista uczestników sięga
+   prawej krawędzi i pełnej wysokości, więc przykrywałby jej ostatni wiersz.
+   Odstęp robimy na dole LISTY, a nie przesuwamy guzika: każde inne miejsce
    w oknie też jest czyjeś (kafelki, podgląd, pasek tytułu), więc przesunięcie
    zamieniłoby jedną kolizję na następną, a ta byłaby trudniejsza do
-   zauważenia. Odstęp mieści pasek (~21 px) wraz z jego marginesem od dołu
-   i działa też przy przewijaniu, bo `.peers` jest tu kontenerem przewijania.
-   Warunkowo przez `:has()`, bo pasek istnieje tylko przy fladze
-   `--diagnostics` — bez niej lista nie ma tracić miejsca na nic. */
-#root:has(.resource-badge) .peers {
+   zauważenia. Odstęp działa też przy przewijaniu, bo `.peers` jest tu
+   kontenerem przewijania.
+   Warunkowo przez `:has()`, choć guzik jest dziś w każdym lobby od pierwszej
+   chwili: warunek nazywa POWÓD istnienia odstępu, więc odstęp zniknie razem
+   z guzikiem, a nie zostanie po nim jako niczyje 40 px.
+   JEDNA reguła, nie dwie. Druga była `#root:has(.resource-badge) .peers
+   { padding-bottom: 88px }` i istniała wyłącznie po to, żeby nakładka licznika
+   zużycia nie przykrywała ostatniego wiersza listy. Licznik nie jest już
+   nakładką — jest wierszem nad siatką, w zwykłym przepływie, poza listą i poza
+   jej rogiem — więc nie miała już czego chronić. Zniknął z nią rachunek na
+   88 px i opis dwu- i trzywierszowego paska: opisywałby element, którego nie
+   ma, a wysokość licznika nie dotyka już tego rogu okna.
+   Rachunek: 8 px odstępu guzika od krawędzi + 24 px jego wysokości + 8 px
+   luzu. */
+#root:has(.lobby-log-toggle) .peers {
   padding-bottom: 40px;
 }
 
+/* Guzik dziennika: prawy dolny róg okna i od 0.3.4 JEDYNA rzecz, która tam
+   stoi. Licznik zużycia był tu przedtem nad nim jako nakładka
+   z `pointer-events: none`; teraz jest wierszem nad siatką, więc tego rogu nie
+   dotyczy i nic tu po nim nie zostało.
+   Wysokość podana JAWNIE, a nie zostawiona metryce czcionki: od niej zależy
+   budżet odstępu listy uczestników (`:has()` wyżej), więc musi być liczbą,
+   a nie wypadkową kroju. Przedtem zależało od niej także `bottom` licznika —
+   ta zależność odpadła razem z nakładką, co jest JEDYNYM, co przeniesienie
+   licznika w tym rogu zmieniło: sam guzik stoi tam, gdzie stał, bo jego
+   przeniesienia nikt nie prosił.
+   Warstwa pod panelami (50): KAŻDY panel zostawia na niego miejsce u dołu
+   (`inset` w `.diag`), więc nie trzeba go przepychać nad panel, żeby dało się
+   nim zamknąć to, co otworzył. To zdanie było prawdą tylko o `.diag--log`,
+   dopóki rachunek siedział w modyfikatorze; teraz jest w regule bazowej. */
+.lobby-log-toggle {
+  position: fixed;
+  right: 10px;
+  bottom: 8px;
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lobby-log-toggle:hover {
+  color: var(--text);
+  background: #35373c;
+}
+
+/* Otwarty dziennik widać na guziku, nie tylko w panelu: guzik zostaje pod
+   panelem, a bez tego nic nie mówi, że to on jest wejściem do tego, co
+   zasłoniło okno. */
+.lobby-log-toggle[aria-expanded='true'] {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Panele diagnostyczne: nakładka na całe okno, nad wszystkim innym.
+   Dolna krawędź 40 px, nie 24: 8 px odstępu guzika dziennika + 24 px jego
+   wysokości + 8 px przerwy. Bez tego panel tabeli strumieni (`Ctrl+Shift+D`)
+   przykrywał górne 8 px tego guzika — 24 px jego dolnej krawędzi przeciw 32 px
+   górnej krawędzi guzika, a warstwa 50 przeciw 45 — i to przy komentarzu
+   obok `z-index: 45`, który uzasadniał tę warstwę zdaniem „panel zostawia na
+   niego miejsce u dołu". Rachunek stoi TUTAJ, w regule bazowej, a nie tylko
+   w `.diag--log`: każdy panel zasłania to samo okno i każdy ma zostawić
+   klikalny jedyny guzik w tym rogu. Utrata 16 px wysokości nie zmienia o tabeli
+   niczego. */
 .diag {
   position: fixed;
-  inset: 24px;
+  inset: 24px 24px 40px;
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -1227,4 +1551,89 @@ h3 {
 /* Wiersze z przestarzałych danych: ostatnio znane, nie bieżące. */
 .diag__row--stale {
   color: var(--text-muted);
+}
+
+/* Panel dziennika: ta sama warstwa, ten sam wzór i te same krawędzie co
+   `.diag` — odstęp na guzik dziennika u dołu jest już w regule bazowej, bo
+   obowiązuje KAŻDY panel, nie tylko ten.
+   Jedyna różnica to przewijanie: przewija się lista, nie cały panel, bo
+   nagłówek z liczbą wpisów i podpowiedzią o `Esc` ma zostać widoczny także
+   wtedy, gdy czytający przewinie do początku sesji. */
+.diag--log {
+  overflow: hidden;
+}
+
+/* Dwie linie o czasie nad listą: daty wpisów i nota o tym, że skład zastany
+   w chwili dołączenia jest zapisany jako wejścia, czyli że góra listy to stan,
+   a nie zdarzenia z tej godziny.
+   WSPÓLNY kontener, nie dwie linie wprost w panelu: `.diag` rozkłada swoje
+   dzieci z `gap: 10px`, więc osobno kosztowałyby ~48 px wysokości listy,
+   a razem, z własnym odstępem 2 px, ~32 px — tyle, ile ten przyrząd jest wart.
+   Wysokość panelu jest STAŁA (`inset` w `.diag` wyżej), więc te linie nie
+   rosną w dół: nie ruszają dolnej krawędzi panelu ani guzika, którym się go
+   zamyka, i nie dotykają budżetu odstępu listy uczestników (`:has()` wyżej).
+   Rosną na koszt przewijanej listy i tylko jej. */
+.diag-log__about {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-log__dates,
+.diag-log__note {
+  margin: 0;
+  font-size: 11px;
+}
+
+/* Data czytelna, nie wyciszona: to nagłówek treści panelu, a nie zastrzeżenie
+   do niej. Cyfry stałej szerokości jak wszędzie, gdzie w tym oknie stoi data
+   albo godzina. */
+.diag-log__dates {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Nota WYCISZONA: mówi, jak czytać listę, więc nie ma konkurować z nią
+   o wzrok. Czytana jest raz, przy pierwszym otwarciu panelu. */
+.diag-log__note {
+  color: var(--text-muted);
+}
+
+/* Krój stałej szerokości, ten sam zwyczaj co `.peers__room`: wszystkie wpisy
+   zaczynają się godziną i znacznikiem poziomu, więc w kroju stałej szerokości
+   ustawiają się w kolumny i wzrok leci po nich w dół, a nie szuka początku
+   treści w każdym wierszu. Ten tekst się też dyktuje przez telefon. */
+.diag-log {
+  flex: 1;
+  /* Bez tego dziecko flexa nie kurczy się poniżej swojej treści: lista
+     rozepchnęłaby panel, zamiast się przewijać w środku. */
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Łamane, nie ucinane: wpis niesie całe zdanie po polsku („Michał — połączenie
+   padło"), a ucięte zdanie nie mówi, co się stało. */
+.diag-log__line {
+  padding: 1px 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Kolor jest tu DRUGIM nośnikiem różnicy, nigdy jedynym. Pierwszym jest
+   znacznik `[BŁĄD]` w treści wpisu (`formatLogEntry` w `shared/lobbyLog.ts`),
+   i to on działa wtedy, gdy kolor nie: przy nierozróżnianiu czerwieni, po
+   skopiowaniu wiersza do wiadomości i w pliku na dysku, do którego lecą te
+   same linie. Idzie też do drzewa dostępności, bo jest tekstem, a nie
+   wyglądem. Czerwień jak przy osobie niedostępnej
+   (`.participant__badge--unreachable`), żeby „coś nie działa" miało w całej
+   aplikacji jeden kolor. */
+.diag-log__line--error {
+  color: #ff9a9d;
 }

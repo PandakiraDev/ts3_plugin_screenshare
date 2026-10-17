@@ -85,13 +85,12 @@ test('brak nicku zostawia null — zastępnik nada serwer', () => {
   expect(result.options.displayName).toBeNull()
 })
 
-test('tryb samodzielny nie ma wejść pokoju ani diagnostyki', () => {
+test('tryb samodzielny nie ma wejść pokoju', () => {
   const result = parseLaunchArgs([])
   if (!result.ok) throw new Error('spodziewano się powodzenia')
   expect(result.options.mode).toBe('standalone')
   expect(result.options.ts3ServerAddress).toBeNull()
   expect(result.options.channelId).toBeNull()
-  expect(result.options.diagnostics).toBe(false)
 })
 
 test('wejścia pokoju przeżywają drogę do opcji', () => {
@@ -109,25 +108,31 @@ test('identyfikator pokoju nadal zgadza się ze skrótem z tych samych wejść',
   expect(result.options.roomId).toBe(deriveRoomId('ts.serwer.pl:9987', '42'))
 })
 
-test('flaga diagnostyki działa jako ostatni argument', () => {
-  // Pułapka: readFlags gubił flagi bez wartości, więc samo `--diagnostics`
-  // na końcu wiersza nigdy nie trafiało do mapy.
-  const result = parseLaunchArgs(['--ts3-server=a:1', '--channel=2', '--diagnostics'])
-  if (!result.ok) throw new Error('spodziewano się powodzenia')
-  expect(result.options.diagnostics).toBe(true)
-})
+test('--diagnostics jest flagą NIEZNANĄ i nie trafia do opcji', () => {
+  /*
+   * W 0.3.4 flaga zniknęła: podgląd zużycia i dziennik należą do każdego,
+   * a zapis na dysk ma własne pole wyboru w ustawieniach. Od tej chwili
+   * `--diagnostics` jest dla parsera tym samym co `--inspect` wyżej — ma być
+   * IGNOROWANA, a nie wywalać wywołania.
+   *
+   * Ten test pilnuje DWÓCH rzeczy naraz, bo obie zepsułyby się po cichu:
+   * 1. stary skrót `.lnk` właściciela nadal odpala aplikację do tego samego
+   *    pokoju (tryb i wejścia bez zmian), zamiast dostać błąd;
+   * 2. pole `diagnostics` nie wraca do `LaunchOptions` — wróciłoby jako
+   *    martwe, bo w całym `src/` nie ma już ani jednego jego czytelnika.
+   */
+  const lobby = parseLaunchArgs(['--ts3-server=a:1', '--channel=2', '--diagnostics'])
+  if (!lobby.ok) throw new Error(lobby.error)
+  expect(lobby.options.mode).toBe('lobby')
+  expect(lobby.options.channelId).toBe('2')
+  expect('diagnostics' in lobby.options).toBe(false)
 
-test('flaga diagnostyki działa przed inną flagą', () => {
-  const result = parseLaunchArgs(['--diagnostics', '--ts3-server=a:1', '--channel=2'])
-  if (!result.ok) throw new Error('spodziewano się powodzenia')
-  expect(result.options.diagnostics).toBe(true)
-})
-
-test('flaga diagnostyki działa też w trybie samodzielnym', () => {
-  const result = parseLaunchArgs(['--diagnostics'])
-  if (!result.ok) throw new Error('spodziewano się powodzenia')
-  expect(result.options.mode).toBe('standalone')
-  expect(result.options.diagnostics).toBe(true)
+  // Także na początku wiersza, w trybie samodzielnym i powtórzona — to trzy
+  // różne gałęzie `readFlags`, a każda z nich miała kiedyś własny test.
+  const standalone = parseLaunchArgs(['--diagnostics', '--diagnostics'])
+  if (!standalone.ok) throw new Error(standalone.error)
+  expect(standalone.options.mode).toBe('standalone')
+  expect('diagnostics' in standalone.options).toBe(false)
 })
 
 test('obsługa flag logicznych nie psuje flag z wartością', () => {
@@ -166,7 +171,7 @@ test('powtórzona flaga bez wartości nie kasuje wartości podanej wcześniej', 
   // Obsługa flag logicznych ustawiała znacznik obecności BEZWARUNKOWO, więc
   // drugie `--signaling` cicho porzucało jawnie podany adres i aplikacja szła
   // do serwera produkcyjnego. Realne przy ręcznym wywołaniu z dopiskiem, a
-  // ręczne wywołanie to jedyny tryb, w którym używa się `--diagnostics`.
+  // ręczne wywołanie było jedynym trybem, w którym używało się `--diagnostics`.
   const result = parseLaunchArgs([
     '--signaling=ws://127.0.0.1:8080',
     '--signaling',
@@ -178,6 +183,10 @@ test('powtórzona flaga bez wartości nie kasuje wartości podanej wcześniej', 
 })
 
 test('powtórzona flaga bez wartości nie kasuje nicku', () => {
+  // `--diagnostics` na końcu zostaje w tym wywołaniu świadomie, choć flaga już
+  // nie istnieje: to jest dokładnie ten wiersz, który ma w skrócie `.lnk`
+  // właściciel, czyli jedyny realny sposób, żeby obok wartościowych flag stanęła
+  // flaga bez wartości.
   const result = parseLaunchArgs([
     '--ts3-server=a:1',
     '--channel=2',
@@ -188,7 +197,6 @@ test('powtórzona flaga bez wartości nie kasuje nicku', () => {
   ])
   if (!result.ok) throw new Error(result.error)
   expect(result.options.displayName).toBe('Marek')
-  expect(result.options.diagnostics).toBe(true)
 })
 
 test('powtórzone flagi bez wartości nie zamieniają lobby na standalone', () => {
@@ -220,8 +228,12 @@ test('kolejność odwrotna nadal wygrywa wartością, nie obecnością', () => {
   expect(result.options.displayName).toBe('Marek')
 })
 
-test('dwa razy ta sama flaga logiczna nadal ją włącza', () => {
-  const result = parseLaunchArgs(['--diagnostics', '--diagnostics'])
-  if (!result.ok) throw new Error(result.error)
-  expect(result.options.diagnostics).toBe(true)
-})
+/*
+ * Test „dwa razy ta sama flaga logiczna nadal ją włącza" został USUNIĘTY razem
+ * z flagą, a nie przepisany na coś innego: po 0.3.4 `LaunchOptions` nie ma ani
+ * jednego pola logicznego, więc obecności powtórzonej flagi bez wartości nie da
+ * się już z zewnątrz zobaczyć. Powtórzenie sprawdza teraz test nieznanej flagi
+ * wyżej, a jedyne, co z tej gałęzi `readFlags` nadal da się zmierzyć — że
+ * `flags.set` jest WARUNKOWY i nie kasuje wartości podanej wcześniej —
+ * pilnują trzy testy nad tym miejscem (sygnalizacja, nick, lobby).
+ */

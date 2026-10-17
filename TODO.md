@@ -635,11 +635,20 @@ ale własna flaga logiczna milcząco nie działała. Obsługa flag bez wartości
 doszła więc świadomie (pusty łańcuch jako znacznik obecności), z testami na
 oba położenia flagi w wierszu poleceń: jako ostatni argument i przed inną
 flagą. Cena: liczy się sama obecność, wartość jest ignorowana, więc
-`--diagnostics=false` też włącza diagnostykę — udokumentowane przy polu
-`LaunchOptions.diagnostics`, bez zmiany zachowania. Ta poprawka wywołała
-też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
+`--diagnostics=false` też włączało diagnostykę. Ta poprawka
+wywołała też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
 jako pusty łańcuch, a `??` nie cofa się do wartości domyślnej przy pustym
 napisie (stąd `||`).
+
+> **Dopisek z 0.3.4:** samej flagi `--diagnostics` **już nie ma** — zastąpiło
+> ją pole wyboru zapisywane w `settings.json`, a pole `LaunchOptions.diagnostics`
+> zostało usunięte, więc odesłanie do jego dokumentacji prowadziłoby w nic.
+> Opisana wyżej obsługa flag **bez wartości** została w `readFlags` celowo,
+> choć nie ma dziś ani jednego czytelnika: zmierzone przy 0.3.4, że wycięcie
+> tych dwóch linii zostawia wszystkie testy `cli.ts` na zielono. Trzyma ją
+> tam nie pokrycie, a to, że następna własna flaga logiczna weszłaby przez
+> `flags.has` i bez niej przestałaby działać **po cichu** — dokładnie ten błąd,
+> który naprawia ten akapit.
 
 **Odczyt GPU z wstrzykiwanym uruchamiaczem** (`readGpu`), żeby dała się
 przetestować ścieżka, która w praktyce zdarza się najczęściej: brak
@@ -809,6 +818,11 @@ kilkanaście minut:
   zostaje `'ready'`, nagłówek pokazuje liczbę transmisji, pasek milczy, choć
   aplikacja jest odcięta od serwera. Naturalny kandydat na czwarty rodzaj
   problemu w pasku.
+  **Stan po 0.3.4:** „nikt tego nie słucha" **przestało obowiązywać** — `useLobby`
+  ma pierwszego subskrybenta w historii projektu i zerwanie trafia do dziennika
+  lobby jako wpis o poziomie błędu. Pasek dostał czwarty rodzaj problemu zgodnie
+  z tą notką. **Nadal otwarte:** nic tego połączenia nie **ponawia**, więc jedyną
+  radą pozostaje ponowne uruchomienie okna.
 - **`join` nie ma limitu czasu, choć `connect` już ma.** Limit 90 s pokrywa
   uzgodnienie WebSocketu; jeśli serwer przyjmie połączenie i nie odpowie na
   `join`, aplikacja tkwi w `'connecting'` bez końca — teraz przynajmniej

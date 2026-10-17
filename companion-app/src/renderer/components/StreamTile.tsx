@@ -1,7 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { StreamKind } from '@shared/types'
+import { canToggleStream, STREAM_TOGGLE_BLOCKED_TEXT } from '@shared/tileLayout'
 
 interface StreamTileProps {
+  /**
+   * Klucz tego kafelka w siatce (`connectionKey(peerId, kind)`), wystawiony
+   * w DOM-ie jako `data-tile-key`: po nim `LobbyView` rozpoznaje kafelek pod
+   * wskaźnikiem przy upuszczaniu. Przychodzi z zewnątrz, a nie składa się
+   * tu z `peerId` i `kind` — inaczej istniałyby dwa źródła tej samej prawdy.
+   */
+  tileKey: string
   stream: MediaStream
   /** Czyj to strumień — po tym hook diagnostyczny dopasowuje element `<video>`. */
   peerId: string
@@ -13,7 +21,32 @@ interface StreamTileProps {
   /** Nadawca zakończył transmisję i kafelek właśnie odjeżdża. */
   leaving: boolean
   zoomed: boolean
+  /** Ten kafelek jest właśnie przeciągany — przygaszamy go, żeby gest było widać. */
+  dragged: boolean
   onToggleZoom: () => void
+  /**
+   * Ukryj ten kafelek w SWOJEJ siatce, krzyżykiem na samym kafelku. `undefined`
+   * znaczy tylko „ten kafelek nie ma krzyżyka" — wtedy guzika nie ma wcale,
+   * zamiast nieaktywnego. NIE znaczy „nie da się go ukryć": ukrywać można też
+   * oczkiem w liście uczestników, niezależnie od tego propsa.
+   *
+   * Stan NIEAKTYWNY to osobna sprawa i ma osobny props (`signalingClosed`
+   * niżej): tam guzik jest, tylko ukrycie byłoby nieodwracalne, a to jest
+   * wiadomość, którą trzeba pokazać, a nie schować razem z guzikiem.
+   */
+  onHide?: () => void
+  /**
+   * Gniazdo sygnalizacji jest martwe. Krzyżyk na CUDZYM kafelku jest wtedy
+   * nieaktywny, bo ukrycie byłoby nieodwracalne — rozstrzyga o tym
+   * `canToggleStream`, a nie ten komponent.
+   */
+  signalingClosed: boolean
+  /**
+   * Zaczyna przeciąganie tego kafelka. `undefined` znaczy „nie da się go teraz
+   * przestawić" (jest powiększony albo dogasa) — wtedy uchwytu nie ma wcale,
+   * zamiast nieaktywnego.
+   */
+  onDragStart?: (event: ReactPointerEvent<HTMLElement>) => void
 }
 
 /**
@@ -21,6 +54,7 @@ interface StreamTileProps {
  * chcieć słuchać jednej osoby, a drugą tylko oglądać.
  */
 export function StreamTile({
+  tileKey,
   stream,
   peerId,
   name,
@@ -28,7 +62,11 @@ export function StreamTile({
   isMe,
   leaving,
   zoomed,
-  onToggleZoom
+  dragged,
+  onToggleZoom,
+  onHide,
+  signalingClosed,
+  onDragStart
 }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [volume, setVolume] = useState(1)
@@ -38,6 +76,12 @@ export function StreamTile({
   // nie mają tu czego opisywać — to byłby stały, nieusuwalny komunikat.
   const audioApplies = kind === 'screen' && !isMe
   const hasAudio = stream.getAudioTracks().length > 0
+
+  // Nieaktywny krzyżyk, a nie schowany: schowany kazałby szukać, czy guzik był
+  // kiedykolwiek, a podpowiedź na nieaktywnym mówi wprost, dlaczego go nie ma.
+  // Reguła jest WSPÓLNA z oczkiem w liście uczestników i mieszka w `shared`,
+  // bo w komponencie nie da się jej sprawdzić testem.
+  const hideBlocked = !canToggleStream({ isMe, signalingClosed })
 
   useEffect(() => {
     const video = videoRef.current
@@ -53,7 +97,49 @@ export function StreamTile({
   }, [isMe, muted, volume])
 
   return (
-    <div className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}`}>
+    <div
+      className={`tile${zoomed ? ' tile--zoom' : ''}${leaving ? ' tile--leaving' : ''}${
+        dragged ? ' tile--dragged' : ''
+      }`}
+      data-tile-key={tileKey}
+    >
+      {onHide && (
+        <button
+          type="button"
+          className="tile__hide"
+          onClick={onHide}
+          disabled={hideBlocked}
+          title={hideBlocked ? STREAM_TOGGLE_BLOCKED_TEXT : 'Ukryj ten kafelek u siebie'}
+          aria-label={hideBlocked ? STREAM_TOGGLE_BLOCKED_TEXT : 'Ukryj ten kafelek u siebie'}
+        >
+          <span aria-hidden="true">✕</span>
+        </button>
+      )}
+
+      {/*
+        Uchwyt przeciągania, rodzeństwo sceny (tak jak krzyżyk), nie jej dziecko:
+        dzięki temu zdarzenia wskaźnika nie wchodzą w handler powiększenia.
+
+        Przestawianie jest CELOWO dostępne tylko wskaźnikiem. Uchwyt wypada
+        z kolejności tabulacji i z drzewa dostępności (`tabIndex={-1}`,
+        `aria-hidden`), żeby klawiatura nie prowadziła do kontrolki, która z niej
+        nie działa. To wybór dla tej wersji, nie przeoczenie: krzyżyk, powiększenie
+        i oczko w liście uczestników są osiągalne z klawiatury, a samo przestawianie
+        jest wygodą, nie jedyną drogą do jakiejkolwiek funkcji.
+      */}
+      {onDragStart && (
+        <button
+          type="button"
+          className="tile__grip"
+          onPointerDown={onDragStart}
+          tabIndex={-1}
+          aria-hidden="true"
+          title="Przeciągnij, żeby zmienić kolejność"
+        >
+          <span aria-hidden="true">⠿</span>
+        </button>
+      )}
+
       {/*
         Powiększenie kliknięciem w sam obraz. Osobny element zamiast handlera na
         całym kafelku, bo pasek na dole ma własne kontrolki — suwak głośności

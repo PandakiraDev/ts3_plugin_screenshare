@@ -83,7 +83,8 @@ export function useConnectionHealth(
               : null,
           unreachableNames: names,
           uplinkSlow,
-          viewersStruggling
+          viewersStruggling,
+          signalingClosed: state.signalingClosed
         })
       )
     }
@@ -91,11 +92,19 @@ export function useConnectionHealth(
     recompute()
     const id = setInterval(recompute, PROBLEM_TICK_MS)
     return () => clearInterval(id)
+    // `state.signalingClosed` MUSI tu być. W projekcie nie ma lintera, więc
+    // `exhaustive-deps` nie jest niczym wymuszane: pominięte pole dałoby kod
+    // kompletny i zielone testy, a pasek zapaliłby się dopiero przy następnej
+    // niezależnej zmianie w lobby — czyli po zerwaniu gniazda najprawdopodobniej
+    // nigdy, bo zerwane gniazdo przestaje przynosić zmiany. Zegar
+    // `PROBLEM_TICK_MS` tego nie ratuje: `recompute` domyka starą wartość pola
+    // z renderu, w którym efekt wystartował.
   }, [
     state.connection,
     state.connectingSince,
     state.unreachablePeerIds,
     state.peers,
+    state.signalingClosed,
     uplinkSlow,
     viewersStruggling
   ])

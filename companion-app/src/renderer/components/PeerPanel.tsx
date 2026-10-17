@@ -1,4 +1,5 @@
-import { splitByStreaming, type ParticipantView } from '@shared/participants'
+import { hiddenKindsFor, splitByStreaming, type ParticipantView } from '@shared/participants'
+import type { StreamKind } from '@shared/types'
 import { ParticipantRow } from './ParticipantRow'
 
 interface PeerPanelProps {
@@ -15,6 +16,19 @@ interface PeerPanelProps {
    * typów: poza trybem lobby ten komponent się nie renderuje.
    */
   roomFingerprint: { short: string; derivedFrom: string } | null
+  /** `tileKey` strumieni ukrytych u nas — z tego wiersze wiedzą, które oczka są zgaszone. */
+  hidden: ReadonlySet<string>
+  /**
+   * Gniazdo sygnalizacji padło. Przechodzi na wylot do wierszy: oczka przy
+   * cudzych strumieniach mają być wtedy nieaktywne, bo prośba o powrót obrazu
+   * nie dojdzie już do nadawcy.
+   */
+  signalingClosed: boolean
+  /**
+   * `isMe` jedzie razem z `peerId`, bo wołający musi odróżnić nasz własny wiersz:
+   * własny podgląd jest lokalny, więc nie ma od kogo przestać go odbierać.
+   */
+  onToggleStream: (peerId: string, kind: StreamKind, isMe: boolean) => void
 }
 
 /**
@@ -26,7 +40,10 @@ export function PeerPanel({
   rows,
   collapsed,
   onToggle,
-  roomFingerprint
+  roomFingerprint,
+  hidden,
+  signalingClosed,
+  onToggleStream
 }: PeerPanelProps): JSX.Element {
   if (collapsed) {
     return (
@@ -47,6 +64,17 @@ export function PeerPanel({
   }
 
   const { streaming, others } = splitByStreaming(rows, (row) => row.item.isStreaming)
+
+  const renderRow = (row: PeerPanelProps['rows'][number]): JSX.Element => (
+    <ParticipantRow
+      key={row.item.peerId}
+      view={row.item}
+      leaving={row.leaving}
+      hiddenKinds={hiddenKindsFor(row.item.peerId, hidden)}
+      signalingClosed={signalingClosed}
+      onToggleStream={(kind) => onToggleStream(row.item.peerId, kind, row.item.isMe)}
+    />
+  )
 
   return (
     <aside className="peers">
@@ -77,9 +105,7 @@ export function PeerPanel({
             Nadają <span className="peers__section-count">{streaming.length}</span>
           </h3>
           <ul className="peers__list">
-            {streaming.map((row) => (
-              <ParticipantRow key={row.item.peerId} view={row.item} leaving={row.leaving} />
-            ))}
+            {streaming.map(renderRow)}
           </ul>
         </>
       )}
@@ -90,9 +116,7 @@ export function PeerPanel({
             W kanale <span className="peers__section-count">{others.length}</span>
           </h3>
           <ul className="peers__list">
-            {others.map((row) => (
-              <ParticipantRow key={row.item.peerId} view={row.item} leaving={row.leaving} />
-            ))}
+            {others.map(renderRow)}
           </ul>
         </>
       )}

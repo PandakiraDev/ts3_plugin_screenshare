@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ResourceBadge } from './ResourceBadge'
 
 interface ApiKeyPromptProps {
   /** Komunikat z serwera, gdy klucz został odrzucony. */
@@ -22,6 +23,14 @@ export function ApiKeyPrompt({ error, onSave }: ApiKeyPromptProps): JSX.Element 
       </header>
 
       <div className="app__main">
+        {/* Licznik zużycia także tutaj. Ten ekran jest WCZESNYM WYJŚCIEM
+            `LobbyView`, czyli jej wiersz z licznikiem jest w tej chwili
+            odmontowany; do 0.3.4 rysował go `Diagnostics` jako nakładkę na
+            całe okno, więc stał na każdym ekranie za darmo. Stoi w środku
+            tego komponentu, a nie przy jego wywołaniu w `LobbyView`, bo
+            `.app` niżej ma `height: 100%` — powód i cena przy
+            `ResourceBadge`. */}
+        <ResourceBadge />
         <div className="klucz">
           <h2 className="klucz__tytul">Wpisz klucz dostępu</h2>
           <p className="settings__hint">

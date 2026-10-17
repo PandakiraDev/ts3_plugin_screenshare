@@ -13,7 +13,8 @@ const NIC = {
   connectingForMs: null,
   unreachableNames: [],
   uplinkSlow: false,
-  viewersStruggling: false
+  viewersStruggling: false,
+  signalingClosed: false
 }
 
 test('brak problemów daje null', () => {
@@ -39,7 +40,8 @@ test('budzenie serwera wygrywa z pozostałymi problemami', () => {
     connectingForMs: 10_000,
     unreachableNames: ['Michał'],
     uplinkSlow: true,
-    viewersStruggling: true
+    viewersStruggling: true,
+    signalingClosed: false
   })
   expect(problem?.kind).toBe('server-waking')
 })
@@ -49,7 +51,8 @@ test('nieosiągalny peer wygrywa z zatkanym łączem', () => {
     connectingForMs: null,
     unreachableNames: ['Michał'],
     uplinkSlow: true,
-    viewersStruggling: true
+    viewersStruggling: true,
+    signalingClosed: false
   })
   expect(problem?.kind).toBe('peer-unreachable')
 })
@@ -187,4 +190,67 @@ test('nieosiągalny peer wygrywa z zacinaniem u widzów', () => {
     viewersStruggling: true
   })
   expect(problem?.kind).toBe('peer-unreachable')
+})
+
+// --- zerwane gniazdo sygnalizacji ------------------------------------------
+
+test('zerwane gniazdo sygnalizacji zapala pasek', () => {
+  // Do 0.3.4 to była jedyna awaria, przy której pasek milczał, a aplikacja
+  // wyglądała na połączoną: `connection` zostaje na `ready`, `error` się nie
+  // zmienia, tylko lobby przestaje dostawać cokolwiek od serwera.
+  expect(pickProblem({ ...NIC, signalingClosed: true })).toEqual({ kind: 'signaling-closed' })
+})
+
+test('zerwane gniazdo wygrywa ze wszystkimi pozostałymi problemami', () => {
+  // Wszystkie cztery pozostałe warunki naraz — wygrać ma gniazdo, bo jest
+  // przyczyną, a jego rada jest jedyną, która dotyczy tego stanu. Pełne
+  // uzasadnienie, osobno dla każdego z czterech (bo nie wszystkie zamarzają —
+  // dwa dalej są świeże), stoi przy `pickProblem`.
+  const problem = pickProblem({
+    connectingForMs: 30_000,
+    unreachableNames: ['Michał'],
+    uplinkSlow: true,
+    viewersStruggling: true,
+    signalingClosed: true
+  })
+  expect(problem?.kind).toBe('signaling-closed')
+})
+
+test('wyzerowane pole gasi pasek bez żadnego przycisku zamykania', () => {
+  // To jest cała różnica między „stanem bieżącym" a „zapamiętanym zdarzeniem"
+  // z nagłówka modułu: `signalingClosed` wygląda jak zdarzenie, ale zeruje je
+  // nowa próba połączenia w `useLobby`, więc pasek gaśnie sam. Gdyby ktoś
+  // dołożył ponawianie i zapomniał zerować pole po UDANYM połączeniu, ten pasek
+  // zostałby zapalony do końca sesji.
+  expect(pickProblem({ ...NIC, signalingClosed: true })).not.toBeNull()
+  expect(pickProblem({ ...NIC, signalingClosed: false })).toBeNull()
+})
+
+test('komunikat o zerwanym gnieździe mówi dokładnie to zdanie', () => {
+  // Dokładny napis, nie kształt — tak samo jak przy wpisie w dzienniku
+  // (`test/lobby-events.test.ts`). To zdanie czyta człowiek w trakcie grania
+  // i po nim ma wiedzieć, że dalsza cisza w lobby nie jest ciszą w pokoju.
+  expect(problemText({ kind: 'signaling-closed' })).toBe(
+    'Połączenie z serwerem zerwane — wejścia, wyjścia i nowe transmisje nie będą już ' +
+      'widoczne. Nic tego połączenia nie ponawia: otwórz okno ponownie z menu kanału ' +
+      'w TeamSpeaku.'
+  )
+})
+
+test('komunikat o zerwanym gnieździe radzi, co zrobić, i nie każe czekać', () => {
+  // Zadanie 8 ustaliło, że nic tego połączenia nie ponawia, więc jedyną
+  // prawdziwą radą jest ponowne otwarcie okna. „Czekam…", którym pasek odpowiada
+  // na budzący się serwer, byłoby tu obietnicą powrotu, który nie nastąpi.
+  const text = problemText({ kind: 'signaling-closed' })
+  expect(text).toMatch(/otwórz okno ponownie/i)
+  expect(text).not.toMatch(/czekam|za chwilę/i)
+})
+
+test('komunikat o zerwanym gnieździe nie wskazuje żadnego uczestnika', () => {
+  // Gniazdo należy do serwera, nie do człowieka. Nazwa w wejściu JEST (peer
+  // nieosiągalny z poprzedniego tyknięcia), więc test sprawdza realną rzecz:
+  // że wybrany problem nie przecieka jej do zdania. Wskazywanie winnego,
+  // którego nie ma, to ta sama szkoda, którą zadanie 8 przypięło dla wpisu.
+  const problem = pickProblem({ ...NIC, signalingClosed: true, unreachableNames: ['Michał'] })
+  expect(problemText(problem!)).not.toContain('Michał')
 })

@@ -4,6 +4,7 @@ import type { CaptureState } from '../hooks/useCapture'
 import { SourceGrid } from './SourceGrid'
 import { PreviewPane } from './PreviewPane'
 import { SettingsPanel } from './SettingsPanel'
+import { ResourceBadge } from './ResourceBadge'
 
 interface SourcePickerProps {
   selected: CaptureSource | null
@@ -94,6 +95,18 @@ export function SourcePicker({
 
       <div className="app__body">
         <main className="app__main">
+          {/* Licznik zużycia także tutaj i to jest ekran, na którym waży
+              najwięcej: picker trzyma żywe miniatury wszystkich ekranów
+              i okien plus podgląd przechwytywania, czyli pytanie „czy ta
+              maszyna to wytrzyma" jest tu najżywsze. A jest to WCZESNE
+              WYJŚCIE `LobbyView`, więc jej wiersz z licznikiem jest w tej
+              chwili odmontowany.
+              Wewnątrz `.app__main`, tak samo jak w trybie samodzielnym
+              (`App.tsx`), więc jedzie z przewijaniem tej kolumny — to nie
+              jest nakładka i nie ma być. Powód, dla którego stoi w środku
+              tego komponentu, a nie przy jego wywołaniu — przy
+              `ResourceBadge`. */}
+          <ResourceBadge />
           <SourceGrid
             sources={sources}
             selectedId={selected?.id ?? null}

@@ -1,6 +1,12 @@
 import type { StreamKind, StreamRef } from '../../shared/types'
 import { CAMERA_BITRATE_KBPS, DEFAULT_CAMERA_SETTINGS } from '../../shared/types'
 import { freezeDelta, type FreezeReport } from '../../shared/viewerQuality'
+import {
+  subscribePayload,
+  type SubscribePayload,
+  unsubscribePayload,
+  type UnsubscribePayload
+} from './signalCompat'
 import type {
   JoinResult,
   PeerInfo,
@@ -105,6 +111,21 @@ type SignalPayload =
    * klient próbowałby dodać `undefined` jako kandydata ICE.
    */
   | { kind: 'quality'; frozenMs: number; windowMs: number }
+  /**
+   * Widz rezygnuje z odbioru tego strumienia albo wraca do niego.
+   *
+   * CELOWO bez pola `stream` — ta sama reguła zgodności co przy `quality`
+   * wyżej. Rodzaj jedzie w `streamKind`; uzasadnienie i test nazwy pola
+   * siedzą w `signalCompat.ts` i `test/signal-compat.test.ts`.
+   *
+   * Typy BIERZEMY stamtąd, a nie przepisujemy tu literałami. `signal` przenosi
+   * `payload` jako `unknown`, więc tsc nie ma czego porównać między wysyłaniem
+   * i odczytem: przy dwóch niezależnych definicjach zmiana nazwy pola po
+   * stronie `signalCompat.ts` przeszłaby przez kompilację, a `payload.streamKind`
+   * czytane niżej byłoby po cichu `undefined`.
+   */
+  | UnsubscribePayload
+  | SubscribePayload
 
 /**
  * Kandydaci ICE potrafią dotrzeć zanim ustawimy zdalny opis sesji —
@@ -468,9 +489,30 @@ export class LobbySession {
     return connection
   }
 
+  /**
+   * Wysyła ofertę JEDNEMU widzowi na JEDEN rodzaj strumienia.
+   *
+   * `peers.has(peerId)` jest wśród strażników celowo, choć dla dwóch z trzech
+   * wywołań jest tożsamościowy — `startStream` i obsługa `peer-joined` chodzą
+   * po samej liście `peers`. Realnie chroni ścieżkę `subscribe`: prośba
+   * o powrót przychodzi od widza, a ten mógł właśnie wyjść, a między tym
+   * sprawdzeniem i wysyłką oferty stoją DWA `await` (`createOffer`
+   * i `setLocalDescription`) — okno na wyjście jest więc realne.
+   *
+   * Czym kończy się oferta do nieobecnego, stoi przy `subscribeTo`: serwer
+   * odbija ją błędem `Nieznany peer: <id>`, a ten — jako niezaadresowany —
+   * wywraca NAJSTARSZE wiszące żądanie, czyli zupełnie inną operację.
+   */
   private async callPeer(peerId: string, kind: StreamKind): Promise<void> {
     const key = connectionKey(peerId, kind)
-    if (this.disposed || this.outgoing.has(key) || !this.localStreams.has(kind)) return
+    if (
+      this.disposed ||
+      !this.peers.has(peerId) ||
+      this.outgoing.has(key) ||
+      !this.localStreams.has(kind)
+    ) {
+      return
+    }
     const connection = this.createOutgoing(peerId, kind)
     const offer = await connection.createOffer()
     await connection.setLocalDescription(offer)
@@ -552,17 +594,119 @@ export class LobbySession {
     this.lastFreezeSample.delete(key)
   }
 
+  /**
+   * Rezygnuje z odbioru: zamyka naszą stronę i prosi nadawcę, żeby przestał
+   * wysyłać. Samo przestanie rysować obraz zostawiłoby pasmo i dekodowanie
+   * w robocie, więc do nadawcy musi pójść wiadomość, nie tylko zmiana widoku.
+   *
+   * Nie trzyma śladu „z tego zrezygnowałem": `closeIncoming` kończy się
+   * `markReachability(..., false)`, czyli czyści wpis o awarii, a `close()`
+   * (WebRTC 1.0) nie emituje `connectionstatechange`, więc nasłuch nie
+   * dorobi nowego. U NAS rezygnacja nie zapala więc ostrzeżenia o awarii
+   * i nie ma czego tłumić.
+   *
+   * W MIESZANYM POKOJU oszczędność jest połowiczna i to jest zapisane tutaj,
+   * żeby nie wyszło ze zgłoszenia użytkownika. Nadawca na 0.3.3 (i starszej)
+   * nie ma gałęzi `unsubscribe` w `onSignal`, więc wiadomość zignoruje
+   * i utrzyma swoje połączenie wychodzące: pasmo dalej płynie, a my
+   * oszczędzamy TYLKO dekodowanie u siebie. Co gorsza, po utracie consent
+   * freshness to porzucone połączenie przejdzie u niego w `failed`, odpali
+   * nasłuch z `createOutgoing` i zapali mu plakietkę „Brak połączenia" przy
+   * osobie, która tylko schowała kafelek. Po naszej stronie nie da się tego
+   * naprawić — stary klient musiałby umieć `unsubscribe`.
+   *
+   * Tak samo POWRÓT: stary nadawca ignoruje też `subscribe`, więc odkryty
+   * kafelek nie dostanie oferty aż do restartu jego transmisji. Zamiast
+   * zamrożonej klatki widz widzi wtedy brak kafelka (a przy pustej siatce
+   * „Odbieranie obrazu…").
+   */
+  unsubscribeFrom(peerId: string, kind: StreamKind): void {
+    // Własną stronę zwijamy BEZ WARUNKU — to nasz stan i trzeba go sprzątnąć
+    // nawet wtedy, gdy osoby już nie ma na liście.
+    this.closeIncoming(peerId, kind)
+    // Interfejs też ma zapomnieć o obrazie, jak po `peer-left` i `stream-stopped`.
+    // Bez tego trzymałby strumień zamkniętego połączenia, a po odkryciu kafelek
+    // pokazałby jego martwą klatkę, zanim przyjdzie nowa oferta — od nadawcy
+    // na 0.3.3, który `subscribe` ignoruje, nie przyjdzie wcale. Tu, a nie
+    // w `closeIncoming`: gałąź `offer` woła je przy każdej renegocjacji
+    // i kafelek mrugałby za każdym razem.
+    this.callbacks.onRemoteStream(peerId, kind, null)
+    // Nieobecnemu nie ma czego mówić, a sygnał do niego kończy się u serwera
+    // błędem — dlaczego to boli, stoi w `subscribeTo` niżej.
+    if (!this.peers.has(peerId)) return
+    this.signaling.signal(peerId, unsubscribePayload(kind))
+  }
+
+  /**
+   * Wraca do odbioru: prosi nadawcę o ofertę. Oferta przyjdzie zwykłą
+   * ścieżką `onSignal`, więc odbiór odtwarza się tak samo jak za pierwszym
+   * razem — bez osobnego trybu „ponownego podłączenia".
+   *
+   * Osoba mogła wyjść między ukryciem i odkryciem. Sygnał do nieobecnego
+   * serwer odbija komunikatem `Nieznany peer: <id>`, a `SignalingClient`
+   * przypisuje taki błąd NAJSTARSZEMU oczekującemu żądaniu
+   * (`takeOldestPending`) — trafiłby więc np. we właśnie włączaną kamerę
+   * i wywrócił ją komunikatem o kimś zupełnie innym.
+   */
+  subscribeTo(peerId: string, kind: StreamKind): void {
+    if (!this.peers.has(peerId)) return
+    this.signaling.signal(peerId, subscribePayload(kind))
+  }
+
+  /**
+   * Jedno wejście dla interfejsu: widz chce ten strumień albo go nie chce.
+   *
+   * Gałąź stoi TUTAJ, a nie w hooku `useLobby`, i to jest jedyny powód jej
+   * istnienia: vitest chodzi w tym projekcie w gołym Node, bez jsdom, więc
+   * hooka nikt nie wywoła i odwrócenie gałęzi w nim nie zapaliłoby żadnej
+   * lampki — oba warianty mają ten sam typ i przechodzą kompilację. Pomyłka
+   * kierunku jest przy tym najgorszym możliwym błędem w tym miejscu: krzyżyk
+   * na kafelku kazałby nadawcy PRZYSŁAĆ obraz, a odkrycie kafelka — przestać
+   * go nadawać.
+   */
+  setSubscribed(peerId: string, kind: StreamKind, subscribed: boolean): void {
+    if (subscribed) this.subscribeTo(peerId, kind)
+    else this.unsubscribeFrom(peerId, kind)
+  }
+
   // --- sygnalizacja ------------------------------------------------------
 
   private async onSignal(from: string, payload: SignalPayload): Promise<void> {
-    // Przed czymkolwiek innym: ten payload nie ma pola `stream`, więc liczenie
-    // z niego klucza połączenia nie ma sensu. Dalsza część funkcji traktuje
-    // wszystko, co nie jest ofertą ani odpowiedzią, jako kandydata ICE.
+    // Przed czymkolwiek innym te trzy warianty, bo ŻADEN nie ma pola `stream`
+    // i liczenie z niego klucza połączenia nie miałoby sensu. Dalsza część
+    // funkcji traktuje wszystko, co nie jest ofertą ani odpowiedzią, jako
+    // kandydata ICE.
     if (payload.kind === 'quality') {
       this.callbacks.onViewerQualityChange(from, {
         frozenMs: payload.frozenMs,
         windowMs: payload.windowMs
       })
+      return
+    }
+
+    if (payload.kind === 'unsubscribe') {
+      // Widz nie chce już tego strumienia: zwijamy nadawanie DO NIEGO i tylko
+      // tego rodzaju — pozostali widzowie i drugi strumień tej samej osoby
+      // lecą dalej, bo każda para ma własne połączenie pod `connectionKey`.
+      // `dropOutgoing` jest bezpieczne także wtedy, gdy połączenia nie ma.
+      this.dropOutgoing(from, payload.streamKind)
+      return
+    }
+
+    if (payload.kind === 'subscribe') {
+      /*
+       * Widz wraca. NIE dublujemy tu warunków: `callPeer` sprawdza wszystkie
+       * CZTERY — czy sesja nie jest zamknięta, czy ta osoba wciąż jest
+       * w pokoju (`!this.peers.has(peerId)`), czy połączenie już nie istnieje
+       * i czy ten rodzaj FAKTYCZNIE nadajemy (`!this.localStreams.has(kind)`).
+       * Powtórzenie tych sprawdzeń tworzyłoby drugie źródło tej samej prawdy,
+       * które rozjedzie się przy pierwszej zmianie w `callPeer`.
+       *
+       * Strażnik obecności liczy się właśnie TUTAJ: to jedyne wywołanie
+       * `callPeer`, które może dostać kogoś, kogo już nie ma — pozostałe dwa
+       * chodzą w pętli po `this.peers`.
+       */
+      void this.callPeer(from, payload.streamKind)
       return
     }
 

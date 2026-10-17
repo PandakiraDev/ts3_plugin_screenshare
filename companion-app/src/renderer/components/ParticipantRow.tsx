@@ -1,9 +1,59 @@
 import type { ParticipantBadge, ParticipantView } from '@shared/participants'
+import { canToggleStream, STREAM_TOGGLE_BLOCKED_TEXT } from '@shared/tileLayout'
+import type { StreamKind } from '@shared/types'
 
 interface ParticipantRowProps {
   view: ParticipantView
   /** Osoba wyszła z kanału i wiersz właśnie dogasa. */
   leaving: boolean
+  /**
+   * Które rodzaje strumieni tej osoby są ukryte u nas, i przełącznik. Oczko
+   * pojawia się tylko przy plakietce rodzaju, który osoba faktycznie nadaje,
+   * więc kto nic nie nadaje, nie dostaje żadnego. Każdy kafelek da się ukryć
+   * krzyżykiem, a ukryty znika z siatki — nie ma czego najechać, żeby go
+   * przywrócić — więc oczko jest jedyną drogą powrotu. Dlatego przy martwym
+   * gnieździe sygnalizacji oba przełączniki CUDZEGO strumienia gasną razem
+   * (`signalingClosed` niżej): droga powrotu wiedzie przez nadawcę, a ten
+   * przestał nas słyszeć.
+   */
+  hiddenKinds: { screen: boolean; camera: boolean }
+  /**
+   * Gniazdo sygnalizacji jest martwe. Oczka przy CUDZYCH strumieniach są wtedy
+   * nieaktywne — rozstrzyga o tym `canToggleStream`, nie ten komponent.
+   */
+  signalingClosed: boolean
+  onToggleStream: (kind: StreamKind) => void
+}
+
+const EYE_TARGET: Record<StreamKind, string> = { screen: 'ekran', camera: 'kamerę' }
+
+interface StreamEyeButtonProps {
+  kind: StreamKind
+  hidden: boolean
+  /** Dlaczego oczko jest nieaktywne; `null` = jest aktywne. */
+  blockedReason: string | null
+  onToggle: () => void
+}
+
+function StreamEyeButton({
+  kind,
+  hidden,
+  blockedReason,
+  onToggle
+}: StreamEyeButtonProps): JSX.Element {
+  const label = blockedReason ?? `${hidden ? 'Pokaż' : 'Ukryj'} ${EYE_TARGET[kind]} tej osoby`
+  return (
+    <button
+      type="button"
+      className={`participant__eye${hidden ? ' participant__eye--off' : ''}`}
+      onClick={onToggle}
+      disabled={blockedReason !== null}
+      title={label}
+      aria-label={label}
+    >
+      <span aria-hidden="true">{hidden ? '🚫' : '👁'}</span>
+    </button>
+  )
 }
 
 function badgeLabel(badge: ParticipantBadge): string {
@@ -26,7 +76,22 @@ function badgeModifier(badge: ParticipantBadge): string {
   return badge.kind === 'watching' ? `watching-${badge.quality}` : badge.kind
 }
 
-export function ParticipantRow({ view, leaving }: ParticipantRowProps): JSX.Element {
+export function ParticipantRow({
+  view,
+  leaving,
+  hiddenKinds,
+  signalingClosed,
+  onToggleStream
+}: ParticipantRowProps): JSX.Element {
+  /*
+   * Powód nieaktywności liczymy RAZ na wiersz, nie w każdej plakietce: oba
+   * oczka tej samej osoby są aktywne albo nieaktywne razem, bo warunek zależy
+   * od `isMe` i od gniazda, a nie od rodzaju strumienia.
+   */
+  const blockedReason = canToggleStream({ isMe: view.isMe, signalingClosed })
+    ? null
+    : STREAM_TOGGLE_BLOCKED_TEXT
+
   return (
     <li className={`participant${leaving ? ' participant--leaving' : ''}`}>
       {/*
@@ -63,6 +128,15 @@ export function ParticipantRow({ view, leaving }: ParticipantRowProps): JSX.Elem
               */
               <span key={badge.kind} className={`participant__badge participant__badge--${badgeModifier(badge)}`}>
                 {badgeLabel(badge)}
+                {/* Oczko siedzi W plakietce, żeby przy zawinięciu wiersza nie oderwało się od swojego rodzaju. */}
+                {(badge.kind === 'screen' || badge.kind === 'camera') && (
+                  <StreamEyeButton
+                    kind={badge.kind}
+                    hidden={hiddenKinds[badge.kind]}
+                    blockedReason={blockedReason}
+                    onToggle={() => onToggleStream(badge.kind)}
+                  />
+                )}
               </span>
             ))}
           </span>

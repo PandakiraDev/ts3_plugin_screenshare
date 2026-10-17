@@ -4,14 +4,22 @@ import type { CaptureSource, SourceType } from '@shared/types'
 import {
   IPC_GET_API_KEY,
   IPC_GET_LAUNCH,
+  IPC_GET_SETTINGS,
   IPC_GET_SOURCES,
+  IPC_LOBBY_LOG_PUSH,
+  IPC_LOBBY_LOG_READ,
   IPC_SET_API_KEY,
-  IPC_SET_CAPTURE_TARGET
+  IPC_SET_CAPTURE_TARGET,
+  IPC_SET_SETTINGS
 } from '@shared/ipc'
+import { settingsFromUnknown, type SettingsSnapshot } from '@shared/settings'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseLaunchArgs, type LaunchParseResult } from '@shared/cli'
 import { registerAppAudio } from './audio'
-import { registerDiagnostics } from './diagnosticsRecorder'
+import { isLogEntry } from '@shared/lobbyLog'
+import { registerDiagnostics, setRecordToDisk } from './diagnosticsRecorder'
+import { createLobbyLog, createLobbyLogAppender, diagnosticsDirectory } from './lobbyLog'
+import { readSettings, writeSettings } from './settings'
 import { registerUpdates } from './update'
 
 /**
@@ -165,8 +173,93 @@ app.whenReady().then(() => {
     writeFileSync(apiKeyPath(), String(key).trim(), 'utf8')
   })
   registerAppAudio()
-  // Przy wyłączonej fladze nie rejestruje nic: ani zegara, ani IPC, ani pliku.
-  registerDiagnostics(launch.ok && launch.options.diagnostics)
+  /*
+   * Podgląd diagnostyki rejestruje się bezwarunkowo — pasek zużycia i panel
+   * należą od 0.3.4 do każdego. Z ustawień bierzemy WYŁĄCZNIE zapis na dysk:
+   * to on kosztuje miejsce i tylko on potrzebuje zgody.
+   *
+   * Ścieżkę `userData` podajemy tutaj, bo `main/settings.ts` celowo nie
+   * importuje `app` — patrz komentarz w tamtym pliku. Odczyt jest
+   * synchroniczny i jednorazowy, tak samo jak `api-key.txt` wyżej.
+   */
+  const userDataPath = app.getPath('userData')
+  /*
+   * Jeden odczyt ustawień na dwóch odbiorców zapisu (próbki i dziennik). To
+   * JEDNO ustawienie, więc dwa osobne odczyty mogłyby się różnić, gdyby ktoś
+   * podmienił plik akurat w tej sekundzie — a wtedy pasek pisałby na dysk,
+   * dziennik nie, i nic by tego nie wyjaśniało.
+   */
+  const recordToDisk = readSettings(userDataPath).recordDiagnostics
+  registerDiagnostics({ recordToDisk })
+  /*
+   * Dziennik lobby: pierścień w procesie głównym i dwa kanały, oba
+   * BEZWARUNKOWE jak kanały podglądu zużycia.
+   *
+   * Rejestracja stoi TUTAJ, a nie w `main/lobbyLog.ts`, bo tamten plik celowo
+   * nie importuje `electron` — i tylko dlatego jego bramkowanie zapisu da się
+   * sprawdzić testem w gołym vitest (patrz nagłówek tamtego pliku, oraz
+   * `diagnosticsRecorder.ts`, który tego wzoru nie trzyma i nie ma ani jednego
+   * testu).
+   *
+   * Instancja zostaje w tym zasięgu, żeby obsługa zapisu ustawień mogła
+   * przestawić `setRecordToDisk` na gorąco, bez restartu aplikacji.
+   */
+  const lobbyLog = createLobbyLog({
+    appendLine: createLobbyLogAppender(userDataPath),
+    recordToDisk
+  })
+  ipcMain.handle(IPC_LOBBY_LOG_PUSH, (_event, entries: unknown) => {
+    /*
+     * Wpisy przychodzą z drugiej strony granicy procesów, więc sprawdzamy je
+     * tak samo, jak rejestrator próbek sprawdza `Array.isArray(streams)`. Wpis
+     * nie do przyjęcia jest POMIJANY, a nie naprawiany: zgadywanie, co miało
+     * tam być, wpisałoby do dziennika zdanie, którego nikt nie napisał —
+     * a dziennik czyta się jak dowód.
+     */
+    if (!Array.isArray(entries)) return
+    for (const entry of entries) {
+      if (isLogEntry(entry)) lobbyLog.push(entry)
+    }
+  })
+  ipcMain.handle(IPC_LOBBY_LOG_READ, () => lobbyLog.read())
+  /*
+   * Ustawienia. Odczyt oddaje też katalog plików diagnostyki, bo renderer nie
+   * zna `userData` — patrz `SettingsSnapshot`.
+   */
+  ipcMain.handle(
+    IPC_GET_SETTINGS,
+    (): SettingsSnapshot => ({
+      /*
+       * Czytamy PLIK, a nie zmienną `recordToDisk` wyżej: pole wyboru ma
+       * pokazywać to, co przeżyje restart. Gdyby zapis pliku padł, w pamięci
+       * siedziałaby wartość włączona po kliknięciu, a w pliku stara — i panel
+       * otwarty drugi raz powtarzałby to kłamstwo zamiast je pokazać.
+       */
+      settings: readSettings(userDataPath),
+      diagnosticsPath: diagnosticsDirectory(userDataPath)
+    })
+  )
+  ipcMain.handle(IPC_SET_SETTINGS, (_event, value: unknown): boolean => {
+    /*
+     * Wartość przychodzi z renderera, więc przechodzi tę samą kontrolę co treść
+     * pliku (`settingsFromUnknown`) — nie przepisujemy jej do pliku na wiarę.
+     */
+    const settings = settingsFromUnknown(value)
+    const saved = writeSettings(userDataPath, settings)
+    /*
+     * Przestawiamy zapis W SESJI także wtedy, gdy plik się nie zapisał:
+     * człowiek poprosił o to TERAZ, a nieudany zapis odbiera tylko pamięć
+     * między uruchomieniami. Odpowiedź `false` mówi rendererowi, żeby to
+     * powiedział wprost przy polu wyboru.
+     *
+     * Obaj odbiorcy, jednym kliknięciem i w tej samej kolejności co przy
+     * starcie: próbki i dziennik. Pominięcie jednego dałoby stan, w którym
+     * pasek pisze na dysk, a dziennik nie — i nic by tego nie wyjaśniało.
+     */
+    setRecordToDisk(settings.recordDiagnostics)
+    lobbyLog.setRecordToDisk(settings.recordDiagnostics)
+    return saved
+  })
   // Getter, a nie referencja do okna: `activate` na macOS potrafi utworzyć nowe
   // okno, a rejestracja uchwytów IPC może się odbyć tylko raz.
   registerUpdates(() => BrowserWindow.getAllWindows()[0] ?? null)

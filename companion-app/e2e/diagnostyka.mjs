@@ -1,13 +1,19 @@
-// Czy zapis diagnostyczny powstaje, czy pasek zużycia jest bramkowany flagą,
-// czy odcisk palca lobby zgadza się między instancjami, czy próbki lecą w
-// tempie, które zakładamy, i czy przy żywym strumieniu dochodzą klatki
-// WYSTAWIONE widzowi.
+// Czy zapis diagnostyczny powstaje, czy pasek zużycia widzi KAŻDY (bez
+// żadnego włączania), czy odcisk palca lobby zgadza się między instancjami,
+// czy próbki lecą w tempie, które zakładamy, i czy przy żywym strumieniu
+// dochodzą klatki WYSTAWIONE widzowi.
+//
+// ZMIANA W 0.3.4, bo ten plik pilnował wcześniej ODWROTNOŚCI dzisiejszego celu:
+// flagi `--diagnostics` nie ma, podgląd należy do każdego, a na dysk zapisuje
+// się za ustawieniem `recordDiagnostics` z `<userData>/settings.json`. Punkt 2
+// wymaga więc paska w OBU instancjach, a nie jego braku w drugiej, a instancja,
+// której zapis czytamy, dostaje plik ustawień PRZED uruchomieniem.
 //
 // UKŁAD — trzy prawdziwe okna Electrona na tej maszynie:
 //
-//   A  kanał A  z --diagnostics  WIDZ. Jego zapis czytamy.
-//   B  kanał A  bez flagi        NADAWCA. Udostępnia ekran (prawdziwy pulpit!).
-//   C  kanał B  bez flagi        tylko do porównania odcisku palca.
+//   A  kanał A  z settings.json  WIDZ. Jego zapis na dysk czytamy.
+//   B  kanał A  bez ustawień     NADAWCA. Udostępnia ekran (prawdziwy pulpit!).
+//   C  kanał B  bez ustawień     tylko do porównania odcisku palca.
 //
 // Role nie są wymienne. `framesPresented` powstaje z elementu <video>, czyli
 // po stronie ODBIERAJĄCEJ — strumień wychodzący takich klatek nie ma — a zapis
@@ -26,7 +32,7 @@
 // Czekanie WARUNKOWE, nie sztywne: lista źródeł pulpitu generuje miniatury
 // wszystkich ekranów i okien, a sztywny sleep raz na kilka przebiegów dawał
 // „BRAK KARTY" w innych skryptach tego katalogu (patrz sesja-na-zywo.mjs).
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -95,7 +101,31 @@ function assertConstantsInSync() {
   }
 }
 
-function instanceArgs(channel, extra = []) {
+/**
+ * Pilnuje, żeby nazwa klucza w pliku ustawień zgadzała się z kodem aplikacji.
+ *
+ * Bez tego przemianowanie `recordDiagnostics` dawałoby plik, którego aplikacja
+ * nie rozumie — a sprawdzian zgłosiłby wtedy „nie powstał plik zapisu", czyli
+ * wskazałby na rejestrator zamiast na własny duplikat. Uruchamiane PRZED
+ * startem okien, tak jak `assertConstantsInSync`.
+ */
+function assertSettingsKeyInSync() {
+  const source = readFileSync(join(__dirname, '..', 'src', 'shared', 'settings.ts'), 'utf8')
+  if (!/recordDiagnostics: boolean/.test(source)) {
+    throw new Error(
+      'nie znajduję pola `recordDiagnostics` w src/shared/settings.ts — ' +
+        'zaktualizuj enableRecordingInDataDir w e2e/diagnostyka.mjs'
+    )
+  }
+}
+
+/*
+ * Argumenty bez parametru `extra`: istniał wyłącznie po to, żeby jednej
+ * instancji dosypać `--diagnostics`, a od 0.3.4 zapis na dysk włącza plik
+ * ustawień, nie argument wywołania. Parametr, którego nikt nie podaje, kazałby
+ * następnej osobie szukać wywołania, które go używa.
+ */
+function instanceArgs(channel) {
   return [
     '--ts3-server=ts.test.pl:9987',
     `--channel=${channel}`,
@@ -108,8 +138,7 @@ function instanceArgs(channel, extra = []) {
     // okien — to robi dlawienie.mjs — więc ten czynnik wyłączamy.
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
-    '--disable-background-timer-throttling',
-    ...extra
+    '--disable-background-timer-throttling'
   ]
 }
 
@@ -261,8 +290,8 @@ function sampleProblems(entry) {
   if (entry === null || typeof entry !== 'object') return ['wpis nie jest obiektem']
   const problems = []
   if (typeof entry.at !== 'number') problems.push('at nie jest liczbą')
-  // Znacznik instancji musi być w KAŻDEJ linii: dwa okna z flagą piszą do
-  // katalogu naraz (ta gałąź nie bierze requestSingleInstanceLock), a bez
+  // Znacznik instancji musi być w KAŻDEJ linii: dwa okna z włączonym zapisem
+  // piszą do katalogu naraz (ta gałąź nie bierze requestSingleInstanceLock), a bez
   // znacznika przeplecionych serii nie da się rozdzielić nawet ręcznie.
   if (typeof entry.instanceId !== 'string' || entry.instanceId === '') {
     problems.push('instanceId nie jest niepustym tekstem')
@@ -408,10 +437,36 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exi
 /** Własny katalog danych instancji A, żeby wiedzieć, gdzie szukać zapisu. */
 const dataDirA = mkdtempSync(join(tmpdir(), 'ts3-diag-e2e-'))
 
+/**
+ * Włącza zapis na dysk w instancji A, pisząc jej plik ustawień PRZED startem.
+ *
+ * Do 0.3.3 robiła to flaga `--diagnostics`. Od 0.3.4 zapis bierze się
+ * z `<userData>/settings.json`, a w świeżym katalogu z `mkdtempSync` tego pliku
+ * nie ma — czyli domyślnie jest WYŁĄCZONY i punkt 1 nie miałby czego czytać.
+ *
+ * Plik składamy tu ręcznie, bo ten skrypt jest `.mjs` i nie zaimportuje
+ * `serializeSettings` z TypeScriptu (ten sam powód co duplikat stałych wyżej);
+ * `assertSettingsKeyInSync` pilnuje, żeby nazwa klucza nie rozjechała się po
+ * cichu. Dwie spacje wcięcia i koniec linii jak w `serializeSettings` — nie
+ * dlatego, że aplikacja tego wymaga (`JSON.parse` nie dba), ale żeby plik
+ * z tego przebiegu wyglądał jak plik z prawdziwej sesji.
+ */
+function enableRecordingInDataDir(dataDir) {
+  writeFileSync(
+    join(dataDir, 'settings.json'),
+    JSON.stringify({ recordDiagnostics: true }, null, 2) + '\n',
+    'utf8'
+  )
+}
+
 try {
   assertConstantsInSync()
+  assertSettingsKeyInSync()
 
-  processes.push(launchApp(PORT_A, instanceArgs(CHANNEL_A, ['--diagnostics']), dataDirA))
+  // Kolejność jest istotna: plik ustawień musi leżeć na dysku, ZANIM instancja
+  // A wstanie — proces główny czyta go raz, przy starcie.
+  enableRecordingInDataDir(dataDirA)
+  processes.push(launchApp(PORT_A, instanceArgs(CHANNEL_A), dataDirA))
   processes.push(launchApp(PORT_B, instanceArgs(CHANNEL_A)))
   processes.push(launchApp(PORT_C, instanceArgs(CHANNEL_B)))
 
@@ -422,8 +477,8 @@ try {
   const C = await attach(PORT_C)
   attached.push(C)
 
-  await waitReady(A, 'A (widz, z diagnostyką)')
-  await waitReady(B, 'B (nadawca, bez flagi)')
+  await waitReady(A, 'A (widz, z zapisem na dysk)')
+  await waitReady(B, 'B (nadawca, bez zapisu)')
   await waitReady(C, 'C (inny kanał)')
 
   console.log('Trzy instancje gotowe. B zaczyna udostępniać...')
@@ -509,12 +564,29 @@ try {
   }
 
   // --- 2. pasek zużycia ---
+  /*
+   * ODWRÓCONE w 0.3.4. Do 0.3.3 ten punkt pilnował, że pasek NIE pokazuje się
+   * bez flagi, i był wtedy poprawny. Dziś podgląd zużycia należy do każdego
+   * i nic go nie włącza, więc pasek ma być w OBU instancjach — a instancja B
+   * jest tu ważniejsza od A, bo to ona nie ma ani flagi (już nie istnieje), ani
+   * pliku ustawień. Gdyby odbramkowanie było pozorne (choćby jeden kanał
+   * podglądu albo jeden z dwóch zegarów został za bramką zapisu), pasek u B
+   * byłby pusty.
+   *
+   * Pasek pojawia się po PIERWSZEJ próbce, czyli po ~1 s od startu procesu
+   * głównego; czytamy go po całej sesji udostępniania, więc nie ma tu wyścigu.
+   */
   const badgeA = await A.evaluate(BADGE)
   const badgeB = await B.evaluate(BADGE)
-  console.log(`\n=== PASEK === z flagą: ${badgeA} | bez flagi: ${badgeB}`)
-  if (!isPresent(badgeA)) fail('[2 pasek] brak paska zużycia w instancji z flagą')
-  if (isPresent(badgeB)) {
-    fail('[2 pasek] pasek pokazał się BEZ flagi — diagnostyka nie jest bramkowana')
+  console.log(`\n=== PASEK === z zapisem: ${badgeA} | bez zapisu: ${badgeB}`)
+  if (!isPresent(badgeA)) {
+    fail('[2 pasek] brak paska zużycia w instancji z zapisem na dysk')
+  }
+  if (!isPresent(badgeB)) {
+    fail(
+      '[2 pasek] brak paska zużycia w instancji BEZ ustawień — podgląd ma ' +
+        'należeć do każdego, a odbramkowanie jest pozorne'
+    )
   }
 
   // --- 3. odcisk palca ---
@@ -529,7 +601,7 @@ try {
   if (!fpA || !fpB || !fpC) {
     fail(
       '[3 odcisk] odcisk palca nie jest widoczny we wszystkich instancjach ' +
-        '(ma działać BEZ flagi — to jego cały sens)'
+        '(ma działać bez żadnego włączania — to jego cały sens)'
     )
   } else {
     if (fpA.text !== fpB.text) {
@@ -547,7 +619,7 @@ try {
 
   if (exitCode === 0) {
     console.log('\nOK: zapis powstaje, tempo się trzyma, klatki wystawione rosną,')
-    console.log('    pasek jest bramkowany, odcisk się zgadza.')
+    console.log('    pasek widzi każdy, odcisk się zgadza.')
   }
 } catch (err) {
   console.error('\nBŁĄD sprawdzianu:', err instanceof Error ? err.message : String(err))

@@ -71,9 +71,12 @@ export interface DiagnosticsSample {
    * Który proces zapisał tę linię. Nadawany raz przy starcie rejestratora.
    *
    * NIE USUWAJ tego pola „bo mamy jedno okno": ta gałąź świadomie nie bierze
-   * `requestSingleInstanceLock`, więc dwa okna z flagą `--diagnostics` piszą
-   * do katalogu naraz, a przy starcie w tej samej sekundzie nawet do jednego
-   * pliku. Bez znacznika w KAŻDEJ linii (nie w nagłówku pliku — linie się
+   * `requestSingleInstanceLock`, więc dwa okna z włączonym zapisem (pole wyboru
+   * w ustawieniach; do 0.3.3 była to flaga `--diagnostics`) piszą do katalogu
+   * naraz, a przy otwarciu dziennika w tej samej sekundzie nawet do jednego
+   * pliku. Po 0.3.4 jest to BARDZIEJ prawdopodobne, nie mniej: ustawienie jest
+   * zapamiętane między uruchomieniami, więc obejmuje każde następne okno, a
+   * flagę trzeba było podać ręcznie. Bez znacznika w KAŻDEJ linii (nie w nagłówku pliku — linie się
    * przeplatają) czytający widzi jedną sesję, w której co sekundę zmienia się
    * komplet strumieni, i wnioskuje „połączenia zrywają się i wracają co
    * sekundę". To ten sam błędny wniosek, któremu zapobiega `streamsAgeMs`.
@@ -558,14 +561,32 @@ export function shouldAppendLine(
  *
  * Decyzja jest osobno od `node:fs`, bo to jedyna część tej retencji, w której
  * da się pomylić stronę sortowania albo zgubić plik, który właśnie otwieramy.
+ *
+ * `suffix` jest parametrem od 0.3.4, bo tę samą retencję ma teraz dziennik
+ * lobby (`src/main/lobbyLog.ts`), a jego pliki mają rozszerzenie `.log`. Oba
+ * rodzaje leżą w jednym katalogu i to rozszerzenie jest JEDYNĄ rzeczą, która je
+ * rozdziela: wspólne znaczyłoby, że sprzątanie po próbkach kasuje dzienniki
+ * i odwrotnie. Wartość domyślna zostaje przy próbkach, żeby wołający z 0.3.3
+ * znaczył dokładnie to, co znaczył.
  */
-export function logFilesToDelete(names: readonly string[], keep: number): string[] {
-  const logs = names.filter((name) => name.endsWith('.jsonl')).sort()
+export function logFilesToDelete(
+  names: readonly string[],
+  keep: number,
+  suffix = '.jsonl'
+): string[] {
+  const logs = names.filter((name) => name.endsWith(suffix)).sort()
   return logs.slice(0, Math.max(logs.length - keep, 0))
 }
 
-/** Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski. */
-function formatGigabytes(megabytes: number): string {
+/**
+ * Pamięć karty w gigabajtach, z przecinkiem — interfejs jest polski.
+ *
+ * Wyeksportowane, bo tej samej konwencji potrzebuje opis karty
+ * w `gpuInfo.ts`. Wcześniej te trzy linie stały tam powtórzone, czyli
+ * konwencja zapisu wielkości pamięci mieszkała w dwóch miejscach i rozjechałaby
+ * się przy pierwszej zmianie.
+ */
+export function formatGigabytes(megabytes: number): string {
   return (megabytes / 1024).toFixed(1).replace('.', ',')
 }
 
@@ -624,8 +645,11 @@ export function formatResourceBadge(system: SystemStats, at: number): string {
  * przyklejona" — czyli to samo złe wrażenie, któremu zapobiega gałąź
  * z zamarłym sterownikiem. Godzina jest wyjaśnieniem powtórzeń.
  *
- * W pasku w rogu okna zostaje `when-stale`: pasek jest wąski i ma być cichy,
- * a przy nim „teraz" jest zawsze tą samą chwilą co próbka.
+ * W liczniku zużycia zostaje `when-stale`: licznik jest jednowierszowy i ma
+ * być cichy, a przy nim „teraz" jest zawsze tą samą chwilą co próbka.
+ * (Do 0.3.4 był nakładką w rogu okna, od 0.3.4 jest wierszem nad siatką
+ * kafelków — powód przy `ResourceBadge.tsx`. Ta różnica nie zmienia niczego
+ * w treści, którą obie funkcje składają.)
  */
 export function formatSystemLine(system: SystemStats, at: number): string {
   return formatSystemStats(system, at, 'always')

@@ -7,6 +7,7 @@ import { SourceGrid } from './components/SourceGrid'
 import { PreviewPane } from './components/PreviewPane'
 import { SettingsPanel } from './components/SettingsPanel'
 import { LobbyView } from './components/LobbyView'
+import { ResourceBadge } from './components/ResourceBadge'
 import { AppVersion, UpdateNotice } from './components/UpdateNotice'
 import { useCamera } from './hooks/useCamera'
 import { useCapture } from './hooks/useCapture'
@@ -107,6 +108,13 @@ function StandaloneApp({
 
       <div className="app__body">
         <main className="app__main">
+          {/* Licznik zużycia także tutaj, nie tylko w lobby. Do 0.3.4 rysował
+              go `Diagnostics` jako nakładkę na całe okno, więc był w każdym
+              trybie za darmo; odkąd jest wierszem w układzie, rysuje go ten,
+              kto układ składa — a wtedy tryb pominięty znaczy tryb bez
+              licznika. Ten tryb przechwytuje ekran lokalnie, czyli naprawdę
+              zjada maszynę, więc pytanie „czy to ja" jest w nim sensowne. */}
+          <ResourceBadge />
           <SourceGrid
             sources={sources}
             selectedId={selected?.id ?? null}
