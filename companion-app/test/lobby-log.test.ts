@@ -20,6 +20,7 @@ import {
   formatLogEntry,
   isLogEntry,
   lobbyLogFileName,
+  logFileTimestamp,
   type LogEntry
 } from '@shared/lobbyLog'
 import { LOG_FILES_KEPT, logFilesToDelete } from '@shared/diagnostics'
@@ -311,4 +312,22 @@ test('nazwa pliku dziennika sortuje się leksykograficznie zgodnie z czasem', ()
   // Rozszerzenie MUSI być inne niż `.jsonl` plików próbek — patrz test retencji.
   expect(LOBBY_LOG_SUFFIX).not.toBe('.jsonl')
   expect(LOBBY_LOG_FILES_KEPT).toBe(LOG_FILES_KEPT)
+})
+
+test('znacznik czasu w nazwie pliku jest JEDEN dla dziennika i dla próbek', () => {
+  // `logFileTimestamp` obsługuje od 0.3.4 OBA rodzaje plików w katalogu
+  // `diagnostics`: dziennik (`lobby-RRRR-MM-DD-GGmmss.log`) i próbki
+  // (`RRRR-MM-DD-GGmmss.jsonl`, składane w `openLog`
+  // z `src/main/diagnosticsRecorder.ts`, którego nie da się
+  // wczytać w gołym vitest, bo importuje `app`). Ten test jest więc jedynym
+  // miejscem, które pilnuje układu nazwy pliku PRÓBEK — a na tym układzie
+  // opiera się retencja, bo `logFilesToDelete` sortuje po nazwie.
+  const at = new Date(2026, 9, 16, 22, 31, 5).getTime()
+  expect(logFileTimestamp(at)).toBe('2026-10-16-223105')
+  // Jedna chwila, jeden znacznik: nazwa dziennika to ten sam napis
+  // z przedrostkiem i innym rozszerzeniem, a nie druga konwencja.
+  expect(lobbyLogFileName(at)).toBe(`lobby-${logFileTimestamp(at)}${LOBBY_LOG_SUFFIX}`)
+  // Jednocyfrowe miesiąc, dzień i godzina muszą dostać zero wiodące, inaczej
+  // sortowanie leksykograficzne przestaje się zgadzać z czasem.
+  expect(logFileTimestamp(new Date(2026, 0, 2, 3, 4, 5).getTime())).toBe('2026-01-02-030405')
 })

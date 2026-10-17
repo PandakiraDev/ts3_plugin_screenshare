@@ -71,9 +71,12 @@ export interface DiagnosticsSample {
    * Który proces zapisał tę linię. Nadawany raz przy starcie rejestratora.
    *
    * NIE USUWAJ tego pola „bo mamy jedno okno": ta gałąź świadomie nie bierze
-   * `requestSingleInstanceLock`, więc dwa okna z flagą `--diagnostics` piszą
-   * do katalogu naraz, a przy starcie w tej samej sekundzie nawet do jednego
-   * pliku. Bez znacznika w KAŻDEJ linii (nie w nagłówku pliku — linie się
+   * `requestSingleInstanceLock`, więc dwa okna z włączonym zapisem (pole wyboru
+   * w ustawieniach; do 0.3.3 była to flaga `--diagnostics`) piszą do katalogu
+   * naraz, a przy otwarciu dziennika w tej samej sekundzie nawet do jednego
+   * pliku. Po 0.3.4 jest to BARDZIEJ prawdopodobne, nie mniej: ustawienie jest
+   * zapamiętane między uruchomieniami, więc obejmuje każde następne okno, a
+   * flagę trzeba było podać ręcznie. Bez znacznika w KAŻDEJ linii (nie w nagłówku pliku — linie się
    * przeplatają) czytający widzi jedną sesję, w której co sekundę zmienia się
    * komplet strumieni, i wnioskuje „połączenia zrywają się i wracają co
    * sekundę". To ten sam błędny wniosek, któremu zapobiega `streamsAgeMs`.

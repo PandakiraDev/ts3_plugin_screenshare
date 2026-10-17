@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { DEFAULT_SETTINGS, parseSettings, serializeSettings } from '@shared/settings'
+import {
+  DEFAULT_SETTINGS,
+  parseSettings,
+  serializeSettings,
+  settingsFromUnknown
+} from '@shared/settings'
 import { readSettings, writeSettings } from '../src/main/settings'
 
 // Import WARTOŚCI z `@shared`, nie typu — alias rozwiązuje vitest.config.ts,
@@ -138,4 +143,32 @@ test('zapisany plik da się przeczytać człowiekowi', () => {
 
   expect(content).toContain('recordDiagnostics')
   expect(content.endsWith('\n')).toBe(true)
+})
+
+test('obiekt przysłany kanałem IPC przechodzi ten sam sprawdzian co plik', () => {
+  /*
+   * `settingsFromUnknown` obsługuje DWA wejścia: treść `settings.json`
+   * i obiekt, który renderer przysyła kanałem `IPC_SET_SETTINGS`. Drugie
+   * wejście jest po tej samej stronie granicy procesów co wpisy dziennika,
+   * więc może nieść cokolwiek — a wartość, która nie jest logiczna, nie ma
+   * prawa zostać ZAPISANA do pliku jako włączony zapis na dysk.
+   */
+  expect(settingsFromUnknown({ recordDiagnostics: true })).toEqual({ recordDiagnostics: true })
+  expect(settingsFromUnknown({ recordDiagnostics: 'tak' })).toEqual(DEFAULT_SETTINGS)
+  expect(settingsFromUnknown({ recordDiagnostics: 1 })).toEqual(DEFAULT_SETTINGS)
+  expect(settingsFromUnknown(undefined)).toEqual(DEFAULT_SETTINGS)
+  expect(settingsFromUnknown(null)).toEqual(DEFAULT_SETTINGS)
+  expect(settingsFromUnknown('recordDiagnostics')).toEqual(DEFAULT_SETTINGS)
+  expect(settingsFromUnknown([true])).toEqual(DEFAULT_SETTINGS)
+})
+
+test('każde wywołanie daje własny obiekt, nie wspólną stałą', () => {
+  // Proces główny przestawia zwrócony obiekt, więc wspólna instancja
+  // znaczyłaby, że pierwsze przestawienie zmienia wartość domyślną dla całej
+  // sesji — a wtedy „domyślnie wyłączone" przestaje być prawdą.
+  const first = settingsFromUnknown(null)
+  first.recordDiagnostics = true
+
+  expect(settingsFromUnknown(null)).toEqual({ recordDiagnostics: false })
+  expect(DEFAULT_SETTINGS).toEqual({ recordDiagnostics: false })
 })

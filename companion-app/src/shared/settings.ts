@@ -29,46 +29,53 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = { recordDiagnostics: false }
 
 /**
- * Czyta zawartość `settings.json`. `null` znaczy „pliku nie ma albo nie dało
- * się go przeczytać".
+ * Ustawienia plus to, czego renderer nie ma jak sam policzyć.
  *
- * Nigdy nie rzuca. Uszkodzony, obcięty, pusty albo podmieniony plik schodzi do
- * wartości domyślnych, bo plik ustawień nie ma prawa zablokować startu
- * aplikacji — a jest to plik w katalogu, do którego każdy ma dostęp i w który
- * ktoś może zaglądać edytorem.
+ * `diagnosticsPath` jest w tej samej odpowiedzi, a nie w osobnym kanale, bo
+ * czyta się je razem i w tej samej chwili: pole wyboru bez zdania „pliki lądują
+ * TUTAJ" jest zgodą na coś, czego potem nikt nie znajdzie. Ścieżkę podaje proces
+ * główny, bo zależy od `app.getPath('userData')`, czyli od nazwy aplikacji
+ * i od tego, czy to przebieg deweloperski — wpisanie jej w renderer na sztywno
+ * dałoby zdanie, które u właściciela byłoby nieprawdą.
  */
-export function parseSettings(raw: string | null): Settings {
+export interface SettingsSnapshot {
+  settings: Settings
+  /** Katalog, w którym lądują pliki próbek i dziennika. */
+  diagnosticsPath: string
+}
+
+/**
+ * Składa `Settings` z czegokolwiek.
+ *
+ * DWA wejścia, jedna decyzja o typach pól: ten sam sprawdzian obsługuje treść
+ * `settings.json` (przez `parseSettings` niżej) i obiekt przysłany przez
+ * renderer kanałem `IPC_SET_SETTINGS`. Oba przychodzą z zewnątrz procesu
+ * głównego i oba mogą nieść cokolwiek, więc rozdzielenie ich znaczyłoby dwie
+ * kopie tej samej listy pól — a wtedy nowe pole da się dopisać w jednym
+ * miejscu i zapomnieć o drugim.
+ */
+export function settingsFromUnknown(value: unknown): Settings {
   /*
    * Świeża kopia, nie `DEFAULT_SETTINGS`: zwrócony obiekt trafia do procesu
    * głównego i jest tam przestawiany, a zwracanie stałej znaczyłoby, że
    * pierwsze takie przestawienie zmienia wartość domyślną dla całego procesu.
    */
   const settings: Settings = { ...DEFAULT_SETTINGS }
-  if (raw === null) return settings
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    // Składnia nie do uratowania. Próba naprawiania takiego pliku byłaby
-    // zgadywaniem, a wartości domyślne są zawsze poprawne.
-    return settings
-  }
 
   /*
    * `typeof null === 'object'`, więc bez JAWNEGO sprawdzenia `null` odczyt pola
-   * niżej wywaliłby się na pliku z samym słowem `null` — i to jest jedyny
-   * powód, dla którego ten warunek ma dwie części. Liczba i napis wypadają na
-   * `typeof`.
+   * niżej wywaliłby się na pliku z samym słowem `null` (albo na `null`
+   * przysłanym kanałem IPC) — i to jest jedyny powód, dla którego ten warunek
+   * ma dwie części. Liczba i napis wypadają na `typeof`.
    *
    * Tablicy nie sprawdzamy osobno, choć `typeof [] === 'object'`: tablica JSON
    * nie ma jak nieść pola `recordDiagnostics`, więc wypada niżej na sprawdzeniu
    * typu pola. Osobny strażnik na nią był kodem, którego nie da się odróżnić od
    * jego braku — sprawdzone mutacją.
    */
-  if (parsed === null || typeof parsed !== 'object') return settings
+  if (value === null || typeof value !== 'object') return settings
 
-  const fields = parsed as Record<string, unknown>
+  const fields = value as Record<string, unknown>
 
   /*
    * PUŁAPKA, nie oczywistość: pole przyjmujemy TYLKO wtedy, gdy jest
@@ -89,6 +96,29 @@ export function parseSettings(raw: string | null): Settings {
   // nowszej. Cena jest taka, że zapis tych kluczy nie zachowuje: patrz
   // `serializeSettings`.
   return settings
+}
+
+/**
+ * Czyta zawartość `settings.json`. `null` znaczy „pliku nie ma albo nie dało
+ * się go przeczytać".
+ *
+ * Nigdy nie rzuca. Uszkodzony, obcięty, pusty albo podmieniony plik schodzi do
+ * wartości domyślnych, bo plik ustawień nie ma prawa zablokować startu
+ * aplikacji — a jest to plik w katalogu, do którego każdy ma dostęp i w który
+ * ktoś może zaglądać edytorem.
+ */
+export function parseSettings(raw: string | null): Settings {
+  if (raw === null) return settingsFromUnknown(null)
+
+  try {
+    return settingsFromUnknown(JSON.parse(raw))
+  } catch {
+    // Składnia nie do uratowania. Próba naprawiania takiego pliku byłaby
+    // zgadywaniem, a wartości domyślne są zawsze poprawne. `JSON.parse('')`
+    // rzuca, więc tą samą drogą idzie plik pusty i plik z samymi białymi
+    // znakami, czyli to, co zostaje po przerwanym zapisie.
+    return settingsFromUnknown(null)
+  }
 }
 
 /**

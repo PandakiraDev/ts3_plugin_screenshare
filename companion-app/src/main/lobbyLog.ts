@@ -87,6 +87,21 @@ export const LOBBY_LOG_FILES_KEPT = LOG_FILES_KEPT
 export const LOBBY_LOG_SIZE_CEILING_BYTES = 16 * 1024 * 1024
 
 /**
+ * Katalog, w którym lądują OBA rodzaje plików diagnostyki — próbki
+ * (`src/main/diagnosticsRecorder.ts`) i dziennik (ten plik).
+ *
+ * Jedno miejsce, bo człowiek szukający przyczyny ma znaleźć jeden katalog,
+ * a nie dwa. Wyeksportowane, odkąd ścieżkę pokazuje też pole wyboru
+ * w ustawieniach: zdanie „pliki lądują tutaj" musi mówić o TYM katalogu,
+ * a nie o literale przepisanym w trzecim pliku.
+ *
+ * @param userDataPath `app.getPath('userData')` — parametr, nie import `app`.
+ */
+export function diagnosticsDirectory(userDataPath: string): string {
+  return join(userDataPath, 'diagnostics')
+}
+
+/**
  * Zostawia w katalogu `LOBBY_LOG_FILES_KEPT` najnowszych plików DZIENNIKA.
  *
  * Decyzja którego pliku pozbyć się siedzi w `logFilesToDelete`
@@ -159,7 +174,7 @@ export function createLobbyLogAppender(
     if (opened) return
     opened = true
     try {
-      const directory = join(userDataPath, 'diagnostics')
+      const directory = diagnosticsDirectory(userDataPath)
       mkdirSync(directory, { recursive: true })
       pruneOldLogs(directory)
       const path = join(directory, lobbyLogFileName(Date.now()))

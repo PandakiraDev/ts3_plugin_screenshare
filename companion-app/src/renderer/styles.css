@@ -1080,6 +1080,23 @@ h3 {
   font-size: 13px;
 }
 
+/* Ścieżka katalogu diagnostyki w podpowiedzi pola wyboru. Krój stałej
+   szerokości, bo tę ścieżkę się przepisuje i dyktuje przez telefon (ten sam
+   powód co `.peers__room`), a `anywhere`, bo panel ma 260 px i pełna ścieżka
+   Windows nie zmieści się w jednej linii — bez łamania rozepchnęłaby panel. */
+.settings__path {
+  font-family: Consolas, 'Courier New', monospace;
+  overflow-wrap: anywhere;
+}
+
+/* Nieudany zapis pliku ustawień: ostrzeżenie, nie błąd — ustawienie działa
+   w tej sesji, tylko nie przeżyje restartu. Ten sam bursztyn co
+   `.app__connection`, żeby „coś nie działa dobrze, ale aplikacja pracuje
+   dalej" miało w całej aplikacji jeden kolor. */
+.settings__hint--warning {
+  color: #f0c674;
+}
+
 /* ---------- klucz dostępu ---------- */
 
 .klucz {

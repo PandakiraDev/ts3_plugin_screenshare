@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type {
   CameraResolution,
   CameraSettings,
@@ -6,6 +7,7 @@ import type {
   ResolutionPreset
 } from '@shared/types'
 import { BITRATE_PRESETS_KBPS, CAMERA_DIMENSIONS } from '@shared/types'
+import type { SettingsSnapshot } from '@shared/settings'
 
 const RESOLUTION_OPTIONS: { value: ResolutionPreset; label: string }[] = [
   { value: '720p', label: '720p' },
@@ -21,6 +23,86 @@ const FPS_OPTIONS: FpsPreset[] = [30, 60]
 const CAMERA_RESOLUTION_OPTIONS = Object.keys(CAMERA_DIMENSIONS) as CameraResolution[]
 
 const CAMERA_FPS_OPTIONS = [15, 30, 60]
+
+/**
+ * Pole wyboru zapisu diagnostyki na dysk.
+ *
+ * DLACZEGO WŁASNY KOMPONENT, A NIE PROPS W `SettingsPanel`. Panel jest
+ * rysowany z TRZECH miejsc (`App.tsx`, `SourcePicker.tsx`, `LobbyView.tsx`),
+ * a to ustawienie nie ma nic wspólnego z jakością obrazu, którą tamte trzy
+ * miejsca trzymają w swoim stanie: przeciągnięcie go propsami znaczyłoby tę
+ * samą instalację przepisaną trzy razy, po to tylko, żeby wrócić do procesu
+ * głównego, który i tak jest jego właścicielem.
+ *
+ * Stan czytamy przy montowaniu, a nie zegarem: plik zmienia wyłącznie to pole,
+ * więc nie ma czego odpytywać. W `StrictMode` odczyt poleci dwa razy — jest
+ * bezstanowy, więc to nie szkodzi.
+ */
+function DiagnosticsRecording(): JSX.Element {
+  /** `null` do pierwszej odpowiedzi — wtedy nie wiemy jeszcze, co pokazać. */
+  const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null)
+  /**
+   * Czy OSTATNI zapis pliku się nie udał.
+   *
+   * Osobno od `snapshot`, bo to nie jest ustawienie, tylko wynik próby: pole
+   * wyboru pokazuje wtedy stan, który działa w tej sesji i zniknie po
+   * restarcie, a milczenie w tym miejscu byłoby kłamstwem interfejsu.
+   */
+  const [saveFailed, setSaveFailed] = useState(false)
+
+  useEffect(() => {
+    void window.companion.getSettings().then(setSnapshot)
+  }, [])
+
+  const apply = (recordDiagnostics: boolean): void => {
+    if (snapshot === null) return
+    const settings = { ...snapshot.settings, recordDiagnostics }
+    /*
+     * Pole przestawiamy od razu, nie po odpowiedzi: proces główny stosuje
+     * ustawienie w tej sesji NIEZALEŻNIE od tego, czy plik się zapisał, więc
+     * zaznaczenie jest prawdą w chwili kliknięcia. Nieudany zapis dokłada
+     * zdanie niżej, a nie cofa zaznaczenia — cofnięcie mówiłoby „nie
+     * zadziałało", co byłoby nieprawdą.
+     */
+    setSnapshot({ ...snapshot, settings })
+    void window.companion.setSettings(settings).then((saved) => setSaveFailed(!saved))
+  }
+
+  return (
+    <div className="settings__field">
+      <label className="settings__label" htmlFor="record-diagnostics">
+        Zapis na dysk
+      </label>
+      <label className="settings__checkbox">
+        <input
+          id="record-diagnostics"
+          type="checkbox"
+          checked={snapshot?.settings.recordDiagnostics ?? false}
+          // Dopóki nie znamy stanu, nie pozwalamy go przestawiać: kliknięcie
+          // zapisałoby wtedy wartość wziętą z pustego pola, a nie z pliku.
+          disabled={snapshot === null}
+          onChange={(event) => apply(event.target.checked)}
+        />
+        <span>Zapisuj diagnostykę na dysk</span>
+      </label>
+      {snapshot === null ? (
+        <p className="settings__hint">Czytanie ustawień…</p>
+      ) : (
+        <p className="settings__hint">
+          Próbki zużycia i dziennik lobby trafiają do plików w katalogu{' '}
+          <span className="settings__path">{snapshot.diagnosticsPath}</span>. Podgląd w oknie —
+          pasek zużycia i dziennik pod przyciskiem — działa bez tego i nic nie zapisuje.
+        </p>
+      )}
+      {saveFailed && (
+        <p className="settings__hint settings__hint--warning">
+          Nie udało się zapisać pliku ustawień. Zapis działa w tej sesji, ale po ponownym
+          uruchomieniu aplikacji wróci do poprzedniego stanu.
+        </p>
+      )}
+    </div>
+  )
+}
 
 interface SettingsPanelProps {
   quality: QualitySettings
@@ -218,6 +300,13 @@ export function SettingsPanel({
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Diagnostyka na końcu panelu, pod kamerą: to jedyne ustawienie, które
+          nie dotyczy obrazu, i jedyne zapamiętywane między uruchomieniami. */}
+      <div className="settings__section">
+        <h2 className="settings__title">Diagnostyka</h2>
+        <DiagnosticsRecording />
       </div>
     </aside>
   )

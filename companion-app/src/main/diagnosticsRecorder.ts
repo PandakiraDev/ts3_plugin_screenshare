@@ -21,6 +21,8 @@ import {
   IPC_DIAGNOSTICS_READ,
   IPC_GPU_CARD
 } from '@shared/ipc'
+import { logFileTimestamp } from '@shared/lobbyLog'
+import { diagnosticsDirectory } from './lobbyLog'
 import { detectGpuCard, readSystemStats, startGpuPolling } from './metrics'
 
 /*
@@ -153,7 +155,7 @@ function openLog(): void {
   if (logOpened) return
   logOpened = true
   try {
-    const directory = join(app.getPath('userData'), 'diagnostics')
+    const directory = diagnosticsDirectory(app.getPath('userData'))
     mkdirSync(directory, { recursive: true })
     pruneOldLogs(directory)
     /*
@@ -165,12 +167,12 @@ function openLog(): void {
      * potrafiła zapisać samą notkę o sufcie. Każda sesja ma dostać pełny budżet,
      * bo diagnozujemy pojedynczy wieczór, a nie dzień.
      *
-     * Czas LOKALNY, nie UTC: `toISOString()` dałoby w Polsce między północą
-     * a 1:00 (zimą) lub 2:00 (latem) wczorajszą datę, a właściciel szuka
-     * „dzisiejszego" pliku właśnie wtedy, gdy wieczorem coś lagowało. Składamy
-     * z lokalnych getterów, a nie z `toLocaleString`, bo jego format zależy od
-     * ustawień regionalnych — a ta nazwa musi sortować się leksykograficznie
-     * zgodnie z czasem, na tym opiera się retencja wyżej.
+     * Znacznik czasu składa `logFileTimestamp` z `@shared/lobbyLog` — ta sama,
+     * JEDNA konwencja co nazwa pliku dziennika, i jedyna, która ma test (ten
+     * plik importuje `app`, więc w gołym vitest nie da się go nawet wczytać).
+     * Prywatna kopia tych pięciu linii stała tu do 0.3.4 i była dokładnie tą
+     * dublą, na którą uskarżał się komentarz w tamtym pliku: dwie konwencje
+     * nazw w jednym katalogu, a retencja sortuje PO NAZWIE.
      *
      * `openLog` jest wołane NAJWYŻEJ RAZ na sesję (strażnik `logOpened` wyżej),
      * więc sesja trwająca przez północ pisze cały czas do pliku z datą swojego
@@ -179,17 +181,17 @@ function openLog(): void {
      * w trakcie — chwila tego włączenia. W obu przypadkach to początek TEGO
      * pliku, a nie dowolny inny moment.
      */
-    const now = new Date()
-    const pad = (value: number): string => String(value).padStart(2, '0')
-    const day = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-    const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-    const path = join(directory, `${day}-${time}.jsonl`)
+    // Rozszerzenie wpisane wprost, a nie przez stałą: jego drugim czytelnikiem
+    // jest wartość DOMYŚLNA parametru `suffix` w `logFilesToDelete`, więc nowa
+    // stała byłaby trzecim miejscem, w którym to samo rozszerzenie żyje osobno.
+    const path = join(directory, `${logFileTimestamp(Date.now())}.jsonl`)
     /*
      * Odczyt rozmiaru zostaje, choć po zmianie nazwy prawie zawsze powie „pliku
-     * nie ma": nazwa NIE jest unikalna. Dwa okna odpalone z flagą w tej samej
-     * sekundzie trafiają w ten sam plik (ta gałąź świadomie nie bierze
-     * `requestSingleInstanceLock`), a wtedy sufit musi obejmować to, co już tam
-     * jest. Rozplecenie takiego pliku na instancje umożliwia `instanceId`.
+     * nie ma": nazwa NIE jest unikalna. Dwa okna z włączonym zapisem, które
+     * otworzyły dziennik w tej samej sekundzie, trafiają w ten sam plik (ta
+     * gałąź świadomie nie bierze `requestSingleInstanceLock`), a wtedy sufit
+     * musi obejmować to, co już tam jest. Rozplecenie takiego pliku na
+     * instancje umożliwia `instanceId`.
      */
     let existing = 0
     try {

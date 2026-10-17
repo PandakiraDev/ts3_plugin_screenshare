@@ -51,8 +51,10 @@ export const IPC_UPDATE_STATE = 'update:state'
 /*
  * Diagnostyka. Cztery kanały: trzy do podglądu i jeden do wykrytej karty
  * graficznej. O flagę renderer nie pyta w ogóle — od 0.3.4 podgląd należy do
- * każdego i nic go nie włącza, a jedyne ustawienie (zapis na dysk) dotyczy
- * wyłącznie procesu głównego, więc renderer nie ma z niego nic do odczytania.
+ * każdego i nic go nie włącza. Ustawienie zapisu na dysk jedzie osobnymi
+ * kanałami (`IPC_GET_SETTINGS` / `IPC_SET_SETTINGS` niżej), bo renderer rysuje
+ * jego pole wyboru; z PODGLĄDEM nie ma ono nic wspólnego i żaden z czterech
+ * kanałów tej sekcji od niego nie zależy.
  *
  * `LATEST` i `READ` są rozdzielone celowo: pasek w rogu potrzebuje jednej
  * najnowszej próbki co sekundę, a panel całego bufora tylko wtedy, gdy jest
@@ -79,9 +81,9 @@ export const IPC_GPU_CARD = 'diagnostics:gpu-card'
  * tym, co diagnozujemy: gdyby był właścicielem, przestawałby zapisywać
  * dokładnie w interesującej nas chwili, a jego przeładowanie czyściłoby
  * dziennik. Rejestracja obu kanałów jest BEZWARUNKOWA, tak samo jak przy
- * podglądzie zużycia — dziennik należy od 0.3.4 do każdego, a jedyne
- * ustawienie (zapis na dysk) dotyczy wyłącznie procesu głównego, więc renderer
- * nie ma z niego nic do odczytania.
+ * podglądzie zużycia — dziennik należy od 0.3.4 do każdego, a ustawienie
+ * zapisu na dysk nie ma na te dwa kanały żadnego wpływu: pierścień w pamięci
+ * zapełnia się i daje czytać niezależnie od niego.
  *
  * `PUSH` bierze TABLICĘ wpisów, nie jeden: jedna zmiana stanu w lobby daje
  * często kilka wpisów naraz (ktoś wszedł i od razu nadaje ekran oraz kamerę),
@@ -92,3 +94,21 @@ export const IPC_GPU_CARD = 'diagnostics:gpu-card'
  */
 export const IPC_LOBBY_LOG_PUSH = 'lobby-log:push'
 export const IPC_LOBBY_LOG_READ = 'lobby-log:read'
+
+/*
+ * Ustawienia z `<userData>/settings.json`. Jeden odczyt przy montowaniu panelu
+ * i jeden zapis na kliknięcie pola wyboru.
+ *
+ * `SET` robi DWIE rzeczy w procesie głównym, nie jedną: zapisuje plik ORAZ
+ * przestawia zapis na dysk w obu rejestratorach na gorąco. Rozdzielenie tego
+ * na dwa kanały dałoby stan, w którym plik mówi jedno, a sesja robi drugie —
+ * a o przestawienie W TRAKCIE sesji szło w tej zmianie od początku.
+ *
+ * `SET` ODPOWIADA wartością logiczną: czy plik faktycznie powstał. To nie jest
+ * ozdoba — spakowana aplikacja Windows nie ma podpiętej konsoli (patrz
+ * `main/updateLogger.ts`), więc nieudany zapis byłby bez tej odpowiedzi
+ * całkowicie niewidoczny: pole wyboru pokazywałoby „włączone" i po cichu
+ * wracało do „wyłączone" po restarcie.
+ */
+export const IPC_GET_SETTINGS = 'settings:get'
+export const IPC_SET_SETTINGS = 'settings:set'

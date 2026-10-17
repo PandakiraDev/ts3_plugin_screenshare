@@ -146,28 +146,41 @@ export function isLogEntry(value: unknown): value is LogEntry {
 export const LOBBY_LOG_SUFFIX = '.log'
 
 /**
- * Nazwa pliku dziennika dla podanej chwili: `lobby-YYYY-MM-DD-HHmmss.log`.
+ * Znacznik czasu w nazwie pliku: `YYYY-MM-DD-HHmmss`.
  *
- * Ten sam zwyczaj co nazwa pliku próbek w `diagnosticsRecorder.ts` i z tych
- * samych powodów: czas LOKALNY (inaczej między północą a drugą plik ma
- * wczorajszą datę, a właśnie wtedy ludzie grają), składany z getterów, a nie
- * przez `toLocaleString` (jego format zależy od ustawień regionalnych).
- * Format jest przy tym leksykograficznie sortowalny zgodnie z czasem — na tym
- * opiera się retencja, bo `logFilesToDelete` sortuje po nazwie, nie po `mtime`.
+ * JEDNA konwencja dla OBU rodzajów plików w `<userData>/diagnostics` — nazwy
+ * dziennika (`lobbyLogFileName` niżej) i nazwy pliku próbek
+ * (`openLog` w `src/main/diagnosticsRecorder.ts`). Do 0.3.4 te pięć linii
+ * stało w obu plikach osobno; tutaj jest ta kopia, która ma test, a tamta
+ * została wycięta. Dwie konwencje nazw w jednym katalogu to nie kosmetyka:
+ * retencja (`logFilesToDelete`) sortuje PO NAZWIE i rozjazd formatu znaczyłby,
+ * że usuwa nie to, co najstarsze.
  *
- * Przedrostek `lobby-` jest dla człowieka: w jednym katalogu leżą dwa rodzaje
- * plików i bez niego trzeba by otwierać, żeby wiedzieć który jest który.
- *
- * Funkcja jest tutaj, a nie w `src/main/lobbyLog.ts`, bo to czysta decyzja
- * i tylko tu da się ją przetestować. `diagnosticsRecorder.ts` ma własną,
- * prywatną kopię tych pięciu linii dla swojej nazwy — zostawiona świadomie,
- * bo tamten plik nie należy do tego zadania; przy następnym dotknięciu
- * `openLog` warto ją wyciąć i wołać wspólny pomocnik.
+ * Czas LOKALNY, nie UTC: `toISOString()` dałby w Polsce między północą
+ * a 1:00 (zimą) lub 2:00 (latem) wczorajszą datę, a człowiek szuka
+ * „dzisiejszego" pliku właśnie wtedy, gdy wieczorem coś lagowało. Składany
+ * z getterów, a nie przez `toLocaleString`, bo jego format zależy od ustawień
+ * regionalnych — a ta nazwa musi sortować się leksykograficznie zgodnie
+ * z czasem.
  */
-export function lobbyLogFileName(at: number): string {
+export function logFileTimestamp(at: number): string {
   const date = new Date(at)
   const pad = (value: number): string => String(value).padStart(2, '0')
   const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
   const time = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
-  return `lobby-${day}-${time}${LOBBY_LOG_SUFFIX}`
+  return `${day}-${time}`
+}
+
+/**
+ * Nazwa pliku dziennika dla podanej chwili: `lobby-YYYY-MM-DD-HHmmss.log`.
+ *
+ * Przedrostek `lobby-` jest dla człowieka: w jednym katalogu leżą dwa rodzaje
+ * plików i bez niego trzeba by otwierać, żeby wiedzieć który jest który. Sam
+ * znacznik czasu jest wspólny — patrz `logFileTimestamp`.
+ *
+ * Funkcja jest tutaj, a nie w `src/main/lobbyLog.ts`, bo to czysta decyzja
+ * i tylko tu da się ją przetestować.
+ */
+export function lobbyLogFileName(at: number): string {
+  return `lobby-${logFileTimestamp(at)}${LOBBY_LOG_SUFFIX}`
 }

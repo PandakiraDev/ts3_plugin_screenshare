@@ -36,14 +36,15 @@ export interface LaunchOptions {
    */
   ts3ServerAddress: string | null
   channelId: string | null
-  /**
-   * Flaga `--diagnostics`: zapis diagnostyczny, panel i wskaźniki zużycia.
-   * Liczy się sama OBECNOŚĆ flagi, a wartość jest ignorowana, więc
-   * `--diagnostics=false` i `--diagnostics=0` też ją włączają — świadomie, bo
-   * to flaga właściciela projektu, a parsowanie wartości logicznych dałoby nową
-   * powierzchnię błędu za zysk bliski zeru.
+  /*
+   * Flagi `--diagnostics` tu NIE MA i nie ma wracać. Od 0.3.4 podgląd zużycia
+   * i dziennik lobby należą do każdego bez włączania, a jedyna rzecz, która
+   * potrzebuje zgody — zapis na dysk — mieszka w `<userData>/settings.json`
+   * i ma pole wyboru w ustawieniach. Pole uruchomieniowe znaczyłoby dziś
+   * „zgoda na jedną sesję", czyli coś innego niż zapamiętane ustawienie, i nie
+   * miałoby ani jednego czytelnika. Stare skróty z tą flagą działają dalej —
+   * jest po prostu ignorowana jak każda nieznana (`test/cli.test.ts`).
    */
-  diagnostics: boolean
   signalingUrl: string
   /**
    * Nick z TS3, przekazywany później przez plugin. Gdy go brak, serwer nada
@@ -80,11 +81,21 @@ function readFlags(argv: string[]): Map<string, string> {
       continue
     }
     /*
-     * Flaga bez wartości (`--diagnostics`, `--inspect`). Wcześniej była tu
-     * cisza: `flags.set` nie wykonywało się wcale, więc flaga logiczna
-     * milcząco nie działała. Pusty łańcuch pozwala sprawdzić jej OBECNOŚĆ
-     * przez `flags.has`, a flagom Electrona nie szkodzi, bo czytamy tylko
-     * znane nam klucze.
+     * Flaga bez wartości (`--inspect`, stare `--diagnostics` w czyimś skrócie).
+     * Wcześniej była tu cisza: `flags.set` nie wykonywało się wcale, więc flaga
+     * logiczna milcząco nie działała. Pusty łańcuch pozwala sprawdzić jej
+     * OBECNOŚĆ przez `flags.has`, a flagom Electrona nie szkodzi, bo czytamy
+     * tylko znane nam klucze.
+     *
+     * UCZCIWIE o stanie po 0.3.4: po usunięciu `--diagnostics` `LaunchOptions`
+     * nie ma ani jednego pola logicznego, więc NIKT już tej obecności nie
+     * czyta. Zmierzone mutacją: usunięcie obu linii niżej nie łamie ani jednego
+     * z 22 testów `cli.test.ts`, bo dla wszystkich dzisiejszych czytelników
+     * („brak klucza" i „klucz z pustą wartością" znaczą to samo) są to gałęzie
+     * równoważne. Zostają świadomie, bo następna flaga logiczna wejdzie przez
+     * `flags.has` i bez nich nie zadziałałaby po cichu — dokładnie ten błąd
+     * naprawiało 0.3.3. To, co nadal DA się zmierzyć, to warunkowość `set`
+     * niżej, i tego pilnują trzy testy.
      *
      * Tylko gdy klucza jeszcze NIE MA: bezwarunkowy `set` kasował wartość
      * podaną wcześniej w tym samym `argv`. `--signaling=ws://x --signaling`
@@ -111,7 +122,6 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
 
   // Bez danych z TS3 nie ma do czego dołączać — działamy jak w kroku 1.
   const displayName = flags.get('nick')?.trim() || null
-  const diagnostics = flags.has('diagnostics')
 
   if (!ts3Server && !channel) {
     return {
@@ -121,7 +131,6 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
         roomId: null,
         ts3ServerAddress: null,
         channelId: null,
-        diagnostics,
         signalingUrl,
         displayName
       }
@@ -141,7 +150,6 @@ export function parseLaunchArgs(argv: string[]): LaunchParseResult {
         roomId: deriveRoomId(ts3Server, channel),
         ts3ServerAddress: ts3Server,
         channelId: channel,
-        diagnostics,
         signalingUrl,
         displayName
       }

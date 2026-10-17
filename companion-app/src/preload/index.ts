@@ -5,6 +5,7 @@ import type { AppAudioFormat } from '@shared/audio'
 import type { DiagnosticsSample, StreamStats } from '@shared/diagnostics'
 import type { GpuCard } from '@shared/gpuInfo'
 import type { LogEntry } from '@shared/lobbyLog'
+import type { Settings, SettingsSnapshot } from '@shared/settings'
 import {
   IPC_AUDIO_PORT,
   IPC_AUDIO_START,
@@ -14,6 +15,7 @@ import {
   IPC_DIAGNOSTICS_READ,
   IPC_GET_API_KEY,
   IPC_GET_LAUNCH,
+  IPC_GET_SETTINGS,
   IPC_GET_SOURCES,
   IPC_GET_UPDATE_STATE,
   IPC_GET_VERSION,
@@ -22,6 +24,7 @@ import {
   IPC_LOBBY_LOG_READ,
   IPC_SET_API_KEY,
   IPC_SET_CAPTURE_TARGET,
+  IPC_SET_SETTINGS,
   IPC_UPDATE_STATE
 } from '@shared/ipc'
 import type { UpdateState } from '@shared/update'
@@ -73,6 +76,20 @@ const api = {
    * diagnozujemy lag.
    */
   readLobbyLog: (): Promise<LogEntry[]> => ipcRenderer.invoke(IPC_LOBBY_LOG_READ),
+  /**
+   * Ustawienia zapamiętane między uruchomieniami plus katalog, w którym lądują
+   * pliki diagnostyki. Renderer pyta RAZ, przy montowaniu panelu ustawień:
+   * plik zmienia wyłącznie on sam, więc nie ma czego odpytywać zegarem.
+   */
+  getSettings: (): Promise<SettingsSnapshot> => ipcRenderer.invoke(IPC_GET_SETTINGS),
+  /**
+   * Zapisuje ustawienia i przestawia zapis na dysk na gorąco. Odpowiedź mówi,
+   * czy plik FAKTYCZNIE powstał — przy `false` ustawienie działa w tej sesji,
+   * ale nie przeżyje restartu, i trzeba to człowiekowi powiedzieć, bo
+   * w spakowanej aplikacji nie ma konsoli, na której by to zobaczył.
+   */
+  setSettings: (settings: Settings): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_SET_SETTINGS, settings),
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke(IPC_GET_UPDATE_STATE),
   /** Zwraca funkcję odsubskrybowania — bez niej `useEffect` zostawiłby wyciek. */
   onUpdateState: (callback: (state: UpdateState) => void): (() => void) => {
