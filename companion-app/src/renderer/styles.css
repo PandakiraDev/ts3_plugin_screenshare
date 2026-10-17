@@ -828,9 +828,38 @@ h3 {
   opacity: 1;
 }
 
+/* Oczko nieaktywne, bo gniazdo sygnalizacji padło i prośba o powrót obrazu nie
+   dojdzie do nadawcy (`canToggleStream`). Przyciemnione, ale nie schowane:
+   podpowiedź na nim jest jedynym miejscem, w którym pisze, dlaczego nie da się
+   go kliknąć.
+   MUSI stać PO `--off` i po `:hover` wyżej: wszystkie trzy mają tę samą
+   swoistość (0,2,0), więc o `opacity` decyduje kolejność w pliku, a Chromium
+   dopasowuje `:hover` także do przycisków nieaktywnych. */
+.participant__eye:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 /* ---------- siatka strumieni ---------- */
 
+/* `position: relative` NIE jest tu po to, żeby cokolwiek przesunąć — niczego
+   nie przesuwa. Czyni siatkę `offsetParent` swoich kafelków, a od tego zależy
+   poprawność animacji przestawiania (`useReorderAnimation`): hook mierzy
+   `offsetLeft`/`offsetTop`, czyli współrzędne względem `offsetParent`.
+   Bez tej jednej linii żaden przodek kafelka nie jest pozycjonowany
+   (`.viewer`, `.lobby`, `.app`, `#root`, `body` — wszystkie `static`),
+   `offsetParent` wypada na `BODY`, a KAŻDY pasek pojawiający się nad siatką
+   (zerwane połączenie, zatkane łącze, zacinający widzowie, błąd kamery,
+   powiadomienie o aktualizacji, przenoszony licznik zużycia) przesuwa wszystkie
+   kafelki o swoją wysokość naraz — zmierzone `dy = 39` px przy oknie 1280x800,
+   56 px przy dwuwierszowym tekście. FLIP czytał to jako przestawienie i jechał
+   200 ms transformacją z wymuszonym kompozytowaniem na każdym żywym `<video>`,
+   w aplikacji, w której diagnozujemy zacinanie.
+   Nie tworzy kontekstu nakładania: `z-index` zostaje `auto`, więc nakładki
+   (`.resource-badge` 40, `.lobby-log-toggle` 45, `.diag` 50) dalej są nad
+   kafelkami. */
 .siatka {
+  position: relative;
   display: grid;
   gap: 10px;
   flex: 1;
@@ -1019,6 +1048,18 @@ h3 {
 .tile:hover .tile__hide,
 .tile__hide:focus-visible {
   opacity: 1;
+}
+
+/* Krzyżyk nieaktywny, z tego samego powodu co oczko wyżej: ukrycie cudzego
+   obrazu przy martwym gnieździe byłoby nieodwracalne. Pojawianie się pod
+   kursorem zostaje nietknięte — guzik ma się pokazać właśnie po to, żeby dało
+   się przeczytać jego podpowiedź. Nieaktywny guzik wypada z kolejności
+   tabulacji, co jest kosztem przyjętym: w tym stanie nie robił nic, a powodów
+   szuka się na pasku połączenia i w środku pustej siatki, oba czytane
+   i czytnikiem ekranu. */
+.tile__hide:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 
 /* Uchwyt przeciągania, symetrycznie do krzyżyka: pod kursorem, po lewej.
@@ -1247,8 +1288,8 @@ h3 {
    rogu: 8 px jego odstępu od krawędzi + 24 px jego wysokości + 4 px przerwy.
    Pasek jest nad guzikiem, a nie pod nim, bo rośnie i kurczy się razem
    z treścią (dochodzi linia o karcie, która potrafi się złamać na trzy
-   wiersze) — gdyby to on stał w rogu, guzik skakałby wraz z nim i w ruchomy
-   celownik trudno trafić. */
+   wiersze — rachunek przy `:has()` niżej) — gdyby to on stał w rogu, guzik
+   skakałby wraz z nim i w ruchomy celownik trudno trafić. */
 .resource-badge {
   position: fixed;
   right: 10px;
@@ -1287,9 +1328,14 @@ h3 {
    Warunkowo przez `:has()`, bo pasek pojawia się dopiero z pierwszą próbką
    z procesu głównego — do tej chwili lista nie ma tracić miejsca na nic. Flagi
    `--diagnostics` już w tym warunku nie ma, bo pasek widzi każdy.
-   Od 0.3.4 pasek ma DWIE linie (druga to nazwa karty), a przy karcie bez
-   odczytu zużycia druga łamie się na dwa wiersze — stąd odstęp na trzy
-   wiersze (~46 px) wraz z marginesem od dołu, nie na jeden.
+   Od 0.3.4 pasek ma DWIE linie: liczby i nazwę karty. Druga łamie się, bo ma
+   `max-width: 320px`, i to ona decyduje o wysokości paska. Zmierzona wysokość
+   wiersza to 14,86 px, a pełne napisy z `formatGpuCard` biorą do TRZECH
+   wierszy: przy nazwach kart dłuższych niż ~41 znaków (np. „AMD Radeon(TM) RX
+   6800M Graphics Adapter" albo „Intel(R) Iris(R) Xe Graphics Family
+   Integrated", z dopiskiem o niedostępnym zużyciu — razem ponad 130 znaków)
+   trzeci wiersz jest regułą, nie wyjątkiem. Przy dwuwierszowej nazwie górna
+   krawędź paska wypada 87,58 px od dołu, przy trzywierszowej 102,43 px.
    DWIE reguły, nie jedna, bo w tym rogu stoją teraz dwie rzeczy o różnym
    czasie życia: guzik dziennika jest od pierwszej chwili, pasek dopiero od
    pierwszej próbki. Kolejność reguł jest znacząca — mają tę samą swoistość
@@ -1301,8 +1347,15 @@ h3 {
   padding-bottom: 40px;
 }
 
-/* Guzik i pasek razem: 36 px (dolna krawędź paska) + ~46 px jego trzech
-   wierszy + 6 px luzu. */
+/* Guzik i pasek razem. 88 px wystarcza na pasek DWUWIERSZOWY (87,58 px górnej
+   krawędzi + 0,42 px zapasu), a na trzywierszowy brakuje 14,4 px — czyli u kogoś
+   z długą nazwą karty pasek znowu przykrywa ostatni wiersz listy.
+   Liczba zostaje NIEZMIENIONA świadomie, a nie przez przeoczenie: pasek zużycia
+   przestaje być nakładką na obraz i przenosi się nad siatkę jako własny wiersz
+   (decyzja właściciela, osobne zadanie). Razem z nim odpada powód, dla którego
+   ta reguła istnieje, więc podnoszenie budżetu byłoby pracą do wyrzucenia.
+   Zadanie przenoszące ma przejść przez oba te `:has()` i usunąć to, co
+   przestanie być potrzebne. */
 #root:has(.resource-badge) .peers {
   padding-bottom: 88px;
 }
@@ -1312,9 +1365,10 @@ h3 {
    Wysokość podana JAWNIE, a nie zostawiona metryce czcionki: od niej zależy
    `bottom` paska wyżej i budżet odstępu listy uczestników, więc musi być
    liczbą, a nie wypadkową kroju.
-   Warstwa pod panelami (50): panel dziennika zostawia na niego miejsce
-   u dołu (`.diag--log`), więc nie trzeba go przepychać nad panel, żeby dało
-   się nim zamknąć to, co otworzył. */
+   Warstwa pod panelami (50): KAŻDY panel zostawia na niego miejsce u dołu
+   (`inset` w `.diag`), więc nie trzeba go przepychać nad panel, żeby dało się
+   nim zamknąć to, co otworzył. To zdanie było prawdą tylko o `.diag--log`,
+   dopóki rachunek siedział w modyfikatorze; teraz jest w regule bazowej. */
 .lobby-log-toggle {
   position: fixed;
   right: 10px;
@@ -1346,9 +1400,19 @@ h3 {
   color: var(--text);
 }
 
+/* Panele diagnostyczne: nakładka na całe okno, nad wszystkim innym.
+   Dolna krawędź 40 px, nie 24: 8 px odstępu guzika dziennika + 24 px jego
+   wysokości + 8 px przerwy. Bez tego panel tabeli strumieni (`Ctrl+Shift+D`)
+   przykrywał górne 8 px tego guzika — 24 px jego dolnej krawędzi przeciw 32 px
+   górnej krawędzi guzika, a warstwa 50 przeciw 45 — i to przy komentarzu
+   obok `z-index: 45`, który uzasadniał tę warstwę zdaniem „panel zostawia na
+   niego miejsce u dołu". Rachunek stoi TUTAJ, w regule bazowej, a nie tylko
+   w `.diag--log`: każdy panel zasłania to samo okno i każdy ma zostawić
+   klikalny jedyny guzik w tym rogu. Utrata 16 px wysokości nie zmienia o tabeli
+   niczego. */
 .diag {
   position: fixed;
-  inset: 24px;
+  inset: 24px 24px 40px;
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -1466,16 +1530,13 @@ h3 {
   color: var(--text-muted);
 }
 
-/* Panel dziennika: ta sama warstwa i ten sam wzór co `.diag`, z dwiema
-   różnicami.
-   Po pierwsze dolna krawędź: 8 px odstępu guzika + 24 px jego wysokości
-   + 8 px przerwy = 40 px, żeby panel nie przykrywał guzika, którym się go
-   zamyka.
-   Po drugie przewijanie: przewija się lista, nie cały panel, bo nagłówek
-   z liczbą wpisów i podpowiedzią o `Esc` ma zostać widoczny także wtedy, gdy
-   czytający przewinie do początku sesji. */
+/* Panel dziennika: ta sama warstwa, ten sam wzór i te same krawędzie co
+   `.diag` — odstęp na guzik dziennika u dołu jest już w regule bazowej, bo
+   obowiązuje KAŻDY panel, nie tylko ten.
+   Jedyna różnica to przewijanie: przewija się lista, nie cały panel, bo
+   nagłówek z liczbą wpisów i podpowiedzią o `Esc` ma zostać widoczny także
+   wtedy, gdy czytający przewinie do początku sesji. */
 .diag--log {
-  inset: 24px 24px 40px;
   overflow: hidden;
 }
 
@@ -1485,7 +1546,7 @@ h3 {
    WSPÓLNY kontener, nie dwie linie wprost w panelu: `.diag` rozkłada swoje
    dzieci z `gap: 10px`, więc osobno kosztowałyby ~48 px wysokości listy,
    a razem, z własnym odstępem 2 px, ~32 px — tyle, ile ten przyrząd jest wart.
-   Wysokość panelu jest STAŁA (`inset` w `.diag--log` wyżej), więc te linie nie
+   Wysokość panelu jest STAŁA (`inset` w `.diag` wyżej), więc te linie nie
    rosną w dół: nie ruszają dolnej krawędzi panelu ani guzika, którym się go
    zamyka, i nie dotykają budżetu odstępu listy uczestników (`:has()` wyżej).
    Rosną na koszt przewijanej listy i tylko jej. */

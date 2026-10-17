@@ -19,6 +19,12 @@ interface PeerPanelProps {
   /** `tileKey` strumieni ukrytych u nas — z tego wiersze wiedzą, które oczka są zgaszone. */
   hidden: ReadonlySet<string>
   /**
+   * Gniazdo sygnalizacji padło. Przechodzi na wylot do wierszy: oczka przy
+   * cudzych strumieniach mają być wtedy nieaktywne, bo prośba o powrót obrazu
+   * nie dojdzie już do nadawcy.
+   */
+  signalingClosed: boolean
+  /**
    * `isMe` jedzie razem z `peerId`, bo wołający musi odróżnić nasz własny wiersz:
    * własny podgląd jest lokalny, więc nie ma od kogo przestać go odbierać.
    */
@@ -36,6 +42,7 @@ export function PeerPanel({
   onToggle,
   roomFingerprint,
   hidden,
+  signalingClosed,
   onToggleStream
 }: PeerPanelProps): JSX.Element {
   if (collapsed) {
@@ -64,6 +71,7 @@ export function PeerPanel({
       view={row.item}
       leaving={row.leaving}
       hiddenKinds={hiddenKindsFor(row.item.peerId, hidden)}
+      signalingClosed={signalingClosed}
       onToggleStream={(kind) => onToggleStream(row.item.peerId, kind, row.item.isMe)}
     />
   )

@@ -166,16 +166,47 @@ export function splitByStreaming<T>(
 }
 
 /** Co pokazać, gdy siatka jest pusta. */
-export type EmptyGridMessage = 'nobody-streaming' | 'connecting' | 'all-hidden'
+export type EmptyGridMessage =
+  | 'nobody-streaming'
+  | 'connecting'
+  | 'all-hidden'
+  /**
+   * Wszystko ukryte, a wśród ukrytych jest CUDZY strumień i gniazdo
+   * sygnalizacji jest martwe — czyli oczko go już nie przywróci. Osobny
+   * wariant, nie odmiana tekstu składana wyżej: patrz nagłówek funkcji.
+   */
+  | 'all-hidden-unrecoverable'
 
 /**
  * Rozstrzyga, dlaczego siatka jest pusta.
  *
- * Trzy różne przyczyny, które wyglądają identycznie: nikt nie nadaje, obraz
- * jeszcze nie doszedł, albo widz ukrył wszystko. Trzeci przypadek doszedł razem
- * z ukrywaniem i bez niego pusta siatka po ukryciu wszystkiego mówiłaby
- * „Odbieranie obrazu…" bez końca — czyli kłamała, i to w jedynym miejscu,
- * w którym człowiek szuka wyjaśnienia.
+ * Cztery różne przyczyny, które wyglądają identycznie: nikt nie nadaje, obraz
+ * jeszcze nie doszedł, widz ukrył wszystko, albo ukrył wszystko i stracił
+ * połączenie z serwerem. Trzeci przypadek doszedł razem z ukrywaniem i bez
+ * niego pusta siatka po ukryciu wszystkiego mówiłaby „Odbieranie obrazu…" bez
+ * końca — czyli kłamała, i to w jedynym miejscu, w którym człowiek szuka
+ * wyjaśnienia.
+ *
+ * CZWARTY wariant, a nie drugi tekst składany w komponencie, i to jest
+ * rozstrzygnięcie, nie przypadek. Gdyby komponent wybierał zdanie z pary
+ * (wariant, `signalingClosed`), ta decyzja wylądowałaby w `LobbyView` — czyli
+ * w miejscu, którego vitest w gołym Node nie wywoła, bo nie ma tam ani
+ * `document`, ani `window`. Jako wariant typu zostaje w `src/shared`, ma test,
+ * a `Record<EmptyGridMessage, string>` po stronie komponentu nie skompiluje
+ * się bez dopisanego zdania — więc nie da się dodać przyczyny i zapomnieć
+ * tekstu.
+ *
+ * Dlaczego to zależy TAKŻE od `myPeerId`, a nie od samego `signalingClosed`:
+ * własny podgląd jest lokalny i oczko przywraca go także przy martwym
+ * gnieździe. Przy samych własnych strumieniach w ukryciu obietnica powrotu
+ * jest PRAWDZIWA i odebranie jej byłoby tym samym rodzajem kłamstwa, tylko
+ * w drugą stronę — a oczko przy własnym wierszu zostaje wtedy aktywne
+ * (`canToggleStream` w `shared/tileLayout.ts`), więc tekst i przycisk muszą
+ * mówić to samo.
+ *
+ * `streams` po zerwaniu gniazda jest ZAMROŻONE i tak ma być: to lista
+ * strumieni, o których wiemy, i dokładnie one są tymi, które zostały ukryte
+ * bez drogi powrotu. Nowy strumień i tak by do nas nie dotarł.
  *
  * Dostaje DANE, a nie gotowe liczby, bo właśnie w liczeniu da się pomylić:
  * `streams` to strumienie ogłoszone przez serwer (nie kafelki, które powstają
@@ -186,12 +217,17 @@ export type EmptyGridMessage = 'nobody-streaming' | 'connecting' | 'all-hidden'
 export function emptyGridMessage(input: {
   streams: AnnouncedStreams
   hidden: ReadonlySet<string>
+  /** Nasz identyfikator; `null` przed dołączeniem, czyli żaden strumień nie jest nasz. */
+  myPeerId: string | null
+  signalingClosed: boolean
 }): EmptyGridMessage {
   if (input.streams.length === 0) return 'nobody-streaming'
   const allHidden = input.streams.every(
     (stream) => hiddenKindsFor(stream.peerId, input.hidden)[stream.kind]
   )
-  return allHidden ? 'all-hidden' : 'connecting'
+  if (!allHidden) return 'connecting'
+  const anyFromOthers = input.streams.some((stream) => stream.peerId !== input.myPeerId)
+  return input.signalingClosed && anyFromOthers ? 'all-hidden-unrecoverable' : 'all-hidden'
 }
 
 /**

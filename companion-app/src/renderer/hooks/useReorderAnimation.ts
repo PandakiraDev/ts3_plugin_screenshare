@@ -34,10 +34,18 @@ interface Spot {
  * (skala 0.78 → 1.04 → 1). Każdy render w ciągu tych 400 ms zapisywałby więc
  * położenie przeskalowanego kafelka i przy następnym wychodziła z tego różnica
  * kilkudziesięciu pikseli — przesunięcie, którego w układzie nie było.
- * `offsetLeft`/`offsetTop` transformacji nie widzą. Dodatkowa korzyść: gdy
- * przesunie się cała siatka (np. pojawi się pasek ostrzeżenia nad nią),
- * współrzędne względem rodzica się nie zmieniają, więc nie animujemy
- * wszystkich kafelków za jednym zamachem.
+ * `offsetLeft`/`offsetTop` transformacji nie widzą.
+ *
+ * Druga korzyść jest WARUNKOWA i warunek stoi w CSS: gdy przesunie się cała
+ * siatka (pojawi się pasek ostrzeżenia nad nią), współrzędne kafelków się nie
+ * zmieniają — ale tylko dlatego, że `.siatka` ma `position: relative` i jest
+ * ich `offsetParent`. Ta linia w `styles.css` jest tu NOŚNA, nie kosmetyczna.
+ * Bez niej żaden przodek kafelka nie jest pozycjonowany, `offsetParent` wypada
+ * na `BODY`, a każdy pasek nad siatką przesuwa wszystkie kafelki naraz
+ * (zmierzone `dy = 39` px przy oknie 1280x800, 56 px przy dwuwierszowym
+ * tekście) — czyli dokładnie to, czego ten pomiar miał nie widzieć. Jeśli
+ * kiedyś trzeba będzie zabrać `position` z `.siatka`, pozycjonowanie musi
+ * przejść na inny element MIĘDZY kafelkiem a paskiem, a nie zniknąć.
  *
  * Kafelki z TRWAJĄCĄ animacją CSS są pomijane. To jedno sprawdzenie zamiast
  * wyliczania klas `tile--leaving` i czasu wejścia: `tile-in` i `tile-out`
@@ -48,8 +56,17 @@ interface Spot {
  * nowa animacja na kafelku nie zacznie po cichu bić się z FLIP-em.
  *
  * Transformacja na elemencie z żywym wideo wymusza kompozytowanie. Trwa to
- * ułamek sekundy i tylko przy świadomym przeciąganiu, więc jest przyjęte — ale
- * dlatego czas jest krótki i nie animujemy nic poza przesunięciem.
+ * ułamek sekundy, więc jest przyjęte — ale dlatego czas jest krótki i nie
+ * animujemy nic poza przesunięciem.
+ *
+ * Nie jest prawdą, że dzieje się to „tylko przy świadomym przeciąganiu": ten
+ * hook mierzy po KAŻDYM renderze (patrz akapit o braku tablicy zależności),
+ * więc kompozytowanie wymuszą też ukrycie kafelka, koniec i początek
+ * transmisji oraz zmiana osierocenia ostatniego kafelka. Każde z nich rusza
+ * najwyżej część siatki i jest skutkiem czegoś, co człowiek zrobił albo
+ * zobaczył. Jednym ruchem, który dotykał WSZYSTKICH kafelków bez niczyjego
+ * udziału, było pojawienie się paska nad siatką — i to nie jest już ruch,
+ * który ten pomiar widzi (akapit wyżej).
  */
 export function useReorderAnimation(containerRef: React.RefObject<HTMLElement>): void {
   const spotsRef = useRef<Map<string, Spot>>(new Map())

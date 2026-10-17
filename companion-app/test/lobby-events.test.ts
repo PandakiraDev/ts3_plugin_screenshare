@@ -153,6 +153,27 @@ test('zmiana rodzaju u tej samej osoby to koniec jednego i początek drugiego', 
   expect(entries).toHaveLength(2)
 })
 
+test('przełączenie ekranu na kamerę: najpierw zakończenie, potem rozpoczęcie', () => {
+  // Bliźniak testu kolejności przy osobach („wymiana składu w jednym tyknięciu")
+  // i z tego samego powodu: oba wpisy niosą ten sam czas, więc o tym, co się
+  // z nich czyta, decyduje WYŁĄCZNIE kolejność w tablicy. „Włączył kamerę"
+  // przed „zakończył udostępnianie ekranu" czyta się jako dwa niezależne
+  // zdarzenia w losowej kolejności, a nie jako jedno przełączenie.
+  //
+  // Z dwóch bliźniaczych reguł przypięta była jedna: zmierzone, odwrócenie
+  // kolejności w `streamChangeEntries` przechodziło cały zestaw, a to samo
+  // odwrócenie w `peerChangeEntries` ginęło natychmiast. Test wyżej liczył same
+  // wpisy, a liczba przy odwróceniu się nie zmienia.
+  const entries = streamChangeEntries(
+    [{ peerId: 'a', kind: 'screen' }],
+    [{ peerId: 'a', kind: 'camera' }],
+    0,
+    () => 'Michał'
+  )
+  expect(entries[0]?.text).toContain('zakończył udostępnianie ekranu')
+  expect(entries[1]?.text).toContain('włączył kamerę')
+})
+
 // --- niedostępność --------------------------------------------------------
 
 test('wpis o niedostępności jest błędem, nie zdarzeniem', () => {

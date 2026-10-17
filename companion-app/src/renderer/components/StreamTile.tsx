@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { StreamKind } from '@shared/types'
+import { canToggleStream, STREAM_TOGGLE_BLOCKED_TEXT } from '@shared/tileLayout'
 
 interface StreamTileProps {
   /**
@@ -28,8 +29,18 @@ interface StreamTileProps {
    * znaczy tylko „ten kafelek nie ma krzyżyka" — wtedy guzika nie ma wcale,
    * zamiast nieaktywnego. NIE znaczy „nie da się go ukryć": ukrywać można też
    * oczkiem w liście uczestników, niezależnie od tego propsa.
+   *
+   * Stan NIEAKTYWNY to osobna sprawa i ma osobny props (`signalingClosed`
+   * niżej): tam guzik jest, tylko ukrycie byłoby nieodwracalne, a to jest
+   * wiadomość, którą trzeba pokazać, a nie schować razem z guzikiem.
    */
   onHide?: () => void
+  /**
+   * Gniazdo sygnalizacji jest martwe. Krzyżyk na CUDZYM kafelku jest wtedy
+   * nieaktywny, bo ukrycie byłoby nieodwracalne — rozstrzyga o tym
+   * `canToggleStream`, a nie ten komponent.
+   */
+  signalingClosed: boolean
   /**
    * Zaczyna przeciąganie tego kafelka. `undefined` znaczy „nie da się go teraz
    * przestawić" (jest powiększony albo dogasa) — wtedy uchwytu nie ma wcale,
@@ -54,6 +65,7 @@ export function StreamTile({
   dragged,
   onToggleZoom,
   onHide,
+  signalingClosed,
   onDragStart
 }: StreamTileProps): JSX.Element {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -64,6 +76,12 @@ export function StreamTile({
   // nie mają tu czego opisywać — to byłby stały, nieusuwalny komunikat.
   const audioApplies = kind === 'screen' && !isMe
   const hasAudio = stream.getAudioTracks().length > 0
+
+  // Nieaktywny krzyżyk, a nie schowany: schowany kazałby szukać, czy guzik był
+  // kiedykolwiek, a podpowiedź na nieaktywnym mówi wprost, dlaczego go nie ma.
+  // Reguła jest WSPÓLNA z oczkiem w liście uczestników i mieszka w `shared`,
+  // bo w komponencie nie da się jej sprawdzić testem.
+  const hideBlocked = !canToggleStream({ isMe, signalingClosed })
 
   useEffect(() => {
     const video = videoRef.current
@@ -90,8 +108,9 @@ export function StreamTile({
           type="button"
           className="tile__hide"
           onClick={onHide}
-          title="Ukryj ten kafelek u siebie"
-          aria-label="Ukryj ten kafelek u siebie"
+          disabled={hideBlocked}
+          title={hideBlocked ? STREAM_TOGGLE_BLOCKED_TEXT : 'Ukryj ten kafelek u siebie'}
+          aria-label={hideBlocked ? STREAM_TOGGLE_BLOCKED_TEXT : 'Ukryj ten kafelek u siebie'}
         >
           <span aria-hidden="true">✕</span>
         </button>

@@ -288,14 +288,17 @@ export function registerDiagnostics(options: { recordToDisk: boolean }): void {
    * Wykryta karta graficzna. Renderer pyta RAZ przy montowaniu, nie zegarem:
    * karta nie zmienia się w trakcie sesji.
    *
-   * Oddajemy `detectGpuCard()`, czyli obietnicę, a nie `detectedGpuCard()`,
-   * czyli zapamiętaną wartość. Wykrywanie jest asynchroniczne i do jego powrotu
-   * zapamiętana wartość jest `null`, co `formatGpuCard` nazywa „nie
-   * rozpoznano". Renderer czyta ten kanał DOKŁADNIE RAZ, więc przegrany wyścig
-   * nie naprawia się sam: pasek pisałby „nie rozpoznano" przez całą sesję
-   * u człowieka, którego kartę rozpoznaliśmy w 24 ms. Obietnica jest
-   * zapamiętana w module, nigdy nie odrzuca, a przy gotowym wyniku spełnia się
-   * natychmiast — więc nie kosztuje to nic poza jednym mikrozadaniem.
+   * Oddajemy OBIETNICĘ z `detectGpuCard()`, a nie zapamiętaną wartość —
+   * i dlatego `metrics.ts` takiego odczytu „na teraz" w ogóle nie wystawia.
+   * Wykrywanie jest asynchroniczne, a do jego powrotu zapamiętana wartość jest
+   * `null`, co `formatGpuCard` nazywa „nie rozpoznano". Renderer czyta ten
+   * kanał DOKŁADNIE RAZ, więc przegrany wyścig nie naprawia się sam: pasek
+   * pisałby „nie rozpoznano" przez całą sesję u człowieka, którego kartę
+   * rozpoznaliśmy w 24 ms. Obietnica jest zapamiętana w module, nigdy nie
+   * odrzuca, a przy gotowym wyniku spełnia się natychmiast — więc nie kosztuje
+   * to nic poza jednym mikrozadaniem. Gdyby kiedyś pojawił się wywołujący,
+   * który naprawdę nie może czekać (tyknięcie zegara), odczyt „na teraz" trzeba
+   * dopisać Z NIM, a nie wcześniej — tamten żył tu bez ani jednego czytelnika.
    */
   ipcMain.handle(IPC_GPU_CARD, () => detectGpuCard())
 

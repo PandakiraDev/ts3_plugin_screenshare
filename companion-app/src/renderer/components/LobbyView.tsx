@@ -47,11 +47,25 @@ import {
 } from '@shared/tileLayout'
 import { connectionKey } from '../webrtc/session'
 
+/*
+ * Zdania o pustej siatce. `Record` po wariancie, nie `switch`: nowa przyczyna
+ * nie skompiluje się bez własnego zdania.
+ *
+ * `all-hidden-unrecoverable` jest parą dla `all-hidden` i NIE obiecuje
+ * powrotu. Zdanie o oczku byłoby tam nieprawdą: prośba `subscribe` jedzie
+ * martwym gniazdem i ginie po cichu, a oczka przy cudzych strumieniach są
+ * wtedy nieaktywne (`canToggleStream`). Rada jest ta sama co na pasku
+ * połączenia — jedyna, jaką mamy.
+ */
 const EMPTY_GRID_TEXT: Record<EmptyGridMessage, string> = {
   'nobody-streaming': 'Nikt nie nadaje obrazu. Możesz zacząć jako pierwszy.',
   connecting: 'Odbieranie obrazu…',
   'all-hidden':
-    'Wszystkie strumienie są ukryte. Oczko przy nazwie w liście uczestników przywraca je.'
+    'Wszystkie strumienie są ukryte. Oczko przy nazwie w liście uczestników przywraca je.',
+  'all-hidden-unrecoverable':
+    'Wszystkie strumienie są ukryte, a połączenie z serwerem jest zerwane — cudzych ' +
+    'nie da się już przywrócić w tym oknie. Otwórz okno ponownie z menu kanału ' +
+    'w TeamSpeaku.'
 }
 
 interface LobbyViewProps {
@@ -509,7 +523,14 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
    * nadaje, a „Odbieranie obrazu…" nie pokazałoby się nigdy.
    */
   const emptyGridText =
-    EMPTY_GRID_TEXT[emptyGridMessage({ streams: lobby.state.streams, hidden })]
+    EMPTY_GRID_TEXT[
+      emptyGridMessage({
+        streams: lobby.state.streams,
+        hidden,
+        myPeerId: lobby.state.me?.peerId ?? null,
+        signalingClosed: lobby.state.signalingClosed
+      })
+    ]
 
   /*
    * Licznik w nagłówku z tego samego źródła co komunikat pustej siatki, bo
@@ -638,6 +659,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
                     leaving={row.leaving}
                     zoomed={zoomed === row.item.tileKey}
                     dragged={draggingKey === row.item.tileKey}
+                    signalingClosed={lobby.state.signalingClosed}
                     /*
                      * Zamek pierwszy z dwóch (drugi w `endTileDrag`): przy
                      * powiększeniu uchwytu nie ma wcale, bo jeden widoczny
@@ -666,6 +688,7 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
           onToggle={() => setPanelCollapsed((current) => !current)}
           roomFingerprint={roomFingerprint}
           hidden={hidden}
+          signalingClosed={lobby.state.signalingClosed}
           onToggleStream={(peerId, kind, isMe) =>
             toggleHidden(connectionKey(peerId, kind), peerId, kind, isMe)
           }

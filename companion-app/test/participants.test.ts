@@ -234,7 +234,9 @@ test('ukrycie wszystkich strumieni NIE mówi, że nikt nie nadaje', () => {
     { peerId: 'a', kind: 'camera' as const }
   ]
   const hidden = new Set([connectionKey('a', 'screen'), connectionKey('a', 'camera')])
-  expect(emptyGridMessage({ streams, hidden })).toBe('all-hidden')
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: false })).toBe(
+    'all-hidden'
+  )
 })
 
 test('własny i cudzy strumień, oba ukryte: wszystko ukryte', () => {
@@ -245,16 +247,89 @@ test('własny i cudzy strumień, oba ukryte: wszystko ukryte', () => {
     { peerId: 'a', kind: 'screen' as const }
   ]
   const hidden = new Set([connectionKey('ja', 'screen'), connectionKey('a', 'screen')])
-  expect(emptyGridMessage({ streams, hidden })).toBe('all-hidden')
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: false })).toBe(
+    'all-hidden'
+  )
+})
+
+test('cudzy strumień ukryty przy martwym gnieździe nie obiecuje powrotu', () => {
+  // Prośba `subscribe` jedzie gniazdem sygnalizacji i po jego zerwaniu ginie po
+  // cichu, a oczko przy cudzym strumieniu jest wtedy nieaktywne
+  // (`canToggleStream`). Zdanie o oczku byłoby tu obietnicą, której nic nie
+  // dowiezie — obraz nie wróci do końca życia okna.
+  const streams = [{ peerId: 'a', kind: 'screen' as const }]
+  const hidden = new Set([connectionKey('a', 'screen')])
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: true })).toBe(
+    'all-hidden-unrecoverable'
+  )
+})
+
+test('sam własny podgląd ukryty przy martwym gnieździe WRÓCI, więc tekst zostaje', () => {
+  // Druga strona tej samej uczciwości: własny podgląd jest lokalny, oczko przy
+  // naszym wierszu zostaje aktywne i faktycznie go przywraca. Odebranie tu
+  // obietnicy byłoby kłamstwem w drugą stronę, a tekst rozjechałby się
+  // z przyciskiem.
+  const streams = [{ peerId: 'ja', kind: 'screen' as const }]
+  const hidden = new Set([connectionKey('ja', 'screen')])
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: true })).toBe(
+    'all-hidden'
+  )
+})
+
+test('własny i cudzy razem w ukryciu: liczy się ten, który nie wróci', () => {
+  // Oczko przywróci jeden z dwóch, a nie oba, więc zdanie „przywraca je" jest
+  // już nieprawdą. Warunek „wszystkie ukryte należą do nas" przepuściłby ten
+  // układ do łagodniejszego wariantu.
+  const streams = [
+    { peerId: 'ja', kind: 'screen' as const },
+    { peerId: 'a', kind: 'screen' as const }
+  ]
+  const hidden = new Set([connectionKey('ja', 'screen'), connectionKey('a', 'screen')])
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: true })).toBe(
+    'all-hidden-unrecoverable'
+  )
+})
+
+test('część ukryta przy martwym gnieździe to nadal nie „wszystko ukryte"', () => {
+  // Zerwane gniazdo nie zmienia przyczyny pustej siatki: jeden strumień jest
+  // nieukryty, więc siatka jest pusta dlatego, że obraz nie doszedł. Warunek
+  // zaczynający od `signalingClosed` zamiast od `allHidden` pomyliłby te dwa.
+  const streams = [
+    { peerId: 'a', kind: 'screen' as const },
+    { peerId: 'b', kind: 'screen' as const }
+  ]
+  expect(
+    emptyGridMessage({
+      streams,
+      hidden: new Set([connectionKey('a', 'screen')]),
+      myPeerId: 'ja',
+      signalingClosed: true
+    })
+  ).toBe('connecting')
+})
+
+test('zerwane gniazdo bez ani jednego strumienia nie zmienia przyczyny', () => {
+  // „Nikt nie nadaje" zostaje „nikt nie nadaje": nie ma czego przywracać, więc
+  // nie ma też czego obiecywać.
+  expect(
+    emptyGridMessage({ streams: [], hidden: new Set(), myPeerId: 'ja', signalingClosed: true })
+  ).toBe('nobody-streaming')
 })
 
 test('brak strumieni mówi, że nikt nie nadaje', () => {
-  expect(emptyGridMessage({ streams: [], hidden: new Set() })).toBe('nobody-streaming')
+  expect(
+    emptyGridMessage({ streams: [], hidden: new Set(), myPeerId: 'ja', signalingClosed: false })
+  ).toBe('nobody-streaming')
 })
 
 test('strumienie są, ale obraz jeszcze nie doszedł', () => {
   expect(
-    emptyGridMessage({ streams: [{ peerId: 'a', kind: 'screen' }], hidden: new Set() })
+    emptyGridMessage({
+      streams: [{ peerId: 'a', kind: 'screen' }],
+      hidden: new Set(),
+      myPeerId: 'ja',
+      signalingClosed: false
+    })
   ).toBe('connecting')
 })
 
@@ -265,9 +340,14 @@ test('część ukryta, a reszta jeszcze nie doszła', () => {
     { peerId: 'a', kind: 'screen' as const },
     { peerId: 'b', kind: 'screen' as const }
   ]
-  expect(emptyGridMessage({ streams, hidden: new Set([connectionKey('a', 'screen')]) })).toBe(
-    'connecting'
-  )
+  expect(
+    emptyGridMessage({
+      streams,
+      hidden: new Set([connectionKey('a', 'screen')]),
+      myPeerId: 'ja',
+      signalingClosed: false
+    })
+  ).toBe('connecting')
 })
 
 test('ukryty ekran nie ukrywa kamery tej samej osoby', () => {
@@ -278,9 +358,14 @@ test('ukryty ekran nie ukrywa kamery tej samej osoby', () => {
     { peerId: 'a', kind: 'screen' as const },
     { peerId: 'a', kind: 'camera' as const }
   ]
-  expect(emptyGridMessage({ streams, hidden: new Set([connectionKey('a', 'screen')]) })).toBe(
-    'connecting'
-  )
+  expect(
+    emptyGridMessage({
+      streams,
+      hidden: new Set([connectionKey('a', 'screen')]),
+      myPeerId: 'ja',
+      signalingClosed: false
+    })
+  ).toBe('connecting')
 })
 
 test('ukryte oba skraje, środkowy strumień jeszcze nie doszedł', () => {
@@ -296,12 +381,16 @@ test('ukryte oba skraje, środkowy strumień jeszcze nie doszedł', () => {
     { peerId: 'c', kind: 'screen' as const }
   ]
   const edges = new Set([connectionKey('a', 'screen'), connectionKey('c', 'screen')])
-  expect(emptyGridMessage({ streams, hidden: edges })).toBe('connecting')
+  expect(emptyGridMessage({ streams, hidden: edges, myPeerId: 'ja', signalingClosed: false })).toBe(
+    'connecting'
+  )
 
   // Odwrotny układ tych samych trzech: ukryty sam środkowy. Warunek patrzący
   // tylko na środek uznałby to za wszystko ukryte.
   const middle = new Set([connectionKey('b', 'screen')])
-  expect(emptyGridMessage({ streams, hidden: middle })).toBe('connecting')
+  expect(emptyGridMessage({ streams, hidden: middle, myPeerId: 'ja', signalingClosed: false })).toBe(
+    'connecting'
+  )
 })
 
 test('emptyGridMessage nie przyjmuje kafelków', () => {
@@ -310,7 +399,7 @@ test('emptyGridMessage nie przyjmuje kafelków', () => {
   // widzi. Działa, bo `test/**/*.ts` jest w `include` w `tsconfig.json`.
   const tiles: Tile[] = []
   // @ts-expect-error kafelki powstają po dotarciu obrazu, a nie po ogłoszeniu strumienia
-  emptyGridMessage({ streams: tiles, hidden: new Set() })
+  emptyGridMessage({ streams: tiles, hidden: new Set(), myPeerId: 'ja', signalingClosed: false })
 })
 
 test('emptyGridMessage nie przyjmuje odebranych strumieni', () => {
@@ -319,7 +408,7 @@ test('emptyGridMessage nie przyjmuje odebranych strumieni', () => {
   // przepuściłby `RemoteStream`, a oba piny z kafelkami nadal by przechodziły.
   const remote: RemoteStream[] = []
   // @ts-expect-error odebrany strumień ma obraz, a ogłoszony go nie ma
-  emptyGridMessage({ streams: remote, hidden: new Set() })
+  emptyGridMessage({ streams: remote, hidden: new Set(), myPeerId: 'ja', signalingClosed: false })
 })
 
 test('buildParticipants nie przyjmuje kafelków jako strumieni', () => {
@@ -343,7 +432,9 @@ test('wpis po strumieniu, którego już nie ma, nie liczy się jako ukryty', () 
   // niedoszły strumień za ukryty i odesłało człowieka do oczka, którego nie ma.
   const streams = [{ peerId: 'a', kind: 'screen' as const }]
   const hidden = new Set([connectionKey('x', 'screen')])
-  expect(emptyGridMessage({ streams, hidden })).toBe('connecting')
+  expect(emptyGridMessage({ streams, hidden, myPeerId: 'ja', signalingClosed: false })).toBe(
+    'connecting'
+  )
 })
 
 test('rodzaje ukryte u danej osoby', () => {

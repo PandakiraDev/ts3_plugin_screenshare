@@ -3,6 +3,7 @@ import {
   applyTileOrder,
   effectiveOrder,
   forgetMissingTiles,
+  canToggleStream,
   hiddenAfterToggle,
   moveTile,
   orderAfterDrop,
@@ -520,6 +521,39 @@ test('pierwsze przestawienie nie gubi kafelka ukrytego przed nim', () => {
  * Tutaj obie decyzje da się sprawdzić: testów komponentów w tym projekcie nie
  * ma w ogóle, bo vitest chodzi w gołym Node, bez jsdom.
  */
+
+/*
+ * Bramka PRZED przełącznikiem: czy wolno go w ogóle kliknąć. Osobna od dwóch
+ * funkcji niżej, bo tamte odpowiadają na „co zrobić po kliknięciu", a ta na
+ * „czy kliknięcie jest odwracalne".
+ */
+
+test('przy martwym gnieździe cudzego strumienia nie wolno przełączać', () => {
+  // Prośba `subscribe` jedzie gniazdem sygnalizacji, a `send()` na gnieździe
+  // CLOSED nie rzuca — ukrycie byłoby drogą w jedną stronę do końca życia okna.
+  expect(canToggleStream({ isMe: false, signalingClosed: true })).toBe(false)
+})
+
+test('własny podgląd wolno przełączać także przy martwym gnieździe', () => {
+  // Jest lokalny: nie ma od kogo przestać go odbierać ani kogo prosić o powrót.
+  // Ta sama granica, którą `subscriptionAfterToggle` niżej zaznacza przez `null`.
+  expect(canToggleStream({ isMe: true, signalingClosed: true })).toBe(true)
+})
+
+test('bramka patrzy na OBA pola, nie na jedno z nich', () => {
+  // Strażnik mutacji: dokładnie jeden z czterech układów ma dać `false`, więc
+  // zdanie oparte na samym `isMe` albo samym `signalingClosed` przechodziłoby
+  // każdy test, który nie wymienia całej tabeli.
+  const cases = [
+    { isMe: false, signalingClosed: true, expected: false },
+    { isMe: false, signalingClosed: false, expected: true },
+    { isMe: true, signalingClosed: true, expected: true },
+    { isMe: true, signalingClosed: false, expected: true }
+  ]
+  for (const { isMe, signalingClosed, expected } of cases) {
+    expect(canToggleStream({ isMe, signalingClosed })).toBe(expected)
+  }
+})
 
 test('kliknięcie kafelka UKRYTEGO wraca do odbioru, WIDOCZNEGO — rezygnuje', () => {
   const hidden = new Set(['a:screen'])

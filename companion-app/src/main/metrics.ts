@@ -151,18 +151,6 @@ export function detectGpuCard(): Promise<GpuCard | null> {
   return gpuCardDetection
 }
 
-/**
- * Zapamiętana karta bez czekania, dla wywołujących w tyknięciu zegara.
- *
- * `null` znaczy tu dwie rzeczy naraz — „jeszcze nie wykryliśmy" i „nie
- * rozpoznaliśmy" — i to jest w porządku, bo `formatGpuCard` oba te stany
- * opisuje tym samym zdaniem, a wykrywanie kończy się w pierwszych
- * kilkudziesięciu milisekundach życia procesu.
- */
-export function detectedGpuCard(): GpuCard | null {
-  return detectedCard
-}
-
 /** Zwraca funkcję zatrzymującą odpytywanie. */
 export function startGpuPolling(intervalMs: number): () => void {
   let stopped = false

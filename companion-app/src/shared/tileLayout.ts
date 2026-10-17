@@ -20,6 +20,56 @@ export function visibleTiles(tiles: readonly Tile[], hidden: ReadonlySet<string>
 }
 
 /**
+ * Czy wolno w ogóle przełączać widoczność tego strumienia — krzyżykiem na
+ * kafelku albo oczkiem w liście uczestników.
+ *
+ * `false` znaczy „ten przełącznik byłby drogą w jedną stronę". Powrót do
+ * odbioru cudzego strumienia to prośba `subscribe` do nadawcy
+ * (`LobbySession.subscribeTo`), a ta jedzie gniazdem sygnalizacji.
+ * `SignalingClient.signal()` jest `void` i woła `socket.send(...)`, a `send()`
+ * na gniazdzie CLOSED nie rzuca — wiadomość ginie po cichu i nic jej nie
+ * ponawia. Po zerwaniu gniazda ukryty cudzy strumień nie wróciłby więc do
+ * końca życia okna, choć oba przełączniki obiecują odwracalność.
+ *
+ * Dlaczego to blokuje PRZEŁĄCZNIK, a nie tylko ukrywanie: w obie strony jest
+ * tak samo. Odkrycie zabrałoby klucz ze zbioru ukrytych i posłało `subscribe`
+ * w próżnię, więc obraz nie wróciłby, a siatka przestałaby nawet wiedzieć, że
+ * jest ukryty — pusty środek pokazywałby wtedy „Odbieranie obrazu…" przez całą
+ * sesję.
+ *
+ * WŁASNEGO podglądu to nie dotyczy i nigdy nie będzie dotyczyć: jest lokalny,
+ * nie ma od kogo przestać go odbierać ani kogo prosić o powrót. To ta sama
+ * granica, którą `subscriptionAfterToggle` niżej zaznacza przez `null`.
+ *
+ * Samo zjawisko istnieje od części pierwszej — ukrywanie, prośba `subscribe`
+ * i ciche gubienie wiadomości na martwym gnieździe są jej dorobkiem. Nowa jest
+ * wyłącznie WIEDZA: `signalingClosed` dołożyła część druga (dziennik lobby),
+ * a bez niej nie było z czego ułożyć tego warunku. Nie ma tu więc regresji do
+ * znalezienia w części drugiej — jest pierwsza okazja, żeby to zatrzymać.
+ */
+export function canToggleStream(input: { isMe: boolean; signalingClosed: boolean }): boolean {
+  return input.isMe || !input.signalingClosed
+}
+
+/**
+ * Dlaczego przełącznik jest nieaktywny — podpowiedź dla człowieka.
+ *
+ * JEDNA stała dla krzyżyka i dla oczka, bo oba są nieaktywne z tego samego
+ * powodu, a to samo zdanie wpisane w dwóch komponentach rozjeżdża się przy
+ * pierwszej poprawce. Dlatego mówi o PRZYWRÓCENIU, nie o ukryciu: krzyżyk
+ * stoi na kafelku widocznym, a oczko bywa zgaszone nad już ukrytym — zdanie
+ * „ukrycie byłoby nieodwracalne" byłoby przy tym drugim nie na temat, a zdanie
+ * o niemożliwym powrocie tłumaczy oba przyciski naraz.
+ *
+ * Nie mówi „spróbuj później": nic tego połączenia nie ponawia, więc rada jest ta
+ * sama co na pasku — otwórz okno ponownie.
+ */
+export const STREAM_TOGGLE_BLOCKED_TEXT =
+  'Połączenie z serwerem zerwane — nadawca już nas nie usłyszy, więc ukrytego ' +
+  'obrazu nie dałoby się przywrócić. Otwórz okno ponownie z menu kanału ' +
+  'w TeamSpeaku.'
+
+/**
  * Czy po kliknięciu oczka albo krzyżyka przy kafelku mamy ODBIERAĆ ten
  * strumień. `null` = nie ma od kogo przestać odbierać ani kogo prosić
  * o powrót, bo własny podgląd jest lokalny i nie przychodzi z sieci.

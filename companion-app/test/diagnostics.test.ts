@@ -856,6 +856,31 @@ test('zdrowe odpytywanie GPU nigdy nie zapala kreski', () => {
   expect(healthy).toContain('GPU 97%')
 })
 
+test('próg GPU to DWA okresy odpytywania, nie trzy', () => {
+  // Komentarz przy `GPU_STALE_AFTER_MS` ma pół strony rachunku, dlaczego dwa,
+  // a nie trzy — i nic tej liczby nie pilnowało: zmierzone, podmiana na trzy
+  // okresy przechodziła cały zestaw. Pozostałe testy progu liczą od samej
+  // stałej, więc jadą za nią, którakolwiek by była.
+  //
+  // Przybijamy ZACHOWANIE, nie samą liczbę (`toBe(2 * ...)` powtarzałoby
+  // źródło). Dwa okresy znaczą dokładnie tyle: JEDNO pominięte tyknięcie
+  // (wywołanie jeszcze nie wróciło, patrz `gpuPollInFlight` w `metrics.ts`) to
+  // jeszcze norma, a DRUGIE to zamarły sterownik. Trzeci okres tylko odsuwałby
+  // wykrycie zamarłego sterownika, czyli to, czego tu szukamy.
+  const stats = { cpuPercent: 23, memoryMb: 412, gpu: STUCK_GPU }
+
+  // Jedno pominięte tyknięcie z zapasem na drżenie zegara: jeszcze liczby.
+  expect(
+    formatResourceBadge(stats, GPU_READ_AT + 2 * GPU_POLL_INTERVAL_MS - 1)
+  ).toContain('GPU 97%')
+
+  // Dwa pełne okresy: już kreska z godziną. Przy trzech okresach ta asercja
+  // pada, bo pasek dalej podawałby przyklejone 97%.
+  expect(formatResourceBadge(stats, GPU_READ_AT + 2 * GPU_POLL_INTERVAL_MS)).toBe(
+    'CPU 23% · RAM 412 MB · GPU — (odczyt z 22:03)'
+  )
+})
+
 test('zawieszony sterownik pokazuje kreskę z godziną, nie ostatnie procenty', () => {
   // Test REGRESJI istniejącego mechanizmu, nie nowej funkcji: `GPU_STALE_AFTER_MS`
   // działa od 0.3.3, więc ten test przechodzi od pierwszego uruchomienia — nie szukaj

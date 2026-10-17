@@ -106,6 +106,48 @@ test('wyjście bez ani jednego trafienia daje null', () => {
   expect(parseGpuRegistry('\r\nEnd of search: 0 match(es) found.\r\n')).toBeNull()
 })
 
+/*
+ * Ten sam układ kart, ale NVIDIA NIE na pierwszym miejscu — i z WIĘKSZĄ
+ * pamięcią po stronie karty, której zużycia nie umiemy zmierzyć.
+ *
+ * Oba odwrócenia są potrzebne i każde przybija inną połowę reguły. Zestaw
+ * wyżej (`REG_OUTPUT_THREE_CARDS`) ma NVIDIĘ w podkluczu `\0000`, czyli
+ * pierwszą: przechodzi także wtedy, gdy wyboru nie ma żadnego i wygrywa
+ * pierwszy kandydat — zmierzone, mutacja „wygrywa pierwszy" przechodziła cały
+ * zestaw. Odwrócenie kolejności samo nie wystarcza: przy równej albo mniejszej
+ * pamięci iGPU przeszedłby też wariant z odwróconym pierwszeństwem
+ * (najpierw pamięć, potem dostępność odczytu), bo NVIDIA wygrałaby pamięcią.
+ *
+ * Układ NIE jest wymyślony pod test, tylko częstszy od tego wyżej: numer
+ * podklucza idzie za kolejnością instalacji sterowników, a sterownik karty
+ * dyskretnej instaluje się po tym, co było w systemie od początku. Grafika
+ * zintegrowana raportuje przy tym pamięć WSPÓLNĄ z systemową, więc na maszynie
+ * z 32 GB RAM-u potrafi podać 16 GB — więcej niż 12 GB karty dyskretnej.
+ *
+ * Co się dzieje, gdy ta reguła puści: pasek nazywa kartę zintegrowaną, pisze
+ * „zużycie niedostępne", a `startGpuPolling` GASI zegar odpytywania — czyli
+ * „GPU —" przez całą sesję u człowieka z działającym `nvidia-smi`.
+ */
+const REG_OUTPUT_NVIDIA_NOT_FIRST = regOutput([
+  '',
+  `${KEY}\\0000`,
+  '    DriverDesc    REG_SZ    AMD Radeon(TM) Graphics',
+  '',
+  `${KEY}\\0001`,
+  '    DriverDesc    REG_SZ    NVIDIA GeForce RTX 4070',
+  '',
+  'End of search: 2 match(es) found.',
+  '',
+  // 16 GB pamięci współdzielonej przy iGPU — więcej niż 12 GB karty dyskretnej.
+  `${KEY}\\0000`,
+  '    HardwareInformation.qwMemorySize    REG_QWORD    0x400000000',
+  '',
+  `${KEY}\\0001`,
+  '    HardwareInformation.qwMemorySize    REG_QWORD    0x2ffa00000',
+  '',
+  'End of search: 2 match(es) found.'
+])
+
 test('przy kilku kartach wybrana jest ta, której zużycie umiemy zmierzyć', () => {
   // Na maszynie właściciela klasa ma trzy wpisy. Gdyby wybór szedł po numerze
   // podklucza, trafienie na NVIDIĘ byłoby przypadkiem kolejności instalacji
@@ -114,6 +156,35 @@ test('przy kilku kartach wybrana jest ta, której zużycie umiemy zmierzyć', ()
   const card = parseGpuRegistry(REG_OUTPUT_THREE_CARDS)
   expect(card?.name).toBe('NVIDIA GeForce RTX 4070')
   expect(card?.utilizationAvailable).toBe(true)
+})
+
+test('NVIDIA w drugim podkluczu też wygrywa, choć ma MNIEJ pamięci', () => {
+  // Sedno reguły w jednym miejscu: najpierw dostępność odczytu zużycia, potem
+  // pamięć. Ten zestaw danych przewraca jedno i drugie obejście — „wygrywa
+  // pierwszy kandydat" wybrałoby AMD z `\0000`, a odwrócone pierwszeństwo
+  // wybrałoby AMD po 16 GB.
+  const card = parseGpuRegistry(REG_OUTPUT_NVIDIA_NOT_FIRST)
+  expect(card?.name).toBe('NVIDIA GeForce RTX 4070')
+  expect(card?.utilizationAvailable).toBe(true)
+  expect(card?.memoryMb).toBe(12282)
+})
+
+test('zero bajtów pamięci to „nie wiem", nie pomiar', () => {
+  // `qwMemorySize` równe zeru widują sterowniki wirtualnych monitorów i świeżo
+  // zainstalowane sterowniki przed pierwszym uruchomieniem karty. Karta z zerem
+  // pamięci nie istnieje, a „0,0 GB" na pasku czytałoby się jako pomiar — i to
+  // jest dokładnie ten rodzaj kłamstwa, którego zabrania specyfikacja.
+  const zeroMemory = regOutput([
+    '',
+    `${KEY}\\0000`,
+    '    DriverDesc    REG_SZ    Meta Virtual Monitor',
+    '    HardwareInformation.qwMemorySize    REG_QWORD    0x0'
+  ])
+  const card = parseGpuRegistry(zeroMemory)
+  expect(card?.name).toBe('Meta Virtual Monitor')
+  expect(card?.memoryMb).toBeNull()
+  // Aż do napisu, bo to on jest wynikiem widzianym przez człowieka.
+  expect(formatGpuCard(card)).toContain('pamięć nieznana')
 })
 
 test('podklucz z pamięcią, ale bez nazwy, nie staje się kartą', () => {
