@@ -16,7 +16,7 @@
 - vitest chodzi w **gołym Node bez jsdom** — nie ma `document` ani `window`. Komponentów i hooków nie testujemy; decyzja, która ma mieć test, musi być czystą funkcją w `src/shared/*`.
 - `test/**/*.ts` jest w `include` w `tsconfig.json`, więc błąd typu w teście wywala `npm run build`.
 - `src/shared/diagnostics.ts` ma 783 linie — nowe rzeczy idą do NOWYCH plików w `src/shared/`.
-- Stan wyjściowy każdego zadania **odczytaj pomiarem** (`npm test`), nie z tego planu. Liczba rośnie z każdym zadaniem i każdy wpisany tu numer po dniu jest nieprawdą — ta linia mówiła „340 w 18 plikach", gdy faktycznie było 371 w 20.
+- Stan wyjściowy każdego zadania **odczytaj pomiarem** (`npm test`), nie z tego planu — ta linia mówiła „340 w 18 plikach", gdy faktycznie było 371 w 20. **Nie zakładaj przy tym, że liczba rośnie z każdym zadaniem**: zadanie 6 nie dodało ani jednego testu (panelu nie da się sprawdzić bez jsdom), a zadanie 7 **wymieniło** testy flagi, której już nie ma, zamiast dodać — licznik stał na 424 przez dwa zadania. Szukanie błędu w stojącym liczniku to szukanie go tam, gdzie go nie ma.
 - **Zadanie, które dodaje kanał IPC, modyfikuje TAKŻE `src/main/index.ts`.** Stałe w `shared/ipc.ts` i funkcja w preloadzie nie wystarczą — bez `ipcMain.handle` kanał jest martwym napisem. Nadziałem się na to dwa razy: raz z `formatGpuCard` (zadanie 2 wyprodukowało tekst, którego nikt nie wołał, co wyszło dopiero z bundla), raz z kanałami dziennika. Sprawdzaj obecność w `out/main/index.js`, a nie tylko w źródle.
 - **Funkcja z `src/shared/*`, ktorej nikt nie wola, WYPADA Z BUNDLA przy tree-shakingu — niezaleznie od tego, ile ma testow.** To samo pietro wyzej niz regula o `ipcMain.handle`: wykonawca zadania 6 zmierzyl, ze `formatLogEntry` bylo w bundlu renderera obecne **zero razy** przed jego zadaniem, choc zadanie 4 mialo na nia test — test przypinal wiec decyzje, ktorej nic nie pokazywalo. Sprawdzaj grepem `out/renderer/assets/*.js`, `out/preload/index.js` i `out/main/index.js` OSOBNO, bo kazdy bundel ma inna poprawna odpowiedz: czesc napisow ma byc w jednym i nie ma byc w drugim.
 - `vi.useFakeTimers()` jest **dozwolone** (pierwszy raz użyte w zadaniu 4, zegar przywracany w `finally`). Alternatywą byłby test czekający sekundę, czyli wolniejszy i chwiejny.
@@ -577,7 +577,7 @@ git commit -m "feat(ustawienia): pole wyboru zapisu diagnostyki zamiast flagi"
 - Consumes: `LogEntry` z zadania 4; `LobbySnapshot`, `lobbyLogEntries` z zadania 5
 - Produces: pole w `LobbySnapshot` niosące zerwanie oraz wpis o poziomie `error`
 
-> **Zadanie dopisane po zadaniu 5.** Jego wykonawca znalazł to w kodzie, a ja potwierdziłem: `SignalingClient` emituje zdarzenie zamknięcia gniazda (`SignalingClient.ts:61-64`), ale **nikt go nie subskrybuje** — ani `session.ts`, ani `useLobby.ts`; grep po obu wzorcach nazwy tego zdarzenia w obu plikach jest pusty. Czyli gdy gniazdo do serwera sygnalizacyjnego padnie, ani `connection`, ani `error` się nie zmienia: aplikacja wygląda na połączoną, choć jest głucha, a dziennik nie pokaże najważniejszego wiersza przy „nagle wszystko stanęło". To jest dokładnie ten objaw, który właściciel zgłosił jako najbardziej dokuczliwy — ktoś wychodzi i nie może wrócić do tego samego lobby, trzeba wyjść i wejść.
+> **Zadanie dopisane po zadaniu 5 — ale NIE jest to nowe znalezisko, i to jest moja pomyłka w opisie.** Rzecz siedzi na własnej liście długów projektu od **2026-08-10** (`TODO.md`, sekcja „Długi z przeglądów kodu (diagnostyka połączenia)"), i to z **lepszym** lekarstwem niż moje: „naturalny kandydat na czwarty rodzaj problemu w pasku". Wykonawca zadania 5 znalazł to niezależnie w kodzie, a ja potwierdziłem pomiarem, ale przedstawiłem jako odkrycie coś, co było już zapisane. Pasek dostał osobne zadanie 10 po decyzji właściciela. Fakt techniczny: `SignalingClient` emituje zdarzenie zamknięcia gniazda (`SignalingClient.ts:61-64`), ale **nikt go nie subskrybuje** — ani `session.ts`, ani `useLobby.ts`; grep po obu wzorcach nazwy tego zdarzenia w obu plikach jest pusty. Czyli gdy gniazdo do serwera sygnalizacyjnego padnie, ani `connection`, ani `error` się nie zmienia: aplikacja wygląda na połączoną, choć jest głucha, a dziennik nie pokaże najważniejszego wiersza przy „nagle wszystko stanęło". To jest dokładnie ten objaw, który właściciel zgłosił jako najbardziej dokuczliwy — ktoś wychodzi i nie może wrócić do tego samego lobby, trzeba wyjść i wejść.
 
 **ZAKRES: wyłącznie diagnostyczny.** Dopisujesz WPIS do dziennika i nic więcej. **Nie** zmieniaj `connection` na `error`, **nie** dodawaj ponawiania połączenia, **nie** ruszaj interfejsu. Zmiana zachowania przy zerwanym gnieździe to osobna sprawa z listy właściciela — tutaj chodzi tylko o to, żeby dziennik przestał milczeć o najważniejszej przyczynie.
 
@@ -600,7 +600,7 @@ Tylko odnotowanie w stanie, które zasila migawkę. **Nie** dotykaj `connection`
 - [ ] **Step 5: Sprawdź całość i zacommituj**
 
 Run: `npx tsc --noEmit && npm test && npm run build`
-Expected: `tsc` zero; subskrypcja zamknięcia gniazda obecna w `useLobby.ts`.
+Expected: `tsc` zero. Sprawdzaj **bundle**, nie źródło — źródło nie jest tu dowodem i wymaganie go przeczyłoby zasadzie o tree-shakingu wyżej w tym samym planie: oprzewodowanie ma być obecne w `out/renderer/assets/*.js`, a napis wpisu **nie** w `out/main/index.js` ani `out/preload/index.js` (proces główny dostaje wpis jako dane przez IPC i nigdy nie składa tego zdania sam).
 
 ```bash
 git add companion-app/src/renderer/hooks/useLobby.ts companion-app/src/shared/lobbyEvents.ts companion-app/test/lobby-events.test.ts
@@ -651,6 +651,57 @@ Expected: `tsc` zero; nowe napisy obecne w `out/renderer/assets/*.js` (ta pułap
 ```bash
 git add companion-app/src/shared/lobbyLog.ts companion-app/src/renderer/components/Diagnostics.tsx companion-app/src/renderer/styles.css companion-app/test/lobby-log.test.ts
 git commit -m "fix(dziennik): panel nie myli skladu zastanego ze zdarzeniem"
+```
+
+---
+
+### Task 10: Zerwane gniazdo zapala pasek
+
+**Files:**
+- Modify: `companion-app/src/shared/connectionHealth.ts`
+- Modify: `companion-app/src/renderer/hooks/useConnectionHealth.ts`
+- Test: `companion-app/test/connection-health.test.ts` (istniejący, dopisanie)
+
+**Interfaces:**
+- Consumes: `signalingClosed` w `LobbyState` z zadania 8
+- Produces: wariant `{ kind: 'signaling-closed' }` w `ConnectionProblem`, nowe pole `signalingClosed` w wejściu `pickProblem`
+
+> **Zadanie dopisane po decyzji właściciela.** Zadanie 8 zapisało zerwanie gniazda do dziennika i **świadomie** nie ruszało interfejsu, bo zachowanie przy zerwaniu było decyzją właściciela. Zapytany, wybrał „zapal też pasek" — zgodnie z tym, co jego własna lista długów (`TODO.md`, sekcja z 2026-08-10) proponowała od ponad dwóch miesięcy: „naturalny kandydat na czwarty rodzaj problemu w pasku".
+>
+> **Czego to zadanie NIE robi:** nie ponawia połączenia. Właściciel wybrał pasek, a nie naprawę objawu — ponawianie było osobną opcją i jej nie wskazał.
+
+**Najważniejsze w tym zadaniu — i łatwe do złamania.** Nagłówek `connectionHealth.ts` ustanawia zasadę: problem jest **wyliczany z warunków bieżących, NIGDY z zapamiętanych zdarzeń**, bo „z jednorazowego »połączenie nie wstało« nie da się dowiedzieć, że problem MINĄŁ", a pasek zbudowany na zdarzeniach wisiałby po ustaniu przyczyny i wymagałby przycisku zamykania.
+
+`signalingClosed` **wygląda** jak zapamiętane zdarzenie i dlatego trzeba napisać wprost, dlaczego nim nie jest: to opis stanu teraźniejszego („jesteśmy odcięci od serwera"), a gaśnie sam, bo zadanie 8 zeruje pole przy nowej próbie połączenia. **Zapisz w komentarzu także warunek, od którego to zależy:** gdyby ktoś kiedyś dołożył ponawianie, musi zerować to pole po UDANYM połączeniu — inaczej pasek zostanie zapalony na zawsze, czyli dokładnie ta awaria, której zasada z nagłówka zabrania.
+
+- [ ] **Step 1: Napisz failujące testy**
+
+Dopisz do `test/connection-health.test.ts`: że zerwane gniazdo daje problem `signaling-closed`; że ma **pierwszeństwo nad wszystkimi pozostałymi** (ustaw w jednym wejściu wszystkie cztery warunki naraz i sprawdź, który wygrywa); że przy zerowanym polu problem gaśnie; oraz że tekst nie wymienia nazwy żadnego uczestnika — gniazdo należy do serwera, nie do człowieka, a wskazywanie winnego, którego nie ma, to dokładnie ta szkoda, którą zadanie 8 przypięło własnym testem dla wpisu w dzienniku.
+
+- [ ] **Step 2: Uruchom i potwierdź, że padają**
+
+Run: `npx vitest run test/connection-health.test.ts`
+
+- [ ] **Step 3: Dołóż wariant i gałąź tekstu**
+
+Nowy wariant w `ConnectionProblem`, nowe pole w wejściu `pickProblem`, sprawdzenie **jako pierwsze** w kolejności priorytetów, oraz gałąź w `problemText`. `problemText` jest wyczerpującym `switch` bez `default`, więc sam wariant bez gałęzi daje błąd `tsc` — to sprzężenie typów jest tu strażnikiem i nie wolno go rozluźniać dodaniem `default`.
+
+Pierwszeństwo uzasadnij tą samą logiką, którą moduł już stosuje („bez serwera informacja o łączu jest bez znaczenia"): przy martwym gnieździe sygnalizacji żadna inna diagnoza nie jest aktualizowana, więc pokazanie którejkolwiek z nich byłoby podaniem nieświeżej informacji jako bieżącej.
+
+Tekst ma powiedzieć, co użytkownik **traci** (wejścia, wyjścia i nowe transmisje przestają być widoczne) i co ma zrobić. Zadanie 8 ustaliło, że nic tego połączenia nie ponawia — więc jedyna prawdziwa rada to ponowne uruchomienie okna. Nie obiecuj powrotu, który się nie stanie.
+
+- [ ] **Step 4: Podaj pole w wywołaniu**
+
+`useConnectionHealth.ts:79` — dołóż `signalingClosed: state.signalingClosed`. Zwróć uwagę na tablicę zależności efektu: w projekcie **nie ma lintera**, więc `exhaustive-deps` nie jest niczym wymuszane, a wykonawca zadania 8 przeoczone pole w zależnościach wskazał jako pułapkę, przy której kompletny kod nie działa, a testy jednostkowe przechodzą.
+
+- [ ] **Step 5: Sprawdź całość i zacommituj**
+
+Run: `npx tsc --noEmit && npm test && npm run build`
+Expected: `tsc` zero; tekst nowego problemu obecny w `out/renderer/assets/*.js` i **nieobecny** w `out/main/index.js` oraz `out/preload/index.js` (sprawdzaj nazwę pliku z wyjścia builda, nie glob — stary, nieusunięty asset daje fałszywe „jest").
+
+```bash
+git add companion-app/src/shared/connectionHealth.ts companion-app/src/renderer/hooks/useConnectionHealth.ts companion-app/test/connection-health.test.ts
+git commit -m "feat(polaczenie): zerwane gniazdo sygnalizacji zapala pasek"
 ```
 
 ---

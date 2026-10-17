@@ -818,6 +818,11 @@ kilkanaście minut:
   zostaje `'ready'`, nagłówek pokazuje liczbę transmisji, pasek milczy, choć
   aplikacja jest odcięta od serwera. Naturalny kandydat na czwarty rodzaj
   problemu w pasku.
+  **Stan po 0.3.4:** „nikt tego nie słucha" **przestało obowiązywać** — `useLobby`
+  ma pierwszego subskrybenta w historii projektu i zerwanie trafia do dziennika
+  lobby jako wpis o poziomie błędu. Pasek dostał czwarty rodzaj problemu zgodnie
+  z tą notką. **Nadal otwarte:** nic tego połączenia nie **ponawia**, więc jedyną
+  radą pozostaje ponowne uruchomienie okna.
 - **`join` nie ma limitu czasu, choć `connect` już ma.** Limit 90 s pokrywa
   uzgodnienie WebSocketu; jeśli serwer przyjmie połączenie i nie odpowie na
   `join`, aplikacja tkwi w `'connecting'` bez końca — teraz przynajmniej
