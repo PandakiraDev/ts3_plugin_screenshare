@@ -635,11 +635,20 @@ ale własna flaga logiczna milcząco nie działała. Obsługa flag bez wartości
 doszła więc świadomie (pusty łańcuch jako znacznik obecności), z testami na
 oba położenia flagi w wierszu poleceń: jako ostatni argument i przed inną
 flagą. Cena: liczy się sama obecność, wartość jest ignorowana, więc
-`--diagnostics=false` też włącza diagnostykę — udokumentowane przy polu
-`LaunchOptions.diagnostics`, bez zmiany zachowania. Ta poprawka wywołała
-też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
+`--diagnostics=false` też włączało diagnostykę. Ta poprawka
+wywołała też regresję, wyłapaną w przeglądzie: puste `--signaling` wpadało do mapy
 jako pusty łańcuch, a `??` nie cofa się do wartości domyślnej przy pustym
 napisie (stąd `||`).
+
+> **Dopisek z 0.3.4:** samej flagi `--diagnostics` **już nie ma** — zastąpiło
+> ją pole wyboru zapisywane w `settings.json`, a pole `LaunchOptions.diagnostics`
+> zostało usunięte, więc odesłanie do jego dokumentacji prowadziłoby w nic.
+> Opisana wyżej obsługa flag **bez wartości** została w `readFlags` celowo,
+> choć nie ma dziś ani jednego czytelnika: zmierzone przy 0.3.4, że wycięcie
+> tych dwóch linii zostawia wszystkie testy `cli.ts` na zielono. Trzyma ją
+> tam nie pokrycie, a to, że następna własna flaga logiczna weszłaby przez
+> `flags.has` i bez niej przestałaby działać **po cichu** — dokładnie ten błąd,
+> który naprawia ten akapit.
 
 **Odczyt GPU z wstrzykiwanym uruchamiaczem** (`readGpu`), żeby dała się
 przetestować ścieżka, która w praktyce zdarza się najczęściej: brak
