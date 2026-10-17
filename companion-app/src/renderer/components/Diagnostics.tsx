@@ -16,7 +16,12 @@ import {
   type StreamDirection
 } from '@shared/diagnostics'
 import { formatGpuCard, type GpuCard } from '@shared/gpuInfo'
-import { formatLogEntry, type LogEntry } from '@shared/lobbyLog'
+import {
+  formatLogDateHeader,
+  formatLogEntry,
+  formatLogOriginNote,
+  type LogEntry
+} from '@shared/lobbyLog'
 
 function formatRate(value: number | null): string {
   return value === null ? '—' : value.toFixed(1)
@@ -590,6 +595,25 @@ export function Diagnostics(): JSX.Element {
             </span>
             <span className="diag__hint">Esc zamyka</span>
           </header>
+
+          {/* Dwie linie o CZASIE, bo dziennik, który myli stan ze zdarzeniem
+              albo gubi datę, prowadzi diagnozę w złą stronę — a to jest
+              dokładnie ta szkoda, której ten przyrząd ma zapobiegać. Oba
+              napisy składają funkcje z `shared/lobbyLog.ts`, nie ten plik:
+              treść tych zdań jest tu całym dostarczanym towarem, a przetestować
+              ją da się wyłącznie w `src/shared/*`.
+
+              Warunek na długości, choć obie funkcje same oddają pusty napis dla
+              pustego pierścienia: bez niego ten kontener dokładałby nad notatką
+              o pustym dzienniku swój odstęp z `.diag` (10 px) i pustą ramkę.
+              Pusty napis z funkcji zostaje jako ich własna całość — pilnuje go
+              test, a tutaj nic na niego nie liczy. */}
+          {logEntries.length > 0 && (
+            <div className="diag-log__about">
+              <p className="diag-log__dates">{formatLogDateHeader(logEntries)}</p>
+              <p className="diag-log__note">{formatLogOriginNote(logEntries)}</p>
+            </div>
+          )}
 
           {logEntries.length === 0 ? (
             <p className="diag__empty">

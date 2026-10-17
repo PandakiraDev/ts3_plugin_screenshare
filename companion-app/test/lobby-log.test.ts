@@ -17,7 +17,9 @@ import {
   LOBBY_LOG_SUFFIX,
   LOG_RING_MAX_ENTRIES,
   appendLogEntry,
+  formatLogDateHeader,
   formatLogEntry,
+  formatLogOriginNote,
   isLogEntry,
   lobbyLogFileName,
   logFileTimestamp,
@@ -76,6 +78,109 @@ test('format wpisu niesie czas lokalny z sekundami i treść', () => {
   const line = formatLogEntry({ at, level: 'event', text: 'Michał wszedł do lobby' })
   expect(line).toContain('22:31:05')
   expect(line).toContain('Michał wszedł do lobby')
+})
+
+/*
+ * Dokładne napisy obu linii panelu, przepisane tu Z RĘKI, a nie zaimportowane
+ * ze źródła. Import pilnowałby tylko tego, że funkcja oddaje swoją własną
+ * stałą — zgodę na KAŻDĄ jej zmianę, w tym na taką, która znów zacznie mylić
+ * stan ze zdarzeniem. Te dwa zdania są tu całym dostarczanym towarem, więc ich
+ * treść pilnuje kopia po stronie testu.
+ */
+const ORIGIN_NOTE =
+  'Wpisy powstają ze zmian stanu, więc wejście do lobby zapisuje cały zastany skład jako wejścia — z godziną dołączenia, nie z godziną, o której te osoby naprawdę weszły.'
+const RING_FULL_NOTE =
+  'Pierścień jest pełny, więc najstarsze wpisy wypadają — góra listy może już nie być początkiem sesji.'
+
+/** Pierścień o podanej długości; treść wpisów nie ma tu znaczenia, liczba ma. */
+function ringOfLength(length: number): LogEntry[] {
+  return Array.from({ length }, (_, index): LogEntry => ({
+    at: index,
+    level: 'event',
+    text: `wpis ${index}`
+  }))
+}
+
+test('nagłówek daty dla wpisów z jednego dnia podaje tę jedną datę', () => {
+  const morning = new Date(2026, 9, 16, 9, 2, 0).getTime()
+  const evening = new Date(2026, 9, 16, 22, 31, 5).getTime()
+  expect(
+    formatLogDateHeader([
+      { at: morning, level: 'event', text: 'Michał wszedł do lobby' },
+      { at: evening, level: 'error', text: 'Michał — połączenie padło' }
+    ])
+  ).toBe('Wpisy z 2026-10-16')
+})
+
+test('nagłówek daty przy sesji przez północ podaje ZAKRES, a nie jedną datę', () => {
+  // Wieczorne sesje grania przechodzą przez północ regularnie, a `formatLogEntry`
+  // daje samą godzinę — bez tego nagłówka „00:05" w oknie jest nie do zadatowania,
+  // a nagłówek z jedną datą kłamałby o połowie wpisów.
+  const before = new Date(2026, 9, 16, 23, 58, 12).getTime()
+  const after = new Date(2026, 9, 17, 0, 5, 3).getTime()
+  expect(
+    formatLogDateHeader([
+      { at: before, level: 'event', text: 'Michał wszedł do lobby' },
+      { at: after, level: 'event', text: 'Michał wyszedł z lobby' }
+    ])
+  ).toBe('Wpisy od 2026-10-16 do 2026-10-17')
+})
+
+test('nagłówek daty pustego pierścienia jest pusty, a nie dzisiejszą datą', () => {
+  // Dzisiejsza data przy pustym dzienniku byłaby wymyślona: nie ma ani jednego
+  // wpisu, z którego mogłaby pochodzić.
+  expect(formatLogDateHeader([])).toBe('')
+})
+
+test('dzień w nagłówku liczy się LOKALNIE, nie w UTC', () => {
+  // 2026-10-17 00:30 czasu lokalnego to w Polsce 2026-10-16 22:30 UTC, więc
+  // `toISOString()` dałby wczorajszą datę dokładnie przy sesji przez północ,
+  // czyli w jedynym przypadku, dla którego ten nagłówek powstał.
+  const justAfterMidnight = new Date(2026, 9, 17, 0, 30, 0).getTime()
+  expect(
+    formatLogDateHeader([{ at: justAfterMidnight, level: 'event', text: 'Michał wszedł do lobby' }])
+  ).toBe('Wpisy z 2026-10-17')
+})
+
+test('data w nagłówku jest zapisana tak samo jak w nazwie pliku dziennika', () => {
+  // Człowiek ma okno przed sobą i szuka pliku na dysku (albo dyktuje jedno
+  // i drugie komuś przez telefon), więc dwie konwencje zapisu daty w jednym
+  // przyrządzie znaczyłyby, że nie da się dopasować okna do pliku.
+  const at = new Date(2026, 9, 16, 22, 31, 5).getTime()
+  expect(formatLogDateHeader([{ at, level: 'event', text: 'Michał wszedł do lobby' }])).toBe(
+    'Wpisy z 2026-10-16'
+  )
+  expect(lobbyLogFileName(at)).toBe('lobby-2026-10-16-223105.log')
+})
+
+test('nota nad listą mówi wprost, że skład zastany to stan, a nie zdarzenia', () => {
+  // Punktem odniesienia różnicy stanów jest stan pusty, więc wszyscy zastani
+  // w pokoju dostają wpis „wszedł do lobby" ze znacznikiem NASZEGO wejścia.
+  // Bez tej noty czytający weźmie to za dowód, że ktoś wszedł o 22:31, choć
+  // siedział tam od godziny.
+  expect(formatLogOriginNote([{ at: 1, level: 'event', text: 'Michał wszedł do lobby' }])).toBe(
+    ORIGIN_NOTE
+  )
+})
+
+test('nota pustego pierścienia jest pusta', () => {
+  expect(formatLogOriginNote([])).toBe('')
+})
+
+test('pełny pierścień DOKŁADA zdanie o wypadniętych wpisach, nie zastępuje nim noty', () => {
+  // Po przekręceniu pierścienia góra listy przestaje być początkiem sesji
+  // i trzeba to powiedzieć. Zdanie o składzie zastanym musi jednak ZOSTAĆ:
+  // pełny pierścień nie znaczy, że skład zastany już z niego wypadł — przy
+  // dokładnie tej długości nie wypadł jeszcze ani jeden wpis.
+  expect(formatLogOriginNote(ringOfLength(LOG_RING_MAX_ENTRIES))).toBe(
+    `${ORIGIN_NOTE} ${RING_FULL_NOTE}`
+  )
+})
+
+test('pierścień tuż przed przepełnieniem nie straszy wypadniętymi wpisami', () => {
+  // Granica po stronie prawdy: dopóki nie wypadł ani jeden wpis, góra listy
+  // JEST początkiem sesji i nie wolno temu zaprzeczać.
+  expect(formatLogOriginNote(ringOfLength(LOG_RING_MAX_ENTRIES - 1))).toBe(ORIGIN_NOTE)
 })
 
 test('wpis z obcego źródła jest odrzucany, zanim trafi do pierścienia', () => {

@@ -1479,6 +1479,42 @@ h3 {
   overflow: hidden;
 }
 
+/* Dwie linie o czasie nad listą: daty wpisów i nota o tym, że skład zastany
+   w chwili dołączenia jest zapisany jako wejścia, czyli że góra listy to stan,
+   a nie zdarzenia z tej godziny.
+   WSPÓLNY kontener, nie dwie linie wprost w panelu: `.diag` rozkłada swoje
+   dzieci z `gap: 10px`, więc osobno kosztowałyby ~48 px wysokości listy,
+   a razem, z własnym odstępem 2 px, ~32 px — tyle, ile ten przyrząd jest wart.
+   Wysokość panelu jest STAŁA (`inset` w `.diag--log` wyżej), więc te linie nie
+   rosną w dół: nie ruszają dolnej krawędzi panelu ani guzika, którym się go
+   zamyka, i nie dotykają budżetu odstępu listy uczestników (`:has()` wyżej).
+   Rosną na koszt przewijanej listy i tylko jej. */
+.diag-log__about {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-log__dates,
+.diag-log__note {
+  margin: 0;
+  font-size: 11px;
+}
+
+/* Data czytelna, nie wyciszona: to nagłówek treści panelu, a nie zastrzeżenie
+   do niej. Cyfry stałej szerokości jak wszędzie, gdzie w tym oknie stoi data
+   albo godzina. */
+.diag-log__dates {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Nota WYCISZONA: mówi, jak czytać listę, więc nie ma konkurować z nią
+   o wzrok. Czytana jest raz, przy pierwszym otwarciu panelu. */
+.diag-log__note {
+  color: var(--text-muted);
+}
+
 /* Krój stałej szerokości, ten sam zwyczaj co `.peers__room`: wszystkie wpisy
    zaczynają się godziną i znacznikiem poziomu, więc w kroju stałej szerokości
    ustawiają się w kolumny i wzrok leci po nich w dół, a nie szuka początku
