@@ -4,7 +4,6 @@ import {
   advancePanelTimeline,
   columnAppliesTo,
   formatLimitation,
-  formatResourceBadge,
   formatSilence,
   formatSystemLine,
   ratesBetween,
@@ -15,7 +14,6 @@ import {
   type StreamColumn,
   type StreamDirection
 } from '@shared/diagnostics'
-import { formatGpuCard, type GpuCard } from '@shared/gpuInfo'
 import {
   formatLogDateHeader,
   formatLogEntry,
@@ -326,27 +324,33 @@ function LobbyLogList({ entries }: LobbyLogListProps): JSX.Element {
 }
 
 /**
- * Pasek zużycia i panel diagnostyczny. Wisi w `main.tsx` jako rodzeństwo
+ * Guzik dziennika i panele diagnostyczne. Wisi w `main.tsx` jako rodzeństwo
  * `<App />`, a nie w jego środku: `App` ma własne wczesne wyjścia
- * („Uruchamianie…", błąd argumentów) i wskaźniki znikałyby w nich. Dane bierze
- * z procesu głównego, więc nie potrzebuje sesji WebRTC.
+ * („Uruchamianie…", błąd argumentów) i te wejścia znikałyby w nich. Dane
+ * bierze z procesu głównego, więc nie potrzebuje sesji WebRTC.
  *
  * Bez żadnego włączania. Proces główny rejestruje obsługę kanałów podglądu
  * bezwarunkowo, więc nie ma już flagi do odczytania ani stanu, w którym
  * wywołanie kanału kończyłoby się odrzuconą obietnicą („No handler
  * registered"). Pole wyboru z ustawień dotyczy WYŁĄCZNIE zapisu plików
- * w procesie głównym i tego komponentu nie dotyczy: i pasek, i panel pod
+ * w procesie głównym i tego komponentu nie dotyczy: i panel pod
  * `Ctrl+Shift+D`, i dziennik lobby czytają bufory w pamięci, które istnieją
  * niezależnie od zapisu na dysk.
  *
- * Trzy rzeczy w jednym komponencie: pasek zużycia, panel tabeli strumieni pod
- * `Ctrl+Shift+D` i dziennik lobby pod guzikiem. Razem, bo wszystkie trzy
- * zajmują ten sam róg i tę samą warstwę nad oknem, a ich wzajemne położenie
- * (co stoi nad czym, co zamyka co) jest jedną decyzją — rozdzielone na trzy
- * komponenty, rozjechałoby się przy pierwszej zmianie któregokolwiek.
+ * DWIE rzeczy w jednym komponencie, nie trzy: panel tabeli strumieni pod
+ * `Ctrl+Shift+D` i dziennik lobby pod guzikiem. Razem, bo zajmują ten sam róg
+ * i tę samą warstwę nad oknem, a ich wzajemne położenie (co stoi nad czym, co
+ * zamyka co) jest jedną decyzją — rozdzielone, rozjechałoby się przy pierwszej
+ * zmianie któregokolwiek.
+ *
+ * Trzecia rzecz — licznik zużycia CPU/GPU/RAM — wyprowadziła się stąd razem
+ * z tą regułą, a nie wbrew niej: od 0.3.4 nie stoi w rogu okna ani na warstwie
+ * nad nim, tylko jest wierszem nad siatką kafelków, w zwykłym przepływie.
+ * Przestała więc z tymi dwiema dzielić miejsce, czyli jedyne, co je tu trzyma.
+ * Mieszka w `ResourceBadge.tsx` i rysuje go właściciel układu (`LobbyView`,
+ * `StandaloneApp`); powód przeniesienia stoi przy tamtym komponencie.
  */
 export function Diagnostics(): JSX.Element {
-  const [latest, setLatest] = useState<DiagnosticsSample | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [timeline, setTimeline] = useState<PanelTimeline>({ samples: [], cursor: 0 })
   const [logOpen, setLogOpen] = useState(false)
@@ -358,61 +362,6 @@ export function Diagnostics(): JSX.Element {
    * jest koszt wart migania.
    */
   const [logEntries, setLogEntries] = useState<readonly LogEntry[]>([])
-  /*
-   * `undefined` znaczy „jeszcze nie zapytaliśmy", `null` — „zapytaliśmy
-   * i karty nie rozpoznano". Bez tego rozróżnienia pasek pisałby „nie
-   * rozpoznano" w pierwszej chwili każdej sesji, czyli mówiłby nieprawdę,
-   * zanim zdąży się dowiedzieć.
-   */
-  const [card, setCard] = useState<GpuCard | null | undefined>(undefined)
-
-  // Raz przy montowaniu, nie zegarem: karta nie zmienia się w trakcie sesji,
-  // a proces główny wykrywa ją jednorazowo przy starcie.
-  useEffect(() => {
-    let cancelled = false
-    void window.companion
-      .getGpuCard()
-      .then((detected) => {
-        if (!cancelled) setCard(detected)
-      })
-      .catch((err: unknown) => {
-        // Jedno wywołanie na sesję, więc konsoli nie zasypie — ale bez tej
-        // gałęzi zostawiłoby nieobsłużone odrzucenie obietnicy.
-        console.debug('[diagnostyka] nieudany odczyt karty graficznej:', err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Pasek w rogu potrzebuje jednej najnowszej próbki, nie całego bufora. Ta
-  // sama próbka trafia potem do historii panelu (efekt niżej), więc panel
-  // nadąża bez drugiego, grubego kanału.
-  useEffect(() => {
-    let cancelled = false
-    const tick = (): void => {
-      void window.companion
-        .getLatestDiagnostics()
-        .then((sample) => {
-          if (!cancelled) setLatest(sample)
-        })
-        .catch((err: unknown) => {
-          // Bronimy się przed nieobsłużonym odrzuceniem obietnicy CO SEKUNDĘ.
-          // Ten kanał jest rejestrowany bezwarunkowo, więc nie ma dziś powodu
-          // odrzucać. Gdyby jednak kiedykolwiek przestał być rejestrowany, ten
-          // zegar — jedyny chodzący z częstotliwością 1 Hz — zasypie konsolę
-          // napisem „No handler registered" raz na sekundę i zagłuszy objaw,
-          // którego w tej konsoli szukamy.
-          console.debug('[diagnostyka] nieudany odczyt najnowszej próbki:', err)
-        })
-    }
-    tick()
-    const timer = setInterval(tick, SAMPLE_INTERVAL_MS)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [])
 
   const openPanel = useCallback(() => {
     void window.companion
@@ -433,18 +382,51 @@ export function Diagnostics(): JSX.Element {
       })
   }, [])
 
-  // Panel nadąża za teraźniejszością, dopóki suwak stoi na końcu; po
-  // przewinięciu w tył stoi na tej samej próbce (patrz `advancePanelTimeline`).
-  // Dopisujemy próbkę, którą zegar paska i tak już pobrał — `readDiagnostics()`
-  // co sekundę to 3,09 MB i 13,6 ms serializacji na każdy takt.
-  //
-  // Funkcja zwraca ten sam obiekt, gdy nie ma czego dopisać, więc React pomija
-  // przerysowanie, a podwójne wykonanie efektu w `StrictMode` nie dokłada
-  // duplikatu.
+  /*
+   * Panel nadąża za teraźniejszością, dopóki suwak stoi na końcu; po
+   * przewinięciu w tył stoi na tej samej próbce (patrz `advancePanelTimeline`).
+   * Dociągamy JEDNĄ najnowszą próbkę, a nie cały bufor: `readDiagnostics()`
+   * co sekundę to 3,09 MB i 13,6 ms serializacji na każdy takt.
+   *
+   * Zegar jest tu WŁASNY, a przedtem panel dosiadał się do zegara paska
+   * zużycia. Pasek wyprowadził się stąd nad siatkę (`ResourceBadge.tsx`)
+   * i zabrał swój zegar, więc panel musi mieć swój — inaczej zostałby zamarły
+   * na buforze z chwili otwarcia. Rachunek kosztu, bo to aplikacja, w której
+   * diagnozujemy lag: przy ZAMKNIĘTYM panelu chodzi dokładnie jeden zegar 1 Hz
+   * po najnowszą próbkę, tak samo jak przedtem; dwa chodzą tylko przy
+   * OTWARTYM, czyli w chwili, w której ktoś patrzy na przyrząd.
+   *
+   * Zegar tylko przy otwartym panelu, bo przy zamkniętym pytałby o dane,
+   * których nikt nie widzi — ta sama reguła, co w dzienniku niżej.
+   *
+   * `advancePanelTimeline` zwraca TEN SAM obiekt, gdy próbka nie jest nowsza
+   * od ostatniej, więc React pomija przerysowanie, podwójne wykonanie efektu
+   * w `StrictMode` nie dokłada duplikatu, a próbka, którą `openPanel` wziął
+   * razem z buforem, nie trafia do historii dwa razy.
+   */
   useEffect(() => {
-    if (!panelOpen || latest === null) return
-    setTimeline((current) => advancePanelTimeline(current, latest))
-  }, [panelOpen, latest])
+    if (!panelOpen) return
+    let cancelled = false
+    const tick = (): void => {
+      void window.companion
+        .getLatestDiagnostics()
+        .then((sample) => {
+          if (cancelled || sample === null) return
+          setTimeline((current) => advancePanelTimeline(current, sample))
+        })
+        .catch((err: unknown) => {
+          // Bez tej gałęzi zostałoby nieobsłużone odrzucenie obietnicy, i to
+          // raz na sekundę przy otwartym panelu.
+          console.debug('[diagnostyka] nieudany odczyt najnowszej próbki:', err)
+        })
+    }
+    tick()
+    const timer = setInterval(tick, SAMPLE_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [panelOpen])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -538,29 +520,12 @@ export function Diagnostics(): JSX.Element {
 
   return (
     <>
-      {/* Pasek dotyczy zużycia systemu, które mierzy proces główny, więc nie
-          zależy od świeżości danych o strumieniach. */}
-      {latest && (
-        <div className="resource-badge">
-          <div>{formatResourceBadge(latest.system, latest.at)}</div>
-          {/* Druga linia, a nie kolejny człon pierwszej: tekst o karcie jest
-              długi i przez całą sesję ten sam, a linia wyżej zmienia się co
-              sekundę. Stoi tu, bo samo „GPU —" nie mówi, czy zużycia tej karty
-              nie umiemy zmierzyć, czy sterownik zamarł — punkt 2 z Review
-              Focus. Rozróżnienie niesie TREŚĆ, nie wygląd: zamarły sterownik
-              daje kreskę z godziną odczytu, a ta linia nazywa kartę i mówi
-              wprost, czego o niej nie wiemy. */}
-          {card !== undefined && (
-            <div className="resource-badge__card">{formatGpuCard(card)}</div>
-          )}
-        </div>
-      )}
-
-      {/* Guzik stoi NIŻEJ niż pasek zużycia, w samym rogu, i nie zależy od
-          pierwszej próbki: pasek pojawia się dopiero, gdy proces główny coś
-          zmierzy, a dziennik należy do każdego od pierwszej chwili. Dzięki temu
-          guzik ani razu nie drgnie — pasek nad nim rośnie w górę, gdy dojdzie
-          linia z nazwą karty. */}
+      {/* Guzik jest teraz w tym rogu SAM: licznik zużycia, który stał nad nim
+          i rósł mu nad głową, jest od 0.3.4 wierszem nad siatką kafelków
+          (`ResourceBadge.tsx`). Guzik zostaje tutaj, bo jego przeniesienia
+          nikt nie prosił, a w rogu ma tę zaletę, że nie zabiera obrazowi ani
+          piksela wysokości. Nie zależy od pierwszej próbki: dziennik należy do
+          każdego od pierwszej chwili, więc guzik ani razu nie drgnie. */}
       <button
         type="button"
         className="lobby-log-toggle"

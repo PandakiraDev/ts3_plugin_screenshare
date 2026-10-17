@@ -560,8 +560,25 @@ h3 {
 
 /* ---------- widok widza ---------- */
 
+/* KOLUMNA, nie wiersz: `.viewer` trzyma teraz dwie rzeczy jedną nad drugą —
+   licznik zużycia (`.resource-badge`) i scenę pod nim.
+   Scena to ALTERNATYWA, nie drugie z dwóch dzieci: pusta (`.viewer__stage`),
+   siatka z kafelkami (`.siatka`) i błąd połączenia (`.notice--error`) to trzy
+   gałęzie tego samego operatora warunkowego w `LobbyView`, więc w DOM-ie stoi
+   zawsze dokładnie jedna — i zawsze pod licznikiem. `.viewer__stage` jest
+   RODZEŃSTWEM `.siatka`, a nie jej przodkiem; pomylenie tego prowadzi do
+   szukania licznika w złym miejscu.
+   `position` zostaje `static` i nie ma potrzeby tego zmieniać: kafelki mają
+   `offsetParent` w `.siatka`, bo ona sama jest `relative` (rachunek przy niej),
+   więc pojawienie się licznika przesuwa ją całą, ale nie rusza współrzędnych
+   kafelków WEWNĄTRZ niej i FLIP z `useReorderAnimation` tego nie widzi.
+   Tym, czego nie wolno ruszyć, jest `position: relative` na `.siatka`.
+   Skutek uboczny, zapisany, bo widoczny: w gałęzi błędu połączenia `.notice`
+   rozciągał się przedtem na całą wysokość sceny (oś poprzeczna wiersza biegnie
+   w pionie), a teraz bierze szerokość sceny i swoją własną wysokość. */
 .viewer {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   padding: 20px;
@@ -850,14 +867,15 @@ h3 {
    (`.viewer`, `.lobby`, `.app`, `#root`, `body` — wszystkie `static`),
    `offsetParent` wypada na `BODY`, a KAŻDY pasek pojawiający się nad siatką
    (zerwane połączenie, zatkane łącze, zacinający widzowie, błąd kamery,
-   powiadomienie o aktualizacji, przenoszony licznik zużycia) przesuwa wszystkie
+   powiadomienie o aktualizacji, licznik zużycia) przesuwa wszystkie
    kafelki o swoją wysokość naraz — zmierzone `dy = 39` px przy oknie 1280x800,
    56 px przy dwuwierszowym tekście. FLIP czytał to jako przestawienie i jechał
    200 ms transformacją z wymuszonym kompozytowaniem na każdym żywym `<video>`,
    w aplikacji, w której diagnozujemy zacinanie.
    Nie tworzy kontekstu nakładania: `z-index` zostaje `auto`, więc nakładki
-   (`.resource-badge` 40, `.lobby-log-toggle` 45, `.diag` 50) dalej są nad
-   kafelkami. */
+   (`.lobby-log-toggle` 45, `.diag` 50) dalej są nad kafelkami. Licznik zużycia
+   na tej liście już nie stoi: od 0.3.4 nie jest nakładką, nie ma `z-index`
+   i leży nad siatką w przepływie, a nie na niej. */
 .siatka {
   position: relative;
   display: grid;
@@ -1282,89 +1300,94 @@ h3 {
 
 /* ---------- diagnostyka (bez żadnego włączania, od 0.3.4) ---------- */
 
-/* Pasek zużycia: prawy dolny róg, nad całą zawartością, nieklikany — nie może
-   przechwytywać kliknięć w kafelki pod nim.
-   `bottom` liczone od guzika dziennika, który stoi pod paskiem w tym samym
-   rogu: 8 px jego odstępu od krawędzi + 24 px jego wysokości + 4 px przerwy.
-   Pasek jest nad guzikiem, a nie pod nim, bo rośnie i kurczy się razem
-   z treścią (dochodzi linia o karcie, która potrafi się złamać na trzy
-   wiersze — rachunek przy `:has()` niżej) — gdyby to on stał w rogu, guzik
-   skakałby wraz z nim i w ruchomy celownik trudno trafić. */
+/* Licznik zużycia: WŁASNY WIERSZ nad siatką kafelków, w zwykłym przepływie.
+   Do 0.3.4 była to nakładka `position: fixed` w prawym dolnym rogu okna i to
+   ona przykrywała pasek sterowania prawego dolnego kafelka. Dopóki licznik
+   siedział za flagą, widział go wyłącznie deweloper; od chwili, w której widzi
+   go każdy i zawsze, ta sama kolizja jest kłopotem każdego. Kliknięcia
+   przechodziły (`pointer-events: none`), więc guzik powiększenia i suwak
+   głośności DZIAŁAŁY — tylko ich nie było widać pod tłem nakładki, a guzika,
+   którego nie widać, nikt nie szuka.
+   CO TO KOSZTUJE SIATKĘ, bo właściciel zgodził się na koszt, nie na brak
+   kosztu: 14,86 px wiersza tekstu (zmierzona wysokość wiersza przy
+   `font-size: 11px` w tym oknie) + 6 px marginesu dolnego = 20,86 px, na stałe,
+   od pierwszej próbki. Przy dwuwierszowym złamaniu (ciasne okno albo długa
+   nazwa karty) dochodzi 14,86 px wiersza i 2 px `row-gap`, czyli 37,72 px.
+   Bez tła, obramowania i `z-index`: wiersz nad niczym nie leży, a tło chipa na
+   tle okna byłoby samym hałasem. Bez `pointer-events: none` — nie ma pod nim
+   czego przepuszczać, a odczyt diagnostyczny wypada dać do zaznaczenia
+   i skopiowania.
+   `flex-shrink: 0`, bo rodzic jest kolumną elastyczną: bez tego wiersz oddałby
+   swoją jedyną linię siatce przy ciasnym oknie, czyli zniknąłby dokładnie
+   wtedy, gdy miejsca brakuje — a wtedy pytanie o zużycie jest najżywsze.
+   Margines boczny 4 px zgrywa tekst z lewą krawędzią kafelków: `.siatka` ma
+   tyle samo `padding`. */
 .resource-badge {
-  position: fixed;
-  right: 10px;
-  bottom: 36px;
-  z-index: 40;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: rgba(30, 31, 34, 0.82);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  flex-shrink: 0;
+  margin: 0 4px 6px;
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }
 
-/* Druga linia paska: nazwa karty graficznej i jej pamięć — stała przez całą
-   sesję, w odróżnieniu od liczb w linii wyżej.
-   Szerokość ograniczona, bo pasek jest przyklejony do prawej krawędzi okna
-   i bez tego rósłby w lewo, w kafelki. Łamana, a nie ucinana: przy karcie,
-   której zużycia nie umiemy zmierzyć, ta linia niesie całe zdanie
-   wyjaśniające, dlaczego wyżej stoi „GPU —" — a ucięte zdanie nie wyjaśnia
-   niczego. */
+/* Nazwa karty graficznej i jej pamięć: stała przez całą sesję, w odróżnieniu
+   od liczb obok.
+   OBOK, a nie pod nimi, i stąd nie ma już `max-width: 320px`. Ograniczenie
+   istniało, bo nakładka była przyklejona do prawej krawędzi okna i bez niego
+   rosłaby w lewo, w kafelki. Wiersz biegnie przez całą szerokość sceny, więc
+   nie ma czego ograniczać, a jedna linia zamiast dwóch to 14,86 px, których
+   siatka nie traci. Przy ciasnym oknie albo długiej nazwie karty
+   (`formatGpuCard` daje do ~130 znaków) `flex-wrap` zrzuca ten napis do
+   drugiej linii — całą, nieuciętą, bo przy karcie bez pomiaru zużycia niesie
+   zdanie wyjaśniające, dlaczego obok stoi „GPU —", a ucięte zdanie nie
+   wyjaśnia niczego.
+   `margin-left: auto` dosuwa go do prawej krawędzi wiersza i to nie jest
+   kosmetyka: napis z liczbami zmienia szerokość (9% → 10%), więc wszystko, co
+   za nim stoi, drgałoby w poziomie — w aplikacji, w której diagnozujemy
+   drgania obrazu. Dosunięty do prawej nie zależy od szerokości tego, co stoi
+   po lewej. */
 .resource-badge__card {
-  max-width: 320px;
-  margin-top: 1px;
+  margin-left: auto;
   opacity: 0.8;
 }
 
-/* Pasek wisi w prawym dolnym rogu okna, a lista uczestników sięga prawej
-   krawędzi i pełnej wysokości, więc przykrywał jej ostatni wiersz. Kliknięcia
-   przechodziły (`pointer-events: none`), ale tekst był nieczytelny.
-   Odstęp robimy na dole LISTY, a nie przesuwamy paska: każde inne miejsce
+/* Guzik dziennika wisi w prawym dolnym rogu okna, a lista uczestników sięga
+   prawej krawędzi i pełnej wysokości, więc przykrywałby jej ostatni wiersz.
+   Odstęp robimy na dole LISTY, a nie przesuwamy guzika: każde inne miejsce
    w oknie też jest czyjeś (kafelki, podgląd, pasek tytułu), więc przesunięcie
    zamieniłoby jedną kolizję na następną, a ta byłaby trudniejsza do
    zauważenia. Odstęp działa też przy przewijaniu, bo `.peers` jest tu
    kontenerem przewijania.
-   Warunkowo przez `:has()`, bo pasek pojawia się dopiero z pierwszą próbką
-   z procesu głównego — do tej chwili lista nie ma tracić miejsca na nic. Flagi
-   `--diagnostics` już w tym warunku nie ma, bo pasek widzi każdy.
-   Od 0.3.4 pasek ma DWIE linie: liczby i nazwę karty. Druga łamie się, bo ma
-   `max-width: 320px`, i to ona decyduje o wysokości paska. Zmierzona wysokość
-   wiersza to 14,86 px, a pełne napisy z `formatGpuCard` biorą do TRZECH
-   wierszy: przy nazwach kart dłuższych niż ~41 znaków (np. „AMD Radeon(TM) RX
-   6800M Graphics Adapter" albo „Intel(R) Iris(R) Xe Graphics Family
-   Integrated", z dopiskiem o niedostępnym zużyciu — razem ponad 130 znaków)
-   trzeci wiersz jest regułą, nie wyjątkiem. Przy dwuwierszowej nazwie górna
-   krawędź paska wypada 87,58 px od dołu, przy trzywierszowej 102,43 px.
-   DWIE reguły, nie jedna, bo w tym rogu stoją teraz dwie rzeczy o różnym
-   czasie życia: guzik dziennika jest od pierwszej chwili, pasek dopiero od
-   pierwszej próbki. Kolejność reguł jest znacząca — mają tę samą swoistość
-   (`#root` + `.peers`), więc wygrywa ta niżej, i to ona musi być tą z większym
-   budżetem. */
-
-/* Sam guzik: 8 px odstępu + 24 px wysokości + 8 px luzu. */
+   Warunkowo przez `:has()`, choć guzik jest dziś w każdym lobby od pierwszej
+   chwili: warunek nazywa POWÓD istnienia odstępu, więc odstęp zniknie razem
+   z guzikiem, a nie zostanie po nim jako niczyje 40 px.
+   JEDNA reguła, nie dwie. Druga była `#root:has(.resource-badge) .peers
+   { padding-bottom: 88px }` i istniała wyłącznie po to, żeby nakładka licznika
+   zużycia nie przykrywała ostatniego wiersza listy. Licznik nie jest już
+   nakładką — jest wierszem nad siatką, w zwykłym przepływie, poza listą i poza
+   jej rogiem — więc nie miała już czego chronić. Zniknął z nią rachunek na
+   88 px i opis dwu- i trzywierszowego paska: opisywałby element, którego nie
+   ma, a wysokość licznika nie dotyka już tego rogu okna.
+   Rachunek: 8 px odstępu guzika od krawędzi + 24 px jego wysokości + 8 px
+   luzu. */
 #root:has(.lobby-log-toggle) .peers {
   padding-bottom: 40px;
 }
 
-/* Guzik i pasek razem. 88 px wystarcza na pasek DWUWIERSZOWY (87,58 px górnej
-   krawędzi + 0,42 px zapasu), a na trzywierszowy brakuje 14,4 px — czyli u kogoś
-   z długą nazwą karty pasek znowu przykrywa ostatni wiersz listy.
-   Liczba zostaje NIEZMIENIONA świadomie, a nie przez przeoczenie: pasek zużycia
-   przestaje być nakładką na obraz i przenosi się nad siatkę jako własny wiersz
-   (decyzja właściciela, osobne zadanie). Razem z nim odpada powód, dla którego
-   ta reguła istnieje, więc podnoszenie budżetu byłoby pracą do wyrzucenia.
-   Zadanie przenoszące ma przejść przez oba te `:has()` i usunąć to, co
-   przestanie być potrzebne. */
-#root:has(.resource-badge) .peers {
-  padding-bottom: 88px;
-}
-
-/* Guzik dziennika: ten sam róg co pasek zużycia, ale najniżej i jako jedyna
-   klikalna rzecz w tej okolicy (pasek ma `pointer-events: none`).
+/* Guzik dziennika: prawy dolny róg okna i od 0.3.4 JEDYNA rzecz, która tam
+   stoi. Licznik zużycia był tu przedtem nad nim jako nakładka
+   z `pointer-events: none`; teraz jest wierszem nad siatką, więc tego rogu nie
+   dotyczy i nic tu po nim nie zostało.
    Wysokość podana JAWNIE, a nie zostawiona metryce czcionki: od niej zależy
-   `bottom` paska wyżej i budżet odstępu listy uczestników, więc musi być
-   liczbą, a nie wypadkową kroju.
+   budżet odstępu listy uczestników (`:has()` wyżej), więc musi być liczbą,
+   a nie wypadkową kroju. Przedtem zależało od niej także `bottom` licznika —
+   ta zależność odpadła razem z nakładką, co jest JEDYNYM, co przeniesienie
+   licznika w tym rogu zmieniło: sam guzik stoi tam, gdzie stał, bo jego
+   przeniesienia nikt nie prosił.
    Warstwa pod panelami (50): KAŻDY panel zostawia na niego miejsce u dołu
    (`inset` w `.diag`), więc nie trzeba go przepychać nad panel, żeby dało się
    nim zamknąć to, co otworzył. To zdanie było prawdą tylko o `.diag--log`,

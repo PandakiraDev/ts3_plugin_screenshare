@@ -16,6 +16,7 @@ import { SourcePicker } from './SourcePicker'
 import { PeerPanel } from './PeerPanel'
 import { SettingsPanel } from './SettingsPanel'
 import { StreamTile } from './StreamTile'
+import { ResourceBadge } from './ResourceBadge'
 import { ApiKeyPrompt } from './ApiKeyPrompt'
 import { AppVersion, UpdateNotice } from './UpdateNotice'
 import { useConnectionHealth } from '../hooks/useConnectionHealth'
@@ -617,6 +618,16 @@ export function LobbyView({ options, version, update }: LobbyViewProps): JSX.Ele
 
       <div className="lobby">
         <div className="viewer">
+          {/* Licznik zużycia NAD sceną i POZA operatorem warunkowym niżej.
+              Scena ma trzy gałęzie — błąd połączenia, pusta siatka, siatka
+              z kafelkami — i w DOM-ie stoi zawsze dokładnie jedna, więc jedyne
+              miejsce, z którego licznik widać we wszystkich trzech, jest przed
+              nimi. „Czy aplikacja zjada maszynę" jest pytaniem sensownym także
+              wtedy, gdy nikt nie nadaje i siatka jest pusta.
+              Do 0.3.4 licznik był nakładką w prawym dolnym rogu okna
+              i przykrywał pasek sterowania prawego dolnego kafelka; cały powód
+              przeniesienia stoi przy `ResourceBadge`. */}
+          <ResourceBadge />
           {lobby.state.connection === 'error' ? (
             <div className="notice notice--error">
               <strong>Nie udało się połączyć z kanałem.</strong>

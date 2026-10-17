@@ -645,8 +645,11 @@ export function formatResourceBadge(system: SystemStats, at: number): string {
  * przyklejona" — czyli to samo złe wrażenie, któremu zapobiega gałąź
  * z zamarłym sterownikiem. Godzina jest wyjaśnieniem powtórzeń.
  *
- * W pasku w rogu okna zostaje `when-stale`: pasek jest wąski i ma być cichy,
- * a przy nim „teraz" jest zawsze tą samą chwilą co próbka.
+ * W liczniku zużycia zostaje `when-stale`: licznik jest jednowierszowy i ma
+ * być cichy, a przy nim „teraz" jest zawsze tą samą chwilą co próbka.
+ * (Do 0.3.4 był nakładką w rogu okna, od 0.3.4 jest wierszem nad siatką
+ * kafelków — powód przy `ResourceBadge.tsx`. Ta różnica nie zmienia niczego
+ * w treści, którą obie funkcje składają.)
  */
 export function formatSystemLine(system: SystemStats, at: number): string {
   return formatSystemStats(system, at, 'always')

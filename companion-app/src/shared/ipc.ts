@@ -56,10 +56,10 @@ export const IPC_UPDATE_STATE = 'update:state'
  * jego pole wyboru; z PODGLĄDEM nie ma ono nic wspólnego i żaden z czterech
  * kanałów tej sekcji od niego nie zależy.
  *
- * `LATEST` i `READ` są rozdzielone celowo: pasek w rogu potrzebuje jednej
+ * `LATEST` i `READ` są rozdzielone celowo: licznik zużycia potrzebuje jednej
  * najnowszej próbki co sekundę, a panel całego bufora tylko wtedy, gdy jest
  * otwarty. Przesyłanie sześciuset wpisów co sekundę dla czterech liczb
- * w rogu byłoby marnotrawstwem.
+ * w jednym wierszu byłoby marnotrawstwem.
  */
 export const IPC_DIAGNOSTICS_PUSH = 'diagnostics:push'
 export const IPC_DIAGNOSTICS_LATEST = 'diagnostics:latest'

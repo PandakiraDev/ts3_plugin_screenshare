@@ -912,9 +912,9 @@ test('linia panelu pokazuje godzinę odczytu GPU także przy świeżym odczycie'
   expect(line).toBe('CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB · odczyt z 22:03')
 })
 
-test('pasek w rogu milczy o godzinie, dopóki odczyt GPU jest świeży', () => {
-  // To jedyna różnica między paskiem a linią panelu, więc test trzyma je
-  // rozdzielone: pasek jest wąski i ma być cichy.
+test('licznik zużycia milczy o godzinie, dopóki odczyt GPU jest świeży', () => {
+  // To jedyna różnica między licznikiem a linią panelu, więc test trzyma je
+  // rozdzielone: licznik jest jednowierszowy i ma być cichy.
   const at = GPU_READ_AT + 1_000
   expect(formatResourceBadge({ ...SYSTEM, gpu: STUCK_GPU }, at)).toBe(
     'CPU 23% · RAM 412 MB · GPU 97% · VRAM 11,2/12,0 GB'
